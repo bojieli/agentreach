@@ -112,7 +112,15 @@ func controlPathFor(cfg SSHConfig) (string, error) {
 
 func (t *SSHTransport) baseArgs() []string {
 	c := t.cfg
-	args := []string{
+	args := []string{}
+	// WALDO_SSH_CONFIG points ssh at an alternate config file. This keeps CI
+	// and test fixtures from having to write into the operator's ~/.ssh/config,
+	// and lets an operator isolate waldo's connections from their interactive
+	// ones without duplicating host definitions.
+	if cfgFile := os.Getenv("WALDO_SSH_CONFIG"); cfgFile != "" {
+		args = append(args, "-F", cfgFile)
+	}
+	args = append(args,
 		"-o", "ControlMaster=auto",
 		"-o", "ControlPath=" + t.controlPath,
 		"-o", "ControlPersist=" + strconv.Itoa(int(c.ControlPersist.Seconds())),
@@ -122,7 +130,7 @@ func (t *SSHTransport) baseArgs() []string {
 		// it can retry and an agent hanging indefinitely.
 		"-o", "ServerAliveInterval=15",
 		"-o", "ServerAliveCountMax=3",
-	}
+	)
 	if c.ForwardAgent {
 		args = append(args, "-o", "ForwardAgent=yes")
 	} else {
