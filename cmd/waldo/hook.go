@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -126,14 +127,7 @@ func runHook(_ []string) int {
 
 	m := mirror.New(mirrorRoot, sel.Ops)
 
-	// A path already inside the mirror is the rewritten form coming back to us
-	// on PostToolUse; recover the target path it stands for.
-	targetPath := rawPath
-	if tp, ok := m.Target(rawPath); ok {
-		targetPath = tp
-	} else if !strings.HasPrefix(rawPath, "/") {
-		targetPath = filepath.Join(s.Target.Workspace, rawPath)
-	}
+	targetPath := resolveTargetPath(rawPath, s.Target.Workspace, m)
 
 	// Paths outside the workspace are genuinely local — the harness's own
 	// config, a scratch file — and must be left alone.
@@ -189,16 +183,8 @@ func runHook(_ []string) int {
 	return 0
 }
 
-// underWorkspace reports whether a target path lies inside the session's
-// workspace.
-//
-// The escape check compares path *components*, not a string prefix: a file
-// legitimately named "..config" starts with ".." without being outside
-// anything, and rejecting it would send an ordinary dotfile down the
-// "leave it alone, it is local" path, where a Read would silently return the
-// operator's own file instead of the target's.
 // recordFileAction appends one file operation to the session's audit log.
-func recordFileAction(s *session.Session, action, path string, bytes int, err error) {
+func recordFileAction(s *session.Session, action, target string, bytes int, err error) {
 	dir, dirErr := session.Dir()
 	if dirErr != nil {
 		return
@@ -206,7 +192,7 @@ func recordFileAction(s *session.Session, action, path string, bytes int, err er
 	entry := audit.Entry{
 		Target: s.Target.Describe(),
 		Action: action,
-		Path:   path,
+		Path:   target,
 		Bytes:  bytes,
 	}
 	if err != nil {
@@ -215,12 +201,48 @@ func recordFileAction(s *session.Session, action, path string, bytes int, err er
 	audit.Append(dir, s.Name, entry)
 }
 
-func underWorkspace(p, workspace string) bool {
-	rel, err := filepath.Rel(workspace, p)
-	if err != nil {
-		return false
+// resolveTargetPath turns whatever the harness put in `file_path` into a path
+// on the target.
+//
+// The `path` package, not `filepath`. These are the *target's* paths and the
+// target is always POSIX, while `filepath` follows the rules of whichever
+// machine waldo happens to be running on. On Windows it produced
+// `\srv\app\main.go` and sent that to a Linux host — a mirror mode that does
+// not work, and does not work quietly, since a backslash is a legal character
+// in a POSIX filename and the target would cheerfully create one file with a
+// very strange name.
+func resolveTargetPath(rawPath, workspace string, m *mirror.Mirror) string {
+	// A path already inside the mirror is the rewritten form coming back to us
+	// on PostToolUse; recover the target path it stands for.
+	if tp, ok := m.Target(rawPath); ok {
+		return tp
 	}
-	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	if !strings.HasPrefix(rawPath, "/") {
+		return path.Join(workspace, rawPath)
+	}
+	return path.Clean(rawPath)
+}
+
+// underWorkspace reports whether a target path lies inside the session's
+// workspace.
+//
+// The escape check compares path *components*, not a string prefix: a file
+// legitimately named "..config" starts with ".." without being outside
+// anything, and rejecting it would send an ordinary dotfile down the
+// "leave it alone, it is local" path, where a Read would silently return the
+// operator's own file instead of the target's.
+//
+// POSIX semantics throughout, for the same reason as resolveTargetPath.
+func underWorkspace(target, workspace string) bool {
+	base := path.Clean("/" + strings.TrimPrefix(workspace, "/"))
+	p := path.Clean("/" + strings.TrimPrefix(target, "/"))
+	if p == base {
+		return true
+	}
+	if !strings.HasSuffix(base, "/") {
+		base += "/"
+	}
+	return strings.HasPrefix(p, base)
 }
 
 func deny(ev hookEvent, reason string) hookReply {

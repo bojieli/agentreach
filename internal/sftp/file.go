@@ -2,9 +2,12 @@ package sftp
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path"
 	"sync"
 	"sync/atomic"
@@ -150,8 +153,7 @@ func (c *Client) readToEOF(ctx context.Context, handle string, off int64) ([]byt
 // intact. Same-directory placement keeps the rename within one filesystem,
 // which is where POSIX guarantees it is atomic.
 func (c *Client) WriteFile(ctx context.Context, filePath string, data []byte, mode uint32) error {
-	dir := path.Dir(filePath)
-	tmp := path.Join(dir, fmt.Sprintf(".waldo.tmp.%d", c.tempSuffix()))
+	tmp := c.tempName(path.Dir(filePath))
 
 	handle, err := c.Open(ctx, tmp,
 		flagWrite|flagCreat|flagTrunc|flagExcl,
@@ -215,9 +217,26 @@ func (c *Client) WriteFile(ctx context.Context, filePath string, data []byte, mo
 	return nil
 }
 
-// tempSuffix produces a per-client counter for temporary names. It does not
-// need to be unguessable, only unique among writes this client makes; the file
-// is created with EXCL, so a collision fails loudly instead of clobbering.
-func (c *Client) tempSuffix() uint32 {
-	return atomic.AddUint32(&c.tmpSeq, 1)
+// tempName builds a temporary filename that cannot collide with another
+// waldo's.
+//
+// A per-client counter was not enough. Every process starts its counter at the
+// same place, so the first write of two concurrent waldo processes — which is
+// what a harness issuing parallel tool calls produces — both chose
+// `.waldo.tmp.1`, and the O_EXCL create meant one of them failed. Not
+// corruption, but a write refused for a reason the operator could not act on
+// and could not reproduce.
+//
+// The random component makes that collision vanishingly unlikely; the counter
+// keeps names distinct within one client without needing more randomness.
+func (c *Client) tempName(dir string) string {
+	var r [6]byte
+	if _, err := rand.Read(r[:]); err != nil {
+		// Randomness failing is not a reason to refuse a write; the counter and
+		// the process's own address still separate this from most others.
+		return path.Join(dir, fmt.Sprintf(".waldo.tmp.%d.%d",
+			os.Getpid(), atomic.AddUint32(&c.tmpSeq, 1)))
+	}
+	return path.Join(dir, fmt.Sprintf(".waldo.tmp.%s.%d",
+		hex.EncodeToString(r[:]), atomic.AddUint32(&c.tmpSeq, 1)))
 }
