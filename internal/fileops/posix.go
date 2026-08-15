@@ -173,11 +173,16 @@ func (p *POSIX) Write(ctx context.Context, filePath string, data []byte, mode fs
 		mode = 0o644
 	}
 	dir := path.Dir(filePath)
-	tmp := path.Join(dir, fmt.Sprintf(".waldo.tmp.%d", time.Now().UnixNano()))
+	tmp := waldo.TempPath(dir)
 	enc := base64.StdEncoding.EncodeToString(data)
 
+	// `set -C` is noclobber: the redirect fails if the temporary already
+	// exists, which is this tier's equivalent of an exclusive create. Without
+	// it, two writers that chose one name would both write into it and the
+	// winner of the rename would publish a blend of the two — silent
+	// corruption, where the exclusive create gives a clean failure instead.
 	cmd := fmt.Sprintf(
-		"set -e; %s > %s; chmod %o %s; mv -f %s %s",
+		"set -e; set -C; %s > %s; chmod %o %s; mv -f %s %s",
 		p.caps.Base64Decode, q(tmp), mode.Perm(), q(tmp), q(tmp), q(filePath))
 	// Clean up the temporary file if anything fails, so an interrupted write
 	// does not litter the target with debris.

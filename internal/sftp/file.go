@@ -2,15 +2,13 @@ package sftp
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path"
 	"sync"
-	"sync/atomic"
+
+	"github.com/bojieli/waldo/internal/waldo"
 )
 
 // pipelineDepth is how many chunk requests are in flight at once.
@@ -37,71 +35,136 @@ func ClampSize(v uint64) int64 {
 }
 
 // ReadFile reads n bytes from path starting at off. n <= 0 means to the end.
+//
+// The shape of this function is dictated by round trips, because on a real link
+// that is the whole cost. The obvious implementation — open, stat the handle for
+// the size, read, close — spends four of them serially, and measurement said a
+// small read over SFTP was losing to a single shell command doing the same job.
+//
+// It spends two now, because none of the four were actually dependent on each
+// other in the way the obvious ordering assumes:
+//
+//   - `open` and `stat` both take a *path*. The size does not have to be
+//     fetched through the handle, so both go out together and the first round
+//     trip returns a handle and a size at once.
+//   - Knowing the size means the reads that follow are exact and fully
+//     pipelined, with no extra request spent discovering where the file ends.
+//   - The close is not waited for at all; see closeHandleAsync.
+//
+// A file that shrinks between the stat and the reads is handled by the short-read
+// rule below. A file that *grows* is not chased: reading the length the stat
+// reported returns the file as it was at that moment, which is a consistent
+// view rather than a truncated one, and chasing the tail would cost a round
+// trip on every read to catch a case whose answer would be torn regardless.
 func (c *Client) ReadFile(ctx context.Context, filePath string, off int64, n int64) ([]byte, error) {
 	if off < 0 {
 		off = 0
 	}
-	handle, err := c.Open(ctx, filePath, flagRead, Attrs{})
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = c.CloseHandle(context.WithoutCancel(ctx), handle) }()
 
-	if n <= 0 {
-		a, err := c.Fstat(ctx, handle)
-		if err != nil {
-			return nil, err
+	type openResult struct {
+		handle string
+		err    error
+	}
+	type statResult struct {
+		attrs Attrs
+		err   error
+	}
+	openCh := make(chan openResult, 1)
+	statCh := make(chan statResult, 1)
+
+	go func() {
+		h, err := c.Open(ctx, filePath, flagRead, Attrs{})
+		openCh <- openResult{h, err}
+	}()
+	go func() {
+		// Only worth asking when the caller did not say how much it wants.
+		if n > 0 {
+			statCh <- statResult{}
+			return
 		}
-		if !a.HasSize() {
-			// Without a size there is nothing to divide into chunks, so fall
-			// back to reading sequentially until EOF.
-			return c.readToEOF(ctx, handle, off)
-		}
-		if uint64(off) >= a.Size {
+		a, err := c.Stat(ctx, filePath)
+		statCh <- statResult{a, err}
+	}()
+
+	opened := <-openCh
+	stated := <-statCh
+	if opened.err != nil {
+		return nil, opened.err
+	}
+	handle := opened.handle
+	defer c.closeHandleAsync(handle)
+
+	// A stat that failed is not fatal: the read can still discover the end of
+	// the file for itself, at the cost of one extra request.
+	want := n
+	sized := false
+	if want <= 0 && stated.err == nil && stated.attrs.HasSize() {
+		if size := ClampSize(stated.attrs.Size); size > off {
+			want, sized = size-off, true
+		} else if size <= off {
 			return []byte{}, nil
 		}
-		// The size is whatever the server said. A hostile or broken one
-		// reporting 2^63 bytes would overflow into a negative length and turn
-		// this loop into nonsense, so it is clamped before it is used for
-		// anything.
-		n = ClampSize(a.Size) - off
 	}
 
-	chunks := int((n + maxDataChunk - 1) / maxDataChunk)
-	out := make([][]byte, chunks)
-	errs := make([]error, chunks)
-
-	sem := make(chan struct{}, pipelineDepth)
-	var wg sync.WaitGroup
-	for i := 0; i < chunks; i++ {
-		start := off + int64(i)*maxDataChunk
-		want := n - int64(i)*maxDataChunk
-		if want > maxDataChunk {
-			want = maxDataChunk
-		}
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(i int, start, want int64) {
-			defer wg.Done()
-			defer func() { <-sem }()
-			out[i], errs[i] = c.readExactly(ctx, handle, uint64(start), int(want))
-		}(i, start, want)
+	var out []byte
+	batch := pipelineDepth
+	if !sized && want <= 0 {
+		batch = 1 // unknown length: probe before committing to a wide read
 	}
-	wg.Wait()
-
-	var buf []byte
-	for i := range out {
-		if errs[i] != nil && !errors.Is(errs[i], io.EOF) {
-			return nil, errs[i]
+	for {
+		remaining := want - int64(len(out))
+		if want <= 0 {
+			remaining = int64(batch) * maxDataChunk
 		}
-		buf = append(buf, out[i]...)
-		// A short chunk means end of file. Everything after it is empty, and
-		// concatenating past it would splice a hole into the content.
-		if len(out[i]) < maxDataChunk && i != len(out)-1 {
+		if remaining <= 0 {
+			break
+		}
+		if count := int((remaining + maxDataChunk - 1) / maxDataChunk); count < batch {
+			batch = count
+		}
+
+		parts := make([][]byte, batch)
+		errs := make([]error, batch)
+		var wg sync.WaitGroup
+		for i := 0; i < batch; i++ {
+			start := off + int64(len(out)) + int64(i)*maxDataChunk
+			chunk := maxDataChunk
+			if left := remaining - int64(i)*maxDataChunk; left < int64(chunk) {
+				chunk = int(left)
+			}
+			if chunk <= 0 {
+				continue
+			}
+			wg.Add(1)
+			go func(i int, start int64, chunk int) {
+				defer wg.Done()
+				parts[i], errs[i] = c.readExactly(ctx, handle, uint64(start), chunk)
+			}(i, start, chunk)
+		}
+		wg.Wait()
+
+		short := false
+		for i := range parts {
+			if errs[i] != nil && !errors.Is(errs[i], io.EOF) {
+				return nil, errs[i]
+			}
+			out = append(out, parts[i]...)
+			// A chunk shorter than asked for is the end of the file. Anything
+			// after it is empty, and appending past it would splice a hole into
+			// the content.
+			if len(parts[i]) < maxDataChunk && (want <= 0 || int64(len(out)) < want) {
+				short = true
+				break
+			}
+		}
+		if short {
+			break
+		}
+		if len(out) == 0 {
 			break
 		}
 	}
-	return buf, nil
+	return out, nil
 }
 
 // readExactly fills one chunk, reissuing for short reads.
@@ -128,23 +191,6 @@ func (c *Client) readExactly(ctx context.Context, handle string, off uint64, wan
 	return buf, nil
 }
 
-func (c *Client) readToEOF(ctx context.Context, handle string, off int64) ([]byte, error) {
-	var buf []byte
-	for {
-		part, err := c.ReadAt(ctx, handle, uint64(off)+uint64(len(buf)), maxDataChunk)
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				return buf, nil
-			}
-			return nil, err
-		}
-		if len(part) == 0 {
-			return buf, nil
-		}
-		buf = append(buf, part...)
-	}
-}
-
 // WriteFile replaces a path's contents atomically.
 //
 // The content goes to a temporary file in the same directory and is renamed
@@ -153,11 +199,29 @@ func (c *Client) readToEOF(ctx context.Context, handle string, off int64) ([]byt
 // intact. Same-directory placement keeps the rename within one filesystem,
 // which is where POSIX guarantees it is atomic.
 func (c *Client) WriteFile(ctx context.Context, filePath string, data []byte, mode uint32) error {
-	tmp := c.tempName(path.Dir(filePath))
+	dir := path.Dir(filePath)
 
-	handle, err := c.Open(ctx, tmp,
-		flagWrite|flagCreat|flagTrunc|flagExcl,
-		Attrs{Flags: attrPermissions, Permissions: mode})
+	// Draw a name, and re-draw if the target says it is taken. The exclusive
+	// create is what makes a collision detectable at all; retrying is what
+	// keeps it from reaching the operator as an error they cannot reproduce.
+	var (
+		tmp    string
+		handle string
+		err    error
+	)
+	for attempt := 0; attempt < waldo.TempAttempts; attempt++ {
+		tmp = waldo.TempPath(dir)
+		handle, err = c.Open(ctx, tmp,
+			flagWrite|flagCreat|flagTrunc|flagExcl,
+			Attrs{Flags: attrPermissions, Permissions: mode})
+		if err == nil {
+			break
+		}
+		var se *StatusError
+		if !errors.As(err, &se) || (se.Code != statusFailure && se.Code != statusPermissionDenied) {
+			break // not a collision; the target is telling us something else
+		}
+	}
 	if err != nil {
 		return fmt.Errorf("create temporary file next to %s: %w", filePath, err)
 	}
@@ -215,28 +279,4 @@ func (c *Client) WriteFile(ctx context.Context, filePath string, data []byte, mo
 		return err
 	}
 	return nil
-}
-
-// tempName builds a temporary filename that cannot collide with another
-// waldo's.
-//
-// A per-client counter was not enough. Every process starts its counter at the
-// same place, so the first write of two concurrent waldo processes — which is
-// what a harness issuing parallel tool calls produces — both chose
-// `.waldo.tmp.1`, and the O_EXCL create meant one of them failed. Not
-// corruption, but a write refused for a reason the operator could not act on
-// and could not reproduce.
-//
-// The random component makes that collision vanishingly unlikely; the counter
-// keeps names distinct within one client without needing more randomness.
-func (c *Client) tempName(dir string) string {
-	var r [6]byte
-	if _, err := rand.Read(r[:]); err != nil {
-		// Randomness failing is not a reason to refuse a write; the counter and
-		// the process's own address still separate this from most others.
-		return path.Join(dir, fmt.Sprintf(".waldo.tmp.%d.%d",
-			os.Getpid(), atomic.AddUint32(&c.tmpSeq, 1)))
-	}
-	return path.Join(dir, fmt.Sprintf(".waldo.tmp.%s.%d",
-		hex.EncodeToString(r[:]), atomic.AddUint32(&c.tmpSeq, 1)))
 }

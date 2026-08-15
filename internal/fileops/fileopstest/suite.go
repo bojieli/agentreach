@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"path"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/bojieli/waldo/internal/fileops"
@@ -56,6 +57,7 @@ func Run(t *testing.T, root string, newOps Factory) {
 		{"OverwritesPreservingNothingStale", testOverwrite},
 		{"HandlesAwkwardFilenames", testAwkwardNames},
 		{"SearchesAndGlobsOnTheTarget", testSearchGlob},
+		{"SurvivesConcurrentWrites", testConcurrentWrites},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ops := newOps(t)
@@ -436,4 +438,65 @@ func clip(b []byte) string {
 		return fmt.Sprintf("%q", b)
 	}
 	return fmt.Sprintf("%q...(%d more)", b[:max], len(b)-max)
+}
+
+// testConcurrentWrites covers the shape a harness actually produces.
+//
+// Agents issue tool calls in parallel, so a tier is asked to write several
+// files into one directory at once. Every tier does that by writing to a
+// temporary name and renaming it into place, which makes the temporary name a
+// shared namespace — and a shared namespace is where the sftp tier failed:
+// it numbered temporaries from a counter that restarted in every process, so
+// concurrent writers collided and all but one were refused.
+//
+// This case is in the shared suite rather than in that tier's own tests
+// because the mistake was not specific to it. Any tier can invent a bad
+// temporary name, and every tier now has to prove it did not.
+func testConcurrentWrites(t *testing.T, ctx context.Context, ops fileops.FileOps, dir string) {
+	const writers = 12
+
+	var wg sync.WaitGroup
+	errs := make([]error, writers)
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			// Distinct sizes, so a mix-up shows up as wrong content rather than
+			// as coincidentally identical bytes.
+			body := bytes.Repeat([]byte{byte('a' + i)}, 64+i*997)
+			errs[i] = ops.Write(ctx, path.Join(dir, fmt.Sprintf("concurrent-%d", i)), body, 0o644)
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("concurrent write %d failed: %v", i, err)
+		}
+	}
+
+	for i := 0; i < writers; i++ {
+		want := bytes.Repeat([]byte{byte('a' + i)}, 64+i*997)
+		got, err := ops.Read(ctx, path.Join(dir, fmt.Sprintf("concurrent-%d", i)), 0, 0)
+		if err != nil {
+			t.Errorf("read back %d: %v", i, err)
+			continue
+		}
+		if !bytes.Equal(got, want) {
+			t.Errorf("file %d: got %d bytes, want %d — concurrent writes interfered",
+				i, len(got), len(want))
+		}
+	}
+
+	// Nothing may be left behind. A temporary that survives is either a leaked
+	// write or a collision that was silently swallowed.
+	entries, err := ops.List(ctx, dir)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name, ".waldo.tmp.") {
+			t.Errorf("a temporary file survived the writes: %s", e.Name)
+		}
+	}
 }

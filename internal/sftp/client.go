@@ -30,9 +30,6 @@ type Client struct {
 	mu      sync.Mutex
 	nextID  uint32
 	pending map[uint32]chan packet
-	// tmpSeq names temporary files for atomic writes. It is separate from the
-	// request counter so that a write does not consume a request id.
-	tmpSeq uint32
 	// fatal records why the connection died, so a request that arrives after
 	// the reader has given up gets that reason rather than blocking forever.
 	fatal error
@@ -275,6 +272,24 @@ func (c *Client) Open(ctx context.Context, path string, pflags uint32, a Attrs) 
 // CloseHandle releases a file or directory handle.
 func (c *Client) CloseHandle(ctx context.Context, handle string) error {
 	return c.expectStatus(ctx, fxpClose, func(b *builder) { b.string(handle) })
+}
+
+// closeHandleAsync releases a handle without waiting for the server to confirm.
+//
+// A close is the last round trip of every read, and its result changes nothing:
+// the bytes are already in hand, and a server that fails to close a read handle
+// has a problem waldo cannot act on anyway. Waiting for it doubles the cost of
+// reading a small file over a link where a round trip is the entire expense.
+//
+// The response still has to be *consumed*. Abandoning the request id would
+// leave a reply nobody is expecting, and this client deliberately treats that
+// as a framing disagreement and tears the connection down — rightly, since
+// otherwise a later read could be answered with another file's bytes. So the
+// wait is moved to a goroutine rather than skipped.
+func (c *Client) closeHandleAsync(handle string) {
+	go func() {
+		_ = c.CloseHandle(context.WithoutCancel(context.Background()), handle)
+	}()
 }
 
 // ReadAt reads up to n bytes at off. It returns io.EOF at end of file.

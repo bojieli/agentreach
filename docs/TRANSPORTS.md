@@ -52,14 +52,20 @@ disproportionately more** — but not what should decide the negotiation order.
 tunnelled or split-DNS setup ping is answered by the local client, and reported
 0.3 ms for hosts whose commands actually cost 540 ms.)
 
-A host ~171 ms per command:
+A host ~171 ms per command, median of three runs:
 
 | tier | 15 × 1 KiB read | 8 MiB read | 8 MiB write |
 |---|---|---|---|
-| `posix` | 7.27 s | 12.09 s | 9.34 s |
-| `sftp` | 8.18 s | 5.77 s | 10.47 s |
-| `pipe` | **4.62 s** | 5.51 s | 7.59 s |
-| `agent` | 9.50 s | **5.50 s** | **5.81 s** |
+| `posix` | 6.01 s | 8.06 s | 7.72 s |
+| `sftp` | 5.71 s | 8.18 s | 5.41 s |
+| `pipe` | **5.35 s** | **5.25 s** | **5.16 s** |
+| `agent` | 10.16 s | 5.51 s | 5.77 s |
+
+The uncomfortable row is `sftp`. It exists to beat the shell tier on file
+content, and after cutting its reads from four round trips to two it is 5%
+ahead on small reads, 30% ahead on writes, and *level* on large reads — while
+`pipe`, which is a plain request/response, beats it on all three. See
+[Is sftp worth it?](#is-sftp-worth-it).
 
 A host ~540 ms per command, on a lossy tunnel:
 
@@ -254,6 +260,33 @@ The tier is not merely chosen during `waldo up` — it is *built* once, to prove
 it works. Recording a tier that turns out to be unusable would move the failure
 out of `waldo up`, where an operator is present to act on it, and into the
 middle of an agent's turn, where it looks like a broken tool.
+
+## Is sftp worth it?
+
+An honest question, and the numbers do not flatter it.
+
+The tier exists because SFTP is the one structured file protocol every stock
+`sshd` already speaks, so it promised faster file access with nothing installed.
+What the measurements show is that it is a *chatty* protocol on a link where
+round trips are the entire cost: every read needs a handle, so the floor is two
+round trips even after `open` and `stat` are issued in parallel and the `close`
+is not waited for. A request/response tier answers the same read in one.
+
+Where it still wins is writes on a host without `python3` — 5.41 s against
+7.72 s — because base64 costs the shell tier a third of its bandwidth. Where it
+does not win is anywhere `pipe` or `agent` can run.
+
+So the case for keeping it is narrow: a target with no `python3`, where nothing
+may be installed, doing many writes. The case against is that it is several
+hundred lines of hand-written protocol that has to be kept correct — and it is
+where three of this project's bugs came from, all of them concurrency or
+round-trip mistakes that the shell tier's simplicity made impossible.
+
+It is kept for now, no longer preferred by autonegotiation, and available
+explicitly with `--fileops=sftp`. If it is removed later, the replacement for
+its niche is `--fileops=agent`, which is a request/response tier that needs no
+`python3` — at the cost of the one thing it must not do silently, which is
+write a binary to the target.
 
 ## Conformance
 

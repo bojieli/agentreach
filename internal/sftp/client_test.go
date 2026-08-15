@@ -334,33 +334,3 @@ func TestAttrsParsingSkipsExtensions(t *testing.T) {
 		t.Errorf("permissions = %#o", a.Permissions)
 	}
 }
-
-// TestTempNamesDoNotCollideAcrossClients is the regression test for a spurious
-// write failure under exactly the concurrency a harness produces.
-//
-// Temporary names came from a per-client counter, and every process starts its
-// counter in the same place — so the first write of two parallel waldo
-// processes both chose `.waldo.tmp.1`, and the O_EXCL create meant one of them
-// failed. Not corruption, but a write refused for a reason the operator could
-// neither act on nor reproduce.
-func TestTempNamesDoNotCollideAcrossClients(t *testing.T) {
-	const perClient = 200
-	seen := map[string]bool{}
-
-	// Two independent clients, as two waldo processes would be.
-	for _, c := range []*Client{{}, {}} {
-		for i := 0; i < perClient; i++ {
-			name := c.tempName("/srv/app")
-			if seen[name] {
-				t.Fatalf("temporary name %q was produced twice; a concurrent write would fail on O_EXCL", name)
-			}
-			seen[name] = true
-			if !strings.HasPrefix(name, "/srv/app/.waldo.tmp.") {
-				t.Fatalf("temporary name %q is not in the target directory, or is not marked as waldo's", name)
-			}
-		}
-	}
-	if len(seen) != perClient*2 {
-		t.Fatalf("got %d distinct names from %d draws", len(seen), perClient*2)
-	}
-}
