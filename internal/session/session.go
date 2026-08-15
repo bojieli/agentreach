@@ -38,13 +38,13 @@ const (
 // connect. A daemon would add a lifecycle, a socket, crash recovery and
 // orphaned processes in exchange for nothing.
 type Session struct {
-	Name      string        `json:"name"`
-	Target    *Target       `json:"target"`
-	Mode      Mode          `json:"mode"`
-	Tier      waldo.Tier    `json:"-"`
-	TierName  string        `json:"tier"`
-	Caps      *fileops.Capabilities `json:"caps"`
-	Created   time.Time     `json:"created"`
+	Name     string                `json:"name"`
+	Target   *Target               `json:"target"`
+	Mode     Mode                  `json:"mode"`
+	Tier     waldo.Tier            `json:"-"`
+	TierName string                `json:"tier"`
+	Caps     *fileops.Capabilities `json:"caps"`
+	Created  time.Time             `json:"created"`
 	// Untrusted marks a target whose operator you are not. waldo will not
 	// install anything on it and will not forward an SSH agent to it.
 	Untrusted bool `json:"untrusted"`

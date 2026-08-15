@@ -39,14 +39,14 @@ func TestParseTargetForms(t *testing.T) {
 
 func TestParseTargetRejectsBadInput(t *testing.T) {
 	for _, spec := range []string{
-		"",                       // empty
-		"ssh://box",              // no workspace: waldo would not know where to work
-		"ssh://box/relative",     // caught below as absolute; kept for clarity
-		"ftp://box/srv",          // unsupported scheme
-		"docker:///srv",          // no container name
-		"ssh:///srv/app",         // no host
-		"ssh://box/../etc",       // still absolute, but suspicious
-		"justastring",            // no scheme and no colon
+		"",                   // empty
+		"ssh://box",          // no workspace: waldo would not know where to work
+		"ssh://box/relative", // caught below as absolute; kept for clarity
+		"ftp://box/srv",      // unsupported scheme
+		"docker:///srv",      // no container name
+		"ssh:///srv/app",     // no host
+		"ssh://box/../etc",   // still absolute, but suspicious
+		"justastring",        // no scheme and no colon
 	} {
 		if _, err := ParseTarget(spec); err == nil {
 			// "/../etc" is absolute so it parses; only assert on the rest.

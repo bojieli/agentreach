@@ -122,9 +122,9 @@ func (t *SSHTransport) baseArgs() []string {
 	}
 	args = append(args,
 		"-o", "ControlMaster=auto",
-		"-o", "ControlPath=" + t.controlPath,
-		"-o", "ControlPersist=" + strconv.Itoa(int(c.ControlPersist.Seconds())),
-		"-o", "ConnectTimeout=" + strconv.Itoa(int(c.ConnectTimeout.Seconds())),
+		"-o", "ControlPath="+t.controlPath,
+		"-o", "ControlPersist="+strconv.Itoa(int(c.ControlPersist.Seconds())),
+		"-o", "ConnectTimeout="+strconv.Itoa(int(c.ConnectTimeout.Seconds())),
 		// Detect a dead link instead of blocking forever on a half-open TCP
 		// connection. This is the difference between an agent seeing a timeout
 		// it can retry and an agent hanging indefinitely.

@@ -32,15 +32,36 @@ func (w *cwdCapturingWriter) Write(p []byte) (int, error) {
 		}
 		line := string(data[:idx+1])
 		w.pending.Next(idx + 1)
-		if rest, ok := strings.CutPrefix(strings.TrimRight(line, "\r\n"), w.marker); ok {
-			w.captured = strings.TrimSpace(rest)
-			continue
-		}
-		if _, err := w.out.Write([]byte(line)); err != nil {
+		if emitted, err := w.consumeLine(line); err != nil {
 			return 0, err
+		} else if emitted {
+			continue
 		}
 	}
 	return len(p), nil
+}
+
+// consumeLine handles one line, extracting the marker wherever it appears.
+//
+// The marker is searched for anywhere in the line, not just at its start. A
+// command whose stderr does not end in a newline would otherwise have the
+// marker appended directly onto its last line — which both leaks waldo's
+// bookkeeping into the agent's view of stderr and loses the working directory,
+// so `cd` would stop persisting for exactly those commands.
+func (w *cwdCapturingWriter) consumeLine(line string) (bool, error) {
+	idx := strings.Index(line, w.marker)
+	if idx < 0 {
+		_, err := w.out.Write([]byte(line))
+		return false, err
+	}
+	w.captured = strings.TrimSpace(strings.TrimRight(line[idx+len(w.marker):], "\r\n"))
+	if idx > 0 {
+		// Preserve whatever the command wrote before the marker.
+		if _, err := w.out.Write([]byte(line[:idx])); err != nil {
+			return true, err
+		}
+	}
+	return true, nil
 }
 
 // Captured returns the working directory the command ended in, and flushes any
@@ -49,11 +70,7 @@ func (w *cwdCapturingWriter) Captured() string {
 	if w.pending.Len() > 0 {
 		rest := w.pending.String()
 		w.pending.Reset()
-		if v, ok := strings.CutPrefix(strings.TrimRight(rest, "\r\n"), w.marker); ok {
-			w.captured = strings.TrimSpace(v)
-		} else {
-			_, _ = w.out.Write([]byte(rest))
-		}
+		_, _ = w.consumeLine(rest)
 	}
 	return w.captured
 }
