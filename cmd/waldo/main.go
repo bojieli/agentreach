@@ -26,6 +26,7 @@ SESSIONS
 RUNNING
   exec [cmd...]     run a command on the target
   shell-prefix      internal: entrypoint for CLAUDE_CODE_SHELL_PREFIX
+  hook              internal: harness hook entrypoint (mirror mode)
 
 HARNESSES
   claude [args...]  launch Claude Code wired to the session
@@ -64,6 +65,9 @@ func main() {
 	}
 	if os.Args[1] == "shell-prefix" {
 		os.Exit(runShellPrefix(os.Args[2:]))
+	}
+	if os.Args[1] == "hook" {
+		os.Exit(runHook(os.Args[2:]))
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

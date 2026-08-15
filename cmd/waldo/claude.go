@@ -74,7 +74,15 @@ func cmdClaude(ctx context.Context, args []string) int {
 	)
 
 	argv := []string{claudePath}
-	if s.Mode == session.ModeExec && !*allowFileTools {
+	switch {
+	case s.Mode == session.ModeMirror:
+		settings, err := writeMirrorSettings(sessName)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "waldo:", err)
+			return 1
+		}
+		argv = append(argv, "--settings", settings, "--append-system-prompt", mirrorModeGuidance)
+	case !*allowFileTools:
 		settings, err := writeDenySettings(sessName)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "waldo:", err)
@@ -102,6 +110,64 @@ func cmdClaude(ctx context.Context, args []string) int {
 		}
 	}
 	return 0
+}
+
+const mirrorModeGuidance = `This session is operating on a REMOTE target through waldo.
+
+Your Bash tool runs on the target. Read, Write and Edit also act on the target:
+waldo fetches each file the moment you open it and writes it back when you
+change it. Use the target's own absolute paths; do not translate them.
+
+Grep and Glob are disabled. They would search a local cache that holds only the
+files you have already opened, so they would report "no matches" for code that
+does exist. Search with the shell instead, which runs on the target:
+  rg 'pattern' DIR        (or grep -rn if ripgrep is absent)
+  find DIR -name 'glob'
+
+If a write is refused because the file changed on the target, re-read it and
+redo the change; do not retry blindly.`
+
+// writeMirrorSettings emits a settings file wiring waldo's hook into the file
+// tools, and returns its path.
+func writeMirrorSettings(sessName string) (string, error) {
+	dir, err := session.Dir()
+	if err != nil {
+		return "", err
+	}
+	self, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	hookCmd := self + " hook"
+	type hookSpec struct {
+		Type    string `json:"type"`
+		Command string `json:"command"`
+	}
+	type matcherSpec struct {
+		Matcher string     `json:"matcher"`
+		Hooks   []hookSpec `json:"hooks"`
+	}
+	doc := map[string]any{
+		"hooks": map[string]any{
+			"PreToolUse": []matcherSpec{{
+				Matcher: "Read|Write|Edit|NotebookEdit|Grep|Glob",
+				Hooks:   []hookSpec{{Type: "command", Command: hookCmd}},
+			}},
+			"PostToolUse": []matcherSpec{{
+				Matcher: "Write|Edit|NotebookEdit",
+				Hooks:   []hookSpec{{Type: "command", Command: hookCmd}},
+			}},
+		},
+	}
+	data, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	p := filepath.Join(dir, sessName+".claude-mirror-settings.json")
+	if err := os.WriteFile(p, append(data, '\n'), 0o600); err != nil {
+		return "", err
+	}
+	return p, nil
 }
 
 // writeDenySettings emits a Claude Code settings file denying the local file
