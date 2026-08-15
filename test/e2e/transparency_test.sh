@@ -69,6 +69,37 @@ if command -v claude >/dev/null 2>&1; then
       timeout 300 claude -p "Run 'cd /etc' as one command. Then, as a SEPARATE second command, run 'pwd'. Report what the second command printed." \
         --allowedTools Bash --permission-mode bypassPermissions --model "$MODEL" 2>&1)"
   assert_contains "$out" "/etc" "cd persists across separate agent tool calls"
+
+  # ---- mirror mode: the agent's NATIVE file tools must act on the target ----
+  info "Claude Code — mirror mode (native Read/Edit on remote files)"
+  "$WALDO_BIN" down e2e >/dev/null 2>&1
+  "$WALDO_BIN" up ssh://waldo-e2e/srv/app --name e2e --mode mirror >/dev/null 2>&1
+
+  "$WALDO_BIN" exec --session e2e -- \
+    'printf "line one\nTARGET_VALUE = 41\nline three\n" > /srv/app/config.py' >/dev/null
+
+  # The file must not exist locally, or the test proves nothing.
+  if [[ -e /srv/app/config.py ]]; then
+    bad "precondition" "/srv/app/config.py exists locally; cannot prove remoteness"
+  else
+    out="$(clean_agent_env \
+        WALDO_SESSION=e2e WALDO_SSH_CONFIG="$WALDO_SSH_CONFIG" WALDO_HOME="$WALDO_HOME" \
+        timeout 300 "$WALDO_BIN" claude -- \
+          -p "Use the Read tool on /srv/app/config.py, then use the Edit tool to change TARGET_VALUE from 41 to 42." \
+          --allowedTools "Read,Edit" --permission-mode bypassPermissions --model "$MODEL" 2>&1)"
+
+    after="$("$WALDO_BIN" exec --session e2e -- 'cat /srv/app/config.py')"
+    assert_contains "$after" "TARGET_VALUE = 42" \
+      "native Edit tool wrote through to the target"
+    assert_contains "$after" "line three" \
+      "the rest of the target file was preserved"
+
+    # Grep must be refused rather than silently searching a sparse mirror.
+    out="$(printf '%s' '{"hook_event_name":"PreToolUse","tool_name":"Grep","tool_input":{"pattern":"x"},"cwd":"/srv/app"}' \
+      | WALDO_SESSION=e2e WALDO_HOME="$WALDO_HOME" WALDO_SSH_CONFIG="$WALDO_SSH_CONFIG" "$WALDO_BIN" hook)"
+    assert_contains "$out" '"permissionDecision":"deny"' \
+      "Grep is denied in mirror mode (a sparse mirror would under-report)"
+  fi
 else
   info "Claude Code not installed — skipping agent tests"
 fi
