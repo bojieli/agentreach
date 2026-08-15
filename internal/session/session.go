@@ -203,8 +203,24 @@ func (s *Session) SetCwd(cwd string) error {
 	return os.Rename(tmp, p)
 }
 
-// Transport builds the transport this session's target needs.
+// Transport builds the transport this session's target needs, in batch mode:
+// no interactive prompts, so an expired credential fails fast instead of
+// hanging a tool call on a password prompt the agent cannot see or answer.
 func (s *Session) Transport() (transport.Transport, error) {
+	return s.transport(true)
+}
+
+// InteractiveTransport allows ssh to prompt.
+//
+// The first connection to a host may legitimately need a passphrase, a
+// password or a 2FA touch. That has to be possible somewhere, and `waldo up`
+// is the one moment an operator is present to answer. Afterwards ControlMaster
+// keeps the authenticated connection alive, so later tool calls never prompt.
+func (s *Session) InteractiveTransport() (transport.Transport, error) {
+	return s.transport(false)
+}
+
+func (s *Session) transport(batch bool) (transport.Transport, error) {
 	switch s.Target.Kind {
 	case KindSSH:
 		return transport.NewSSH(transport.SSHConfig{
@@ -215,7 +231,7 @@ func (s *Session) Transport() (transport.Transport, error) {
 			// forwarded agent socket lets root on that host authenticate as
 			// the operator against every other system they can reach.
 			ForwardAgent: false,
-			BatchMode:    true,
+			BatchMode:    batch,
 		})
 	case KindDocker, KindPodman:
 		return transport.NewContainer(transport.ContainerConfig{
@@ -242,7 +258,7 @@ func (s *Session) FileOps(t transport.Transport) (fileops.FileOps, error) {
 
 // Probe connects to the target and records its capabilities.
 func (s *Session) Probe(ctx context.Context) error {
-	t, err := s.Transport()
+	t, err := s.InteractiveTransport()
 	if err != nil {
 		return err
 	}

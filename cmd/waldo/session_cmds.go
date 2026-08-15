@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -116,7 +117,15 @@ func cmdDown(ctx context.Context, args []string) error {
 	if err := session.Remove(name); err != nil {
 		return err
 	}
+	// Remove everything waldo created for this session. Leftover mirrored
+	// files are the dangerous kind of debris: they are real files at
+	// plausible-looking paths, and a later session of the same name would
+	// find them and treat stale content as current.
+	removed := cleanupSessionArtifacts(name)
 	fmt.Printf("session %q closed\n", name)
+	for _, r := range removed {
+		fmt.Printf("  removed %s\n", r)
+	}
 	return nil
 }
 
@@ -174,4 +183,32 @@ func first(v []string) string {
 		return ""
 	}
 	return v[0]
+}
+
+// cleanupSessionArtifacts deletes the generated settings and mirrored files
+// belonging to a session, returning what it removed.
+func cleanupSessionArtifacts(name string) []string {
+	var removed []string
+	base := os.Getenv("WALDO_HOME")
+	if base == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil
+		}
+		base = filepath.Join(home, ".waldo")
+	}
+	candidates := []string{
+		filepath.Join(base, "sessions", name+".claude-settings.json"),
+		filepath.Join(base, "sessions", name+".claude-mirror-settings.json"),
+		filepath.Join(base, "mirror", name),
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err != nil {
+			continue
+		}
+		if err := os.RemoveAll(c); err == nil {
+			removed = append(removed, c)
+		}
+	}
+	return removed
 }
