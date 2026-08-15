@@ -53,6 +53,13 @@ type FileOps interface {
 	// actually changed rather than trusting timestamps.
 	Hash(ctx context.Context, path string) (string, error)
 
-	// Tier reports which strategy this is, for diagnostics.
+	// Tier reports which strategy this is, for diagnostics. It reports what was
+	// actually built, not what was asked for: a strategy that degraded must not
+	// be able to report the tier it failed to reach.
 	Tier() waldo.Tier
+
+	// Close releases whatever the strategy holds open — an SFTP channel, a
+	// long-lived handler process. Tier 0 holds nothing and returns nil. It is
+	// safe to call more than once.
+	Close() error
 }

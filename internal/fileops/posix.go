@@ -38,6 +38,10 @@ func NewPOSIX(t transport.Transport, caps *Capabilities) *POSIX {
 // Tier implements FileOps.
 func (p *POSIX) Tier() waldo.Tier { return waldo.TierPOSIX }
 
+// Close implements FileOps. Tier 0 holds nothing open — that is the entire
+// point of it — so there is nothing to release.
+func (p *POSIX) Close() error { return nil }
+
 func q(s string) string { return transport.ShellQuote(s) }
 
 // run executes a shell snippet on the target and fails on a non-zero status.
@@ -273,7 +277,12 @@ func (p *POSIX) Mkdir(ctx context.Context, dir string, mode fs.FileMode) error {
 	if mode == 0 {
 		mode = 0o755
 	}
-	_, err := p.run(ctx, fmt.Sprintf("mkdir -p -- %s && chmod %o -- %s", q(dir), mode.Perm(), q(dir)), nil)
+	// `--` goes before the mode, not after it. BSD chmod takes the mode as a
+	// positional argument, so its option parsing stops there and a later `--`
+	// is read as a filename — `chmod 700 -- /srv/app` fails on macOS with "no
+	// such file or directory" while working fine under GNU coreutils. Putting
+	// the delimiter first is accepted by both.
+	_, err := p.run(ctx, fmt.Sprintf("mkdir -p -- %s && chmod -- %o %s", q(dir), mode.Perm(), q(dir)), nil)
 	return err
 }
 

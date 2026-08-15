@@ -38,13 +38,20 @@ const (
 // connect. A daemon would add a lifecycle, a socket, crash recovery and
 // orphaned processes in exchange for nothing.
 type Session struct {
-	Name     string                `json:"name"`
-	Target   *Target               `json:"target"`
-	Mode     Mode                  `json:"mode"`
-	Tier     waldo.Tier            `json:"-"`
-	TierName string                `json:"tier"`
-	Caps     *fileops.Capabilities `json:"caps"`
-	Created  time.Time             `json:"created"`
+	Name     string     `json:"name"`
+	Target   *Target    `json:"target"`
+	Mode     Mode       `json:"mode"`
+	Tier     waldo.Tier `json:"-"`
+	TierName string     `json:"tier"`
+	// Pinned records that the operator named this tier with --fileops. A pinned
+	// tier is an instruction, not a preference: waldo fails rather than quietly
+	// giving them a different one.
+	Pinned bool `json:"pinned,omitempty"`
+	// TierReason explains a tier that is lower than the one asked for, and is
+	// empty when nothing was degraded.
+	TierReason string                `json:"tier_reason,omitempty"`
+	Caps       *fileops.Capabilities `json:"caps"`
+	Created    time.Time             `json:"created"`
 	// Untrusted marks a target whose operator you are not. waldo will not
 	// install anything on it and will not forward an SSH agent to it.
 	Untrusted bool `json:"untrusted"`
@@ -273,34 +280,54 @@ func (s *Session) transport(batch bool) (transport.Transport, error) {
 }
 
 // FileOps builds the file-operation strategy for this session's tier.
-func (s *Session) FileOps(t transport.Transport) (fileops.FileOps, error) {
-	switch s.Tier {
-	case waldo.TierPOSIX:
-		return fileops.NewPOSIX(t, s.Caps), nil
-	default:
-		// Higher tiers fall back rather than fail: a target that no longer
-		// supports its recorded tier should degrade, not stop working.
-		return fileops.NewPOSIX(t, s.Caps), nil
+//
+// A pinned tier — one the operator named with --fileops — is never silently
+// replaced. An autonegotiated one steps down to whatever works and says so on
+// stderr, because a host that stopped answering on its usual tier should keep
+// working, but not without the operator being able to see that it changed.
+func (s *Session) FileOps(ctx context.Context, t transport.Transport) (fileops.Selection, error) {
+	if s.Tier == waldo.TierAgent && s.Untrusted {
+		return fileops.Selection{}, fmt.Errorf(
+			"session %q is marked --untrusted, and the agent tier installs a binary on the target.\n"+
+				"Re-create the session without --untrusted, or use a tier that installs nothing.", s.Name)
 	}
+	warn := func(msg string) { fmt.Fprintln(os.Stderr, msg) }
+	return fileops.New(ctx, s.Tier, t, s.Caps, s.Pinned, warn)
 }
 
-// Probe connects to the target and records its capabilities.
+// Probe connects to the target, records its capabilities, and settles which
+// file-operation tier this session will use.
+//
+// The chosen tier is *built* here, not merely selected. Recording a tier that
+// turns out to be unusable would move the failure from `waldo up`, where an
+// operator is present and can act on it, into the middle of an agent's turn,
+// where it surfaces as a broken tool.
 func (s *Session) Probe(ctx context.Context) error {
 	t, err := s.InteractiveTransport()
 	if err != nil {
 		return err
 	}
-	defer t.Close()
+	defer func() { _ = t.Close() }()
 
 	caps, err := fileops.Probe(ctx, t)
 	if err != nil {
 		return err
 	}
 	s.Caps = caps
-	if s.Tier == waldo.TierPOSIX && caps.BestTier() > waldo.TierPOSIX {
-		// Autonegotiation deliberately stops below TierAgent; writing a binary
-		// to someone else's machine stays an explicit operator decision.
-		s.Tier = waldo.TierPOSIX
+
+	if !s.Pinned {
+		// Autonegotiation deliberately stops below TierAgent: that tier writes
+		// a binary to the target, and waldo never makes that choice on the
+		// operator's behalf.
+		s.Tier = caps.BestTier()
 	}
+
+	sel, err := s.FileOps(ctx, t)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = sel.Ops.Close() }()
+	s.Tier = sel.Effective
+	s.TierReason = sel.Reason
 	return nil
 }

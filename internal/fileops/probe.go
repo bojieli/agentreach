@@ -122,20 +122,97 @@ func Probe(ctx context.Context, t transport.Transport) (*Capabilities, error) {
 				"passed through the shell unencoded, which corrupts any file containing NUL or\n"+
 				"invalid UTF-8. Target reports: %s", c.Uname)
 	}
+	// Whether the SFTP subsystem answers cannot be read out of the target's
+	// userland, only by asking it. One extra channel during `waldo up` buys a
+	// tier decision that is proven rather than assumed.
+	c.SFTP = ProbeSFTP(ctx, t)
 	return c, nil
 }
 
-// BestTier reports the highest strategy this target qualifies for.
+// ProbeSFTP reports whether the target answers on the SFTP subsystem.
 //
-// It deliberately stops below TierAgent: that tier writes a binary to the
-// target, and waldo never makes that choice on the operator's behalf.
-func (c *Capabilities) BestTier() waldo.Tier {
-	switch {
-	case c.Python3:
-		return waldo.TierPipe
-	case c.SFTP:
-		return waldo.TierSFTP
-	default:
-		return waldo.TierPOSIX
+// This is done by completing a real handshake rather than by asking sshd what
+// it is configured to do. A host can advertise the subsystem and still refuse
+// it — a Match block, a forced command, a chroot without the server binary —
+// and a tier that is available in theory and refused in practice would fail on
+// first use instead of during negotiation.
+func ProbeSFTP(ctx context.Context, t transport.Transport) bool {
+	if _, ok := t.(transport.SubsystemOpener); !ok {
+		return false
 	}
+	ops, err := NewSFTP(ctx, t, NewPOSIX(t, &Capabilities{}))
+	if err != nil {
+		return false
+	}
+	_ = ops.Close()
+	return true
+}
+
+// Qualifies reports whether a target can support a tier, and why not when it
+// cannot. The reason is shown by `waldo doctor`, so an operator can see that a
+// host is on tier 0 because it lacks python3 rather than because waldo decided
+// so for no visible reason.
+func (c *Capabilities) Qualifies(tier waldo.Tier) (bool, string) {
+	switch tier {
+	case waldo.TierPOSIX:
+		if c.Base64Decode == "" || c.Base64Encode == "" {
+			return false, "no base64 and no openssl"
+		}
+		if c.StatFlavor == "" {
+			return false, "no usable stat command"
+		}
+		return true, ""
+	case waldo.TierSFTP:
+		if !c.SFTP {
+			return false, "the SFTP subsystem did not answer"
+		}
+		return true, ""
+	case waldo.TierPipe:
+		if !c.Python3 {
+			return false, "no python3"
+		}
+		return true, ""
+	case waldo.TierAgent:
+		if _, _, err := platformOf(c.Uname); err != nil {
+			return false, err.Error()
+		}
+		return true, "writes a binary to the target; never chosen automatically"
+	}
+	return false, "unknown tier"
+}
+
+// negotiationOrder is the order autonegotiation prefers tiers in, most
+// preferred first.
+//
+// It is not the tier numbering, and the difference is the point. The numbering
+// ranks how *capable* a strategy is; this ranks how fast it actually is in the
+// way waldo runs, which is one process per tool call. Measured against a real
+// sshd (see docs/TRANSPORTS.md for the full table):
+//
+//	                small reads (40x1KiB)   large read (20MiB)
+//	posix                        2.53s               1.48s
+//	sftp                         1.47s               0.13s
+//	pipe                         2.55s               0.16s
+//	agent                        3.56s               0.18s
+//
+// sftp wins on both axes because a subsystem channel costs less to set up than
+// a shell pipeline, and moves content without base64 expansion. pipe and agent
+// only pay for themselves across many operations in one process, and waldo does
+// not have that shape: every tool call is a new process, so an interpreter or
+// binary starting up is pure cost. That is why the theoretically fastest tier is
+// the slowest one here, and why waldo negotiates on evidence rather than on the
+// tier numbers.
+//
+// TierAgent is deliberately absent: that tier writes a binary to the target, and
+// waldo never makes that choice on the operator's behalf.
+var negotiationOrder = []waldo.Tier{waldo.TierSFTP, waldo.TierPipe}
+
+// BestTier reports the tier autonegotiation would choose for this target.
+func (c *Capabilities) BestTier() waldo.Tier {
+	for _, tier := range negotiationOrder {
+		if ok, _ := c.Qualifies(tier); ok {
+			return tier
+		}
+	}
+	return waldo.TierPOSIX
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -14,7 +15,38 @@ import (
 	"github.com/bojieli/waldo/internal/waldo"
 )
 
-func version() string { return waldo.Version }
+// Build metadata injected at link time by the Makefile and by goreleaser.
+//
+// They are variables rather than constants because -X can only patch variables,
+// and they are empty in a plain `go build`, where the compiled-in constant is
+// the honest answer. A binary that reports a version it was not built as is a
+// bug report waldo cannot act on: the first question about any harness-seam
+// breakage is which version the operator is running.
+var (
+	buildVersion string
+	buildCommit  string
+	buildDate    string
+)
+
+func version() string {
+	if buildVersion != "" {
+		return buildVersion
+	}
+	return waldo.Version
+}
+
+// versionLine renders the full build identity for `waldo version`.
+func versionLine() string {
+	s := "waldo " + version()
+	if buildCommit != "" {
+		s += " (" + buildCommit
+		if buildDate != "" {
+			s += ", " + buildDate
+		}
+		s += ")"
+	}
+	return s + " " + runtime.GOOS + "/" + runtime.GOARCH
+}
 
 // defaultSessionName is used when the operator does not name a session, which
 // is the common single-target case.
@@ -58,7 +90,7 @@ func cmdUp(ctx context.Context, args []string) error {
 		Timeout:   *timeout,
 		Tier:      waldo.TierPOSIX,
 	}
-	if *tierName != "" {
+	if *tierName != "" && *tierName != "auto" {
 		t, err := waldo.ParseTier(*tierName)
 		if err != nil {
 			return err
@@ -67,6 +99,7 @@ func cmdUp(ctx context.Context, args []string) error {
 			return fmt.Errorf("refusing --fileops=agent on an --untrusted target: that tier installs a binary on the target")
 		}
 		s.Tier = t
+		s.Pinned = true
 	}
 
 	fmt.Fprintf(os.Stderr, "probing %s ...\n", target.Describe())
@@ -80,13 +113,31 @@ func cmdUp(ctx context.Context, args []string) error {
 
 	fmt.Printf("session %q -> %s\n", s.Name, target.Describe())
 	fmt.Printf("  target   %s\n", s.Caps.Uname)
-	fmt.Printf("  fileops  %s\n", s.Tier)
+	fmt.Printf("  fileops  %s%s\n", s.Tier, tierNote(s))
 	fmt.Printf("  search   %s\n", searchEngine(s))
 	if s.Untrusted {
 		fmt.Printf("  policy   untrusted: no installs, no agent forwarding\n")
 	}
 	fmt.Printf("\nNext:\n  waldo claude          # launch Claude Code against this target\n  waldo exec -- ls -la  # or run something directly\n")
 	return nil
+}
+
+// tierNote annotates the selected tier with how it was chosen, and with what
+// it costs the target. An operator reading `waldo up` output should be able to
+// tell at a glance whether anything was written to the machine they pointed at.
+func tierNote(s *session.Session) string {
+	switch {
+	case s.TierReason != "":
+		return " (" + s.TierReason + ")"
+	case s.Tier == waldo.TierAgent:
+		return " (installed a helper binary on the target; remove it with `waldo agent uninstall`)"
+	case s.Pinned:
+		return " (pinned)"
+	case s.Tier == waldo.TierPOSIX:
+		return " (nothing installed, nothing written)"
+	default:
+		return " (negotiated; nothing written to the target)"
+	}
 }
 
 func searchEngine(s *session.Session) string {

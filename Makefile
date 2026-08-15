@@ -2,7 +2,14 @@
 GO      ?= go
 BIN     := waldo
 VERSION := $(shell sed -n 's/.*Version = "\(.*\)".*/\1/p' internal/waldo/types.go)
-LDFLAGS := -s -w -X main.buildVersion=$(VERSION)
+COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+# The commit's own date rather than the wall clock, so two builds of the same
+# commit produce identical binaries.
+DATE    := $(shell git log -1 --format=%cd --date=format:%Y-%m-%d 2>/dev/null || echo unknown)
+LDFLAGS := -s -w \
+	-X main.buildVersion=$(VERSION) \
+	-X main.buildCommit=$(COMMIT) \
+	-X main.buildDate=$(DATE)
 
 .PHONY: all build test vet lint e2e mock conformance clean install fmt check
 

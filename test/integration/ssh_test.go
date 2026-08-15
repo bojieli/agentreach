@@ -5,115 +5,20 @@
 // Mocks cannot catch the failures that actually happen here: shell quoting that
 // works locally but not through ssh's own re-parsing, exit statuses lost to
 // ssh's use of 255, or userland differences between the machine running the
-// tests and the target. Everything in this file talks to a real OpenSSH server
-// in a container.
+// tests and the target. Everything in this file talks to a real OpenSSH server;
+// see harness_test.go for how one is started.
 package integration
 
 import (
 	"bytes"
 	"context"
-	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/bojieli/waldo/internal/fileops"
 	"github.com/bojieli/waldo/internal/transport"
 	"github.com/bojieli/waldo/internal/waldo"
 )
-
-const (
-	containerName = "waldo-integration-sshd"
-	sshPort       = "22333"
-)
-
-var testDir string
-
-func TestMain(m *testing.M) {
-	if _, err := exec.LookPath("docker"); err != nil {
-		fmt.Fprintln(os.Stderr, "docker not available; skipping integration tests")
-		os.Exit(0)
-	}
-	dir, err := os.MkdirTemp("", "waldo-integration-")
-	if err != nil {
-		panic(err)
-	}
-	testDir = dir
-	if err := startTarget(); err != nil {
-		fmt.Fprintln(os.Stderr, "could not start test target:", err)
-		stopTarget()
-		os.Exit(1)
-	}
-	code := m.Run()
-	stopTarget()
-	_ = os.RemoveAll(dir)
-	os.Exit(code)
-}
-
-func startTarget() error {
-	key := filepath.Join(testDir, "id")
-	if out, err := exec.Command("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", key).CombinedOutput(); err != nil {
-		return fmt.Errorf("ssh-keygen: %v: %s", err, out)
-	}
-	dockerfile := `FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends openssh-server ca-certificates \
- && rm -rf /var/lib/apt/lists/* && mkdir -p /run/sshd /root/.ssh && chmod 700 /root/.ssh
-COPY id.pub /root/.ssh/authorized_keys
-RUN chmod 600 /root/.ssh/authorized_keys && \
-    sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
-RUN mkdir -p /srv/app
-EXPOSE 22
-CMD ["/usr/sbin/sshd","-D","-e"]`
-	if err := os.WriteFile(filepath.Join(testDir, "Dockerfile"), []byte(dockerfile), 0o644); err != nil {
-		return err
-	}
-	if out, err := exec.Command("docker", "build", "-q", "-t", "waldo-integration", testDir).CombinedOutput(); err != nil {
-		return fmt.Errorf("docker build: %v: %s", err, out)
-	}
-	_ = exec.Command("docker", "rm", "-f", containerName).Run()
-	if out, err := exec.Command("docker", "run", "-d", "--name", containerName,
-		"-p", sshPort+":22", "waldo-integration").CombinedOutput(); err != nil {
-		return fmt.Errorf("docker run: %v: %s", err, out)
-	}
-
-	cfg := fmt.Sprintf(`Host waldo-it
-  HostName 127.0.0.1
-  Port %s
-  User root
-  IdentityFile %s
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
-  LogLevel ERROR
-`, sshPort, key)
-	cfgPath := filepath.Join(testDir, "ssh_config")
-	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
-		return err
-	}
-	os.Setenv("WALDO_SSH_CONFIG", cfgPath)
-
-	for i := 0; i < 60; i++ {
-		if exec.Command("ssh", "-F", cfgPath, "waldo-it", "true").Run() == nil {
-			return nil
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	return fmt.Errorf("sshd did not become reachable")
-}
-
-func stopTarget() { _ = exec.Command("docker", "rm", "-f", containerName).Run() }
-
-func newTransport(t *testing.T) transport.Transport {
-	t.Helper()
-	tr, err := transport.NewSSH(transport.SSHConfig{Host: "waldo-it", BatchMode: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = tr.Close() })
-	return tr
-}
 
 func TestSSHExecOverRealServer(t *testing.T) {
 	tr := newTransport(t)
@@ -176,7 +81,7 @@ func TestFileOpsOverRealSSH(t *testing.T) {
 	t.Logf("target userland: %s stat=%s rg=%q", caps.Uname, caps.StatFlavor, caps.Ripgrep)
 
 	fo := fileops.NewPOSIX(tr, caps)
-	dir := "/srv/app/itest"
+	dir := workspace + "/itest"
 	if err := fo.Mkdir(ctx, dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -230,7 +135,7 @@ func TestSearchRunsOnTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	fo := fileops.NewPOSIX(tr, caps)
-	dir := "/srv/app/searchtest"
+	dir := workspace + "/searchtest"
 	if err := fo.Mkdir(ctx, dir, 0o755); err != nil {
 		t.Fatal(err)
 	}

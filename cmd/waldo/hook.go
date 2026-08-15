@@ -104,17 +104,20 @@ func runHook(args []string) int {
 		return 0
 	}
 
+	ctx := context.Background()
+
 	tr, err := s.Transport()
 	if err != nil {
 		emit(deny(ev, "waldo: "+err.Error()))
 		return 0
 	}
-	fo, err := s.FileOps(tr)
+	sel, err := s.FileOps(ctx, tr)
 	if err != nil {
 		emit(deny(ev, "waldo: "+err.Error()))
 		return 0
 	}
-	m := mirror.New(mirrorRoot, fo)
+	defer func() { _ = sel.Ops.Close() }()
+	m := mirror.New(mirrorRoot, sel.Ops)
 
 	// A path already inside the mirror is the rewritten form coming back to us
 	// on PostToolUse; recover the target path it stands for.
@@ -132,7 +135,6 @@ func runHook(args []string) int {
 		return 0
 	}
 
-	ctx := context.Background()
 	switch ev.HookEventName {
 	case "PreToolUse":
 		var local string

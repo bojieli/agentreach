@@ -10,6 +10,7 @@ import (
 
 	"github.com/bojieli/waldo/internal/fileops"
 	"github.com/bojieli/waldo/internal/session"
+	"github.com/bojieli/waldo/internal/transport"
 	"github.com/bojieli/waldo/internal/waldo"
 )
 
@@ -72,6 +73,27 @@ func cmdDoctor(ctx context.Context, args []string) error {
 	fmt.Printf("  ripgrep          %s\n", orNone(caps.Ripgrep))
 	fmt.Printf("  python3          %s\n", ok(caps.Python3))
 
+	fmt.Printf("  sftp subsystem   %s\n", ok(caps.SFTP))
+
+	fmt.Println("\nFILE-OPERATION TIERS")
+	for _, tier := range []waldo.Tier{waldo.TierPOSIX, waldo.TierSFTP, waldo.TierPipe, waldo.TierAgent} {
+		qualifies, why := caps.Qualifies(tier)
+		mark := "no "
+		if qualifies {
+			mark = "yes"
+		}
+		line := fmt.Sprintf("  %-6s %s", tier, mark)
+		if why != "" {
+			line += "  — " + why
+		}
+		fmt.Println(line)
+	}
+	fmt.Printf("\n  Negotiated tier: %s (autonegotiation stops below agent)\n", caps.BestTier())
+	if s.Pinned {
+		fmt.Printf("  This session pins %s with --fileops.\n", s.Tier)
+	}
+	reportAgentFootprint(ctx, t, caps)
+
 	fmt.Println("\nWHAT THIS MEANS")
 	if caps.Ripgrep == "" {
 		fmt.Println("  ! No ripgrep on the target. Search falls back to grep, which is slower")
@@ -87,8 +109,10 @@ func cmdDoctor(ctx context.Context, args []string) error {
 	if caps.StatFlavor == "" {
 		fmt.Println("  ! No usable stat. File metadata is unavailable; this target cannot be used.")
 	}
-	fmt.Printf("  Selected file-operation tier: %s\n", waldo.TierPOSIX)
-	fmt.Println("  Nothing is installed on this target and nothing is written to its disk.")
+	if !caps.SFTP {
+		fmt.Println("  ! The SFTP subsystem did not answer, so file content moves base64-framed")
+		fmt.Println("    over the shell. That is universal and about a third slower on the wire.")
+	}
 
 	fmt.Println("\nLOCAL HARNESSES")
 	reportHarness("claude", "Claude Code", "CLAUDE_CODE_SHELL_PREFIX")
@@ -96,6 +120,36 @@ func cmdDoctor(ctx context.Context, args []string) error {
 	reportHarness("kimi", "Kimi Code", "PATH shim")
 	reportHarness("opencode", "opencode", "tool shadowing plugin")
 	return nil
+}
+
+// reportAgentFootprint prints what waldo has left on this target.
+//
+// waldo's central promise is that it puts nothing on a machine you do not
+// control. The only tier that breaks that promise does so at the operator's
+// explicit request — and a promise like this one is worth nothing unless there
+// is a command that shows whether it currently holds.
+func reportAgentFootprint(ctx context.Context, t transport.Transport, caps *fileops.Capabilities) {
+	dir, err := fileops.AgentCacheDir(ctx, t)
+	if err != nil {
+		return
+	}
+	res, err := t.Run(ctx, waldo.ExecRequest{
+		Command:   fmt.Sprintf("ls -1 %s 2>/dev/null || true", shellQuote(dir)),
+		MaxOutput: 8 << 10,
+	})
+	if err != nil {
+		return
+	}
+	names := strings.Fields(string(res.Stdout))
+	if len(names) == 0 {
+		fmt.Println("\n  waldo has written nothing to this target.")
+		return
+	}
+	fmt.Printf("\n  waldo has installed %d file(s) in %s:\n", len(names), dir)
+	for _, n := range names {
+		fmt.Printf("    %s\n", n)
+	}
+	fmt.Println("  Remove them with: waldo agent uninstall")
 }
 
 func orNone(s string) string {

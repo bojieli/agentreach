@@ -22,6 +22,7 @@ SESSIONS
   down [name]       end a session and close its connection
   status [name]     show sessions
   doctor [name]     diagnose a target: what works, what degrades, and why
+  agent <op>        inspect or remove the optional helper binary (tier 3)
 
 RUNNING
   exec [cmd...]     run a command on the target
@@ -99,8 +100,10 @@ func main() {
 		os.Exit(cmdKimi(ctx, os.Args[2:]))
 	case "opencode":
 		err = cmdOpencode(ctx, os.Args[2:])
+	case "agent":
+		err = cmdAgent(ctx, os.Args[2:])
 	case "version", "--version", "-v":
-		fmt.Println("waldo", version())
+		fmt.Println(versionLine())
 	case "help", "--help", "-h":
 		fmt.Print(usage)
 	default:

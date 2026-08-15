@@ -16,7 +16,10 @@ builds:
     goos: [linux, darwin]
     goarch: [amd64, arm64]
     ldflags:
-      - -s -w -X main.buildVersion={{.Version}}
+      - -s -w
+        -X main.buildVersion={{.Version}}
+        -X main.buildCommit={{.ShortCommit}}
+        -X main.buildDate={{.CommitDate}}
     mod_timestamp: '{{ .CommitTimestamp }}'
 
 archives:

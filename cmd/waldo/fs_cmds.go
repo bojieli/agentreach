@@ -28,8 +28,10 @@ const fsUsage = `waldo fs — file operations on the session's target
 Content is written to stdout as raw bytes, so binary files survive intact.
 `
 
-// openFileOps resolves the session and builds a file-operation strategy.
-func openFileOps(sessionName string) (*session.Session, fileops.FileOps, error) {
+// openFileOps resolves the session and builds a file-operation strategy. The
+// caller must close the returned FileOps: above tier 0 it owns a live channel
+// to the target.
+func openFileOps(ctx context.Context, sessionName string) (*session.Session, fileops.FileOps, error) {
 	s, err := session.Load(sessionName)
 	if err != nil {
 		return nil, nil, err
@@ -38,11 +40,11 @@ func openFileOps(sessionName string) (*session.Session, fileops.FileOps, error) 
 	if err != nil {
 		return nil, nil, err
 	}
-	fo, err := s.FileOps(t)
+	sel, err := s.FileOps(ctx, t)
 	if err != nil {
 		return nil, nil, err
 	}
-	return s, fo, nil
+	return s, sel.Ops, nil
 }
 
 // resolvePath makes a path absolute against the session's working directory,
@@ -84,10 +86,11 @@ func cmdFS(ctx context.Context, args []string) error {
 		return fmt.Errorf("waldo fs %s: expected an argument\n\n%s", sub, fsUsage)
 	}
 
-	s, fo, err := openFileOps(sessionNameFromEnv(*sessName))
+	s, fo, err := openFileOps(ctx, sessionNameFromEnv(*sessName))
 	if err != nil {
 		return err
 	}
+	defer func() { _ = fo.Close() }()
 
 	arg := ""
 	if len(pos) > 0 {

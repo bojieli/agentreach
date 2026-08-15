@@ -1,0 +1,309 @@
+package fileops
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"os"
+	"os/exec"
+	"path"
+	"path/filepath"
+	"runtime"
+	"strings"
+
+	"github.com/bojieli/waldo/internal/transport"
+	"github.com/bojieli/waldo/internal/waldo"
+)
+
+// AgentBinaryEnv names an explicit path to an agent binary for the target's
+// platform, for operators who build or vendor their own.
+const AgentBinaryEnv = "WALDO_AGENT_BINARY"
+
+// NewAgent installs the helper binary if needed and starts it.
+//
+// This is the only tier that writes to the target. Everything about it is
+// therefore built to be reversible and visible: the version is in the path so
+// an upgrade never reuses a stale binary, the content is verified by digest
+// after upload so a truncated transfer is caught rather than executed, `waldo
+// doctor` reports what is there, and `waldo agent uninstall` removes it.
+func NewAgent(ctx context.Context, t transport.Transport, base *POSIX, caps *Capabilities) (FileOps, error) {
+	goos, goarch, err := platformOf(caps.Uname)
+	if err != nil {
+		return nil, err
+	}
+
+	local, err := LocateAgentBinary(goos, goarch)
+	if err != nil {
+		return nil, err
+	}
+	payload, err := os.ReadFile(local)
+	if err != nil {
+		return nil, fmt.Errorf("read agent binary %s: %w", local, err)
+	}
+	sum := sha256.Sum256(payload)
+	digest := hex.EncodeToString(sum[:])
+
+	remote, err := AgentPath(ctx, t, goos, goarch)
+	if err != nil {
+		return nil, err
+	}
+
+	if !agentMatches(ctx, t, remote, digest, goos, goarch) {
+		if err := installAgent(ctx, t, base, remote, payload); err != nil {
+			return nil, err
+		}
+		if !agentMatches(ctx, t, remote, digest, goos, goarch) {
+			return nil, fmt.Errorf(
+				"the agent at %s does not report the version and digest waldo just installed.\n"+
+					"waldo will not run a binary it cannot identify; use --fileops=pipe or omit\n"+
+					"--fileops to negotiate a tier that installs nothing.", remote)
+		}
+	}
+
+	return startHandler(ctx, t, base, waldo.TierAgent, "agent",
+		fmt.Sprintf("exec %s serve", transport.ShellQuote(remote)), "")
+}
+
+// agentMatches asks an installed agent to identify itself.
+//
+// Both the version and the content digest must match. Version alone would
+// happily accept a truncated upload, and a digest alone would accept a binary
+// from a different waldo release that happened to hash the same way it did
+// before an upgrade — neither is something to run on someone else's machine.
+func agentMatches(ctx context.Context, t transport.Transport, remote, digest, goos, goarch string) bool {
+	res, err := t.Run(ctx, waldo.ExecRequest{
+		Command:   fmt.Sprintf("%s --selftest 2>/dev/null", transport.ShellQuote(remote)),
+		MaxOutput: 4 << 10,
+	})
+	if err != nil || res.Code != 0 {
+		return false
+	}
+	want := fmt.Sprintf("waldo-agent %s %s %s/%s", waldo.Version, digest, goos, goarch)
+	return strings.TrimSpace(string(res.Stdout)) == want
+}
+
+// installAgent uploads the binary using the tier that needs nothing installed.
+//
+// Tier 0 is used deliberately: bootstrapping the fast tier with the universal
+// one means installation works on exactly the hosts waldo can already reach,
+// with no separate upload path to keep correct.
+func installAgent(ctx context.Context, t transport.Transport, base *POSIX, remote string, payload []byte) error {
+	if err := base.Mkdir(ctx, path.Dir(remote), 0o700); err != nil {
+		return fmt.Errorf("create the agent cache directory on the target: %w", err)
+	}
+	if err := base.Write(ctx, remote, payload, 0o700); err != nil {
+		return fmt.Errorf("upload the agent to %s: %w", remote, err)
+	}
+	return nil
+}
+
+// AgentPath resolves where the agent lives on a target.
+//
+// The version is part of the filename so that an upgraded waldo installs a new
+// agent rather than silently reusing an old one, and so that `waldo doctor` can
+// list exactly what waldo has left on a host.
+func AgentPath(ctx context.Context, t transport.Transport, goos, goarch string) (string, error) {
+	res, err := t.Run(ctx, waldo.ExecRequest{
+		Command:   `printf %s "${XDG_CACHE_HOME:-$HOME/.cache}"`,
+		MaxOutput: 4 << 10,
+	})
+	if err != nil {
+		return "", fmt.Errorf("resolve the target's cache directory: %w", err)
+	}
+	cache := strings.TrimSpace(string(res.Stdout))
+	if cache == "" || !strings.HasPrefix(cache, "/") {
+		return "", fmt.Errorf("the target reported no usable cache directory (%q); "+
+			"tier 3 needs somewhere it may write", cache)
+	}
+	return path.Join(cache, "waldo", fmt.Sprintf("agent-%s-%s-%s", waldo.Version, goos, goarch)), nil
+}
+
+// AgentCacheDir is the directory waldo creates on a target for tier 3, and the
+// only directory it ever removes there.
+func AgentCacheDir(ctx context.Context, t transport.Transport) (string, error) {
+	p, err := AgentPath(ctx, t, "x", "y")
+	if err != nil {
+		return "", err
+	}
+	return path.Dir(p), nil
+}
+
+// LocateAgentBinary finds an agent build for a target platform.
+//
+// Release archives ship one per supported platform beside the waldo binary. A
+// source checkout has a Go toolchain by definition, so waldo cross-compiles one
+// and caches it. Both paths end with a real file whose digest waldo can verify
+// after upload; neither downloads anything at run time, because a tool that
+// exists to touch nothing on a target should not be fetching executables over
+// the network to put there.
+func LocateAgentBinary(goos, goarch string) (string, error) {
+	name := fmt.Sprintf("waldo-agent-%s-%s", goos, goarch)
+
+	if explicit := os.Getenv(AgentBinaryEnv); explicit != "" {
+		if _, err := os.Stat(explicit); err != nil {
+			return "", fmt.Errorf("%s is set to %s, which cannot be read: %w", AgentBinaryEnv, explicit, err)
+		}
+		return explicit, nil
+	}
+
+	var candidates []string
+	if self, err := os.Executable(); err == nil {
+		if resolved, err := filepath.EvalSymlinks(self); err == nil {
+			self = resolved
+		}
+		dir := filepath.Dir(self)
+		candidates = append(candidates, filepath.Join(dir, name))
+		if goos == runtime.GOOS && goarch == runtime.GOARCH {
+			candidates = append(candidates, filepath.Join(dir, "waldo-agent"))
+		}
+	}
+	cacheDir, cacheErr := agentCacheDir()
+	if cacheErr == nil {
+		candidates = append(candidates, filepath.Join(cacheDir, name))
+	}
+	for _, c := range candidates {
+		if fi, err := os.Stat(c); err == nil && !fi.IsDir() {
+			return c, nil
+		}
+	}
+
+	if cacheErr != nil {
+		return "", cacheErr
+	}
+	built, err := buildAgent(goos, goarch, filepath.Join(cacheDir, name))
+	if err != nil {
+		return "", fmt.Errorf(
+			"no agent binary for %s/%s.\n"+
+				"Release archives ship one beside the waldo binary; from a source checkout waldo\n"+
+				"builds one with the local Go toolchain, which failed here: %w\n"+
+				"Set %s to a binary you built yourself, or use --fileops=pipe, which installs nothing.",
+			goos, goarch, err, AgentBinaryEnv)
+	}
+	return built, nil
+}
+
+func agentCacheDir() (string, error) {
+	base := os.Getenv("WALDO_HOME")
+	if base == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("locate home directory: %w", err)
+		}
+		base = filepath.Join(home, ".waldo")
+	}
+	dir := filepath.Join(base, "agent")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("create %s: %w", dir, err)
+	}
+	return dir, nil
+}
+
+// buildAgent cross-compiles the helper for a target platform.
+//
+// The build is deliberately hermetic: -trimpath so the binary carries no local
+// paths, CGO off so it is static and runs on a target with a different libc,
+// and the version stamped in so the installed copy can identify itself.
+func buildAgent(goos, goarch, out string) (string, error) {
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		return "", fmt.Errorf("no Go toolchain on PATH")
+	}
+	root, err := moduleRoot()
+	if err != nil {
+		return "", err
+	}
+	cmd := exec.Command(goBin, "build",
+		"-trimpath",
+		"-ldflags", "-s -w -X main.version="+waldo.Version,
+		"-o", out,
+		"./cmd/waldo-agent")
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(),
+		"GOOS="+goos, "GOARCH="+goarch, "CGO_ENABLED=0")
+	if outBytes, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("%v: %s", err, strings.TrimSpace(string(outBytes)))
+	}
+	return out, nil
+}
+
+// moduleRoot finds a waldo source checkout to build the agent from.
+//
+// It searches upward from the waldo binary and from the working directory,
+// because both are plausible: a developer running ./waldo from the checkout,
+// and one who installed it but is standing in the source tree. A release binary
+// finds neither, which is correct — it ships the agent builds instead.
+func moduleRoot() (string, error) {
+	var starts []string
+	if self, err := os.Executable(); err == nil {
+		if resolved, err := filepath.EvalSymlinks(self); err == nil {
+			self = resolved
+		}
+		starts = append(starts, filepath.Dir(self))
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		starts = append(starts, cwd)
+	}
+	for _, start := range starts {
+		for dir := start; ; {
+			data, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+			if err == nil && strings.Contains(string(data), "module github.com/bojieli/waldo") {
+				return dir, nil
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break
+			}
+			dir = parent
+		}
+	}
+	return "", fmt.Errorf("no waldo source checkout found to build the agent from")
+}
+
+// platformOf maps `uname -sm` to a Go platform pair.
+//
+// An unrecognised platform is an error rather than a guess: waldo would be
+// uploading an executable to someone else's machine, and the failure mode of
+// guessing wrong is an unrunnable binary left behind on a host that was
+// supposed to stay untouched.
+func platformOf(uname string) (string, string, error) {
+	fields := strings.Fields(uname)
+	if len(fields) < 2 {
+		return "", "", fmt.Errorf("cannot read the target's platform from %q; tier 3 needs to know which binary to install", uname)
+	}
+	var goos string
+	switch strings.ToLower(fields[0]) {
+	case "linux":
+		goos = "linux"
+	case "darwin":
+		goos = "darwin"
+	case "freebsd":
+		goos = "freebsd"
+	case "openbsd":
+		goos = "openbsd"
+	case "netbsd":
+		goos = "netbsd"
+	default:
+		return "", "", fmt.Errorf("target OS %q has no waldo agent build", fields[0])
+	}
+	var goarch string
+	switch strings.ToLower(fields[1]) {
+	case "x86_64", "amd64":
+		goarch = "amd64"
+	case "aarch64", "arm64":
+		goarch = "arm64"
+	case "armv7l", "armv6l", "arm":
+		goarch = "arm"
+	case "i386", "i686":
+		goarch = "386"
+	case "riscv64":
+		goarch = "riscv64"
+	case "ppc64le":
+		goarch = "ppc64le"
+	case "s390x":
+		goarch = "s390x"
+	default:
+		return "", "", fmt.Errorf("target architecture %q has no waldo agent build", fields[1])
+	}
+	return goos, goarch, nil
+}
