@@ -13,6 +13,26 @@ project makes without a version attached.
 
 ### Fixed
 
+- **The release pipeline could not have produced a release.** The build hooks
+  wrote the helper binaries into `dist/`, which goreleaser then refuses to find
+  non-empty, so a tag would have failed in the one step nobody runs locally. Two
+  more defects were behind it: `docs/**/*` matched only nested files, so no
+  archive carried ARCHITECTURE, TRANSPORTS, SECURITY or WINDOWS; and goreleaser
+  ships an archive whose file globs matched nothing without an error, so a
+  release could have gone out with no helper binary at all — the thing the
+  helper tier installs on your target. CI now builds a snapshot on every push
+  and asserts the archives contain what they promise.
+
+- **`waldo fs` blamed a flag when the subcommand was wrong.** `waldo fs search
+  --root /srv` reported "flag provided but not defined: -root" rather than
+  saying the subcommand is `grep`. Flags are now parsed after the subcommand is
+  checked, and a plausible wrong guess names the right command.
+
+- **The session name was spelled differently by different commands.** `waldo env
+  --session prod` failed with "flag provided but not defined" while `waldo log
+  --session prod` worked. Every command that acts on a session now accepts both
+  `--session NAME` and a positional name.
+
 - **A session naming a removed tier loaded as a *pinned* posix session.**
   `Load` discarded `ParseTier`'s error, leaving the tier at its zero value, so a
   session created with `--fileops=sftp` came back reporting the tier it was told
@@ -38,6 +58,23 @@ project makes without a version attached.
   prod` printed every session while looking like it printed one.
 
 ### Added
+
+- **`waldo fs mv <from> <to>`.** Every tier implemented Rename and the
+  conformance suite covered it; the CLI just never exposed it, so the one file
+  operation an agent could not express through `waldo fs` was the most ordinary
+  one there is.
+
+- **`waldo status NAME`** shows one session, which the help had always said it
+  did. It reads local state only and never contacts the target, so it still
+  answers when the target is unreachable — which is when you most want to know
+  what waldo thinks it is connected to. `waldo status` with no name still lists
+  everything, including sessions that will not load, with the reason.
+
+- **Releases are signed and ship an SBOM.** Keyless cosign signing over
+  `checksums.txt` binds a release to this repository's tagged CI run, and each
+  archive carries an SPDX SBOM. waldo's helper tier copies a binary onto a
+  machine you may not own, and the release archive is where that binary comes
+  from, so provenance is not decoration here.
 
 - **Session documents carry a schema version.** A session file outlives the
   binary that wrote it, and more than one waldo is often on PATH — a
