@@ -4,7 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -23,6 +23,7 @@ import (
 // silently fell back to plain grep by noticing their agent got worse.
 func cmdDoctor(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	sessName := fs.String("session", "", "session name (default $WALDO_SESSION)")
 	pos, err := parseFlags(fs, args)
 	if err != nil {
 		return err
@@ -37,7 +38,7 @@ func cmdDoctor(ctx context.Context, args []string) error {
 		s = &session.Session{Name: "doctor", Target: target, Tier: waldo.TierPOSIX}
 	} else {
 		var loadErr error
-		if s, loadErr = session.Load(sessionNameFromEnv(first(pos))); loadErr != nil {
+		if s, loadErr = session.Load(sessionNameFromEnv(firstNonEmpty(*sessName, first(pos)))); loadErr != nil {
 			return loadErr
 		}
 	}
@@ -89,6 +90,7 @@ func cmdDoctor(ctx context.Context, args []string) error {
 		fmt.Println(line)
 	}
 	fmt.Printf("\n  Negotiated tier: %s (autonegotiation stops below agent)\n", caps.BestTier())
+	reportConnectionReuse(ctx, s)
 	if s.Pinned {
 		fmt.Printf("  This session pins %s with --fileops.\n", s.Tier)
 	}
@@ -120,6 +122,36 @@ func cmdDoctor(ctx context.Context, args []string) error {
 	reportHarness("kimi", "Kimi Code", "PATH shim")
 	reportHarness("opencode", "opencode", "tool shadowing plugin")
 	return nil
+}
+
+// reportConnectionReuse says whether commands will share one authenticated
+// connection or open a new one each time.
+//
+// This is probed rather than inferred from the platform. Win32-OpenSSH has no
+// ControlMaster today, but a version string says what was compiled in, not what
+// a Match block or a restricted socket directory will permit at run time — and
+// if a future release gains the feature, waldo should use it without waiting
+// for someone to update a table of assumptions.
+func reportConnectionReuse(ctx context.Context, s *session.Session) {
+	if s.Target.Kind != session.KindSSH {
+		return
+	}
+	ok, why := transport.DetectMultiplexing(ctx, transport.SSHConfig{
+		Host: s.Target.Host,
+		User: s.Target.User,
+		Port: s.Target.Port,
+	})
+	if ok {
+		fmt.Println("  Connection reuse: yes — one authenticated connection, ~7ms per command")
+		return
+	}
+	fmt.Println("  Connection reuse: NO — every command opens and authenticates its own")
+	if why != "" {
+		fmt.Printf("    %s\n", why)
+	}
+	fmt.Println("    Expect ~130ms per command instead of ~7ms. If your key has a passphrase,")
+	fmt.Println("    run an ssh-agent: without one, every tool call needs the passphrase and")
+	fmt.Println("    BatchMode will fail them all.")
 }
 
 // reportAgentFootprint prints what waldo has left on this target.
@@ -160,26 +192,9 @@ func orNone(s string) string {
 }
 
 func reportHarness(bin, label, seam string) {
-	if p, err := exeLook(bin); err == nil {
+	if p, err := exec.LookPath(bin); err == nil {
 		fmt.Printf("  %-12s found (%s) — seam: %s\n", label, filepath.Base(p), seam)
 	} else {
 		fmt.Printf("  %-12s not installed\n", label)
 	}
-}
-
-// exeLook resolves an executable on PATH.
-//
-// exec.LookPath is not used because it consults the process's own PATH through
-// the standard library's cached view, and waldo edits PATH when it installs
-// shell shims. Reading the environment variable directly keeps lookups
-// consistent with the PATH a harness will actually be launched with.
-func exeLook(bin string) (string, error) {
-	path := os.Getenv("PATH")
-	for _, dir := range filepath.SplitList(path) {
-		p := filepath.Join(dir, bin)
-		if fi, err := os.Stat(p); err == nil && !fi.IsDir() && fi.Mode()&0o111 != 0 {
-			return p, nil
-		}
-	}
-	return "", fmt.Errorf("%s not found in PATH", bin)
 }

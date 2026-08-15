@@ -40,6 +40,13 @@ type SSHConfig struct {
 	// so this is opt-in and loudly documented.
 	ForwardAgent bool
 
+	// Multiplex keeps one authenticated connection alive and runs later
+	// commands as channels on it. It is the difference between ~7 ms and
+	// ~130 ms per command, and between one authentication and one per tool
+	// call — but Win32-OpenSSH does not implement it, so this is decided per
+	// host by DetectMultiplexing rather than compiled in as a constant.
+	Multiplex bool
+
 	// BatchMode disables all interactive prompts. It is off during `waldo up`
 	// so first-connection password or 2FA prompts can be answered, and on
 	// afterwards so an expired credential fails fast instead of hanging a
@@ -121,10 +128,14 @@ func (t *SSHTransport) baseArgs() []string {
 	if cfgFile := os.Getenv("WALDO_SSH_CONFIG"); cfgFile != "" {
 		args = append(args, "-F", cfgFile)
 	}
+	if c.Multiplex {
+		args = append(args,
+			"-o", "ControlMaster=auto",
+			"-o", "ControlPath="+t.controlPath,
+			"-o", "ControlPersist="+strconv.Itoa(int(c.ControlPersist.Seconds())),
+		)
+	}
 	args = append(args,
-		"-o", "ControlMaster=auto",
-		"-o", "ControlPath="+t.controlPath,
-		"-o", "ControlPersist="+strconv.Itoa(int(c.ControlPersist.Seconds())),
 		"-o", "ConnectTimeout="+strconv.Itoa(int(c.ConnectTimeout.Seconds())),
 		// Detect a dead link instead of blocking forever on a half-open TCP
 		// connection. This is the difference between an agent seeing a timeout
@@ -262,6 +273,10 @@ func (t *SSHTransport) Describe() string {
 // Close tears down the multiplexed master so no connection outlives the
 // session that created it. Leaving a live master to someone else's server
 // would be a surprising residue for a tool whose premise is leaving no trace.
+//
+// Without multiplexing there is nothing to tear down: each command owned its
+// own connection and closed it when it exited. The guarantee holds either way,
+// which is the one consolation of the slower path.
 func (t *SSHTransport) Close() error {
 	t.mu.Lock()
 	if t.closed {
@@ -271,17 +286,14 @@ func (t *SSHTransport) Close() error {
 	t.closed = true
 	t.mu.Unlock()
 
+	if !t.cfg.Multiplex {
+		return nil
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	args := append(t.baseArgs(), "-O", "exit", t.cfg.Host)
 	_ = exec.CommandContext(ctx, t.cfg.Binary, args...).Run()
 	return nil
-}
-
-// Alive reports whether the multiplexed master is currently up.
-func (t *SSHTransport) Alive(ctx context.Context) bool {
-	args := append(t.baseArgs(), "-O", "check", t.cfg.Host)
-	return exec.CommandContext(ctx, t.cfg.Binary, args...).Run() == nil
 }
 
 var _ Transport = (*SSHTransport)(nil)

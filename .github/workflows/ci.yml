@@ -18,11 +18,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # waldo's file operations depend on the target's userland, and GNU and
-        # BSD coreutils differ on exactly the utilities involved. Testing on
-        # both is what keeps macOS targets working — `chmod 700 -- path` worked
-        # under GNU and failed under BSD, and only a matrix catches that.
-        os: [ubuntu-latest, macos-latest]
+        # Three platforms, for two different reasons.
+        #
+        # Linux and macOS differ in the target's userland: GNU and BSD coreutils
+        # disagree on exactly the utilities file operations depend on, and
+        # `chmod 700 -- path` worked under one and failed under the other.
+        #
+        # Windows is here because waldo runs *on* it. Its differences are not
+        # cosmetic — the search path is spelled `Path`, and there is no execute
+        # bit — and both failed silently in ways that end with an agent running
+        # commands on the operator's own machine. Those assertions only mean
+        # something when they execute on Windows.
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -30,15 +37,25 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
       - name: gofmt
+        shell: bash
         run: |
           unformatted="$(gofmt -l .)"
           if [ -n "$unformatted" ]; then
             echo "these files are not gofmt'd:"; echo "$unformatted"; exit 1
           fi
       - run: go vet ./...
-      - run: go test -race -count=1 -coverprofile=coverage.out -covermode=atomic ./...
+      # The race detector needs a C toolchain and is markedly slower on Windows;
+      # the concurrency it guards (the SFTP pipeline, the handler client) is
+      # platform-independent and covered on the other two runners.
+      - name: test
+        shell: bash
+        run: |
+          race=-race
+          [ "$RUNNER_OS" = "Windows" ] && race=
+          go test $race -count=1 -coverprofile=coverage.out -covermode=atomic ./...
       - run: go build ./cmd/...
       - name: coverage summary
+        shell: bash
         run: go tool cover -func=coverage.out | tail -1
 
   lint:
@@ -76,6 +93,47 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y openssh-server
       - run: go test -race -count=1 -tags integration ./test/integration/...
+
+  windows-cli:
+    name: windows cli surface
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      # The unit tests cover the shim and PATH machinery. This covers the thing
+      # a Windows operator meets before any of that: does the binary run, does
+      # it report itself honestly, and does it fail with an explanation rather
+      # than a stack trace when pointed somewhere it cannot reach?
+      - name: build
+        run: go build -o waldo.exe ./cmd/waldo
+      - name: version and help
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./waldo.exe version | tee version.txt
+          grep -qi 'windows/' version.txt
+          ./waldo.exe help | grep -q 'teleoperation'
+      - name: an unreachable target fails with an explanation
+        shell: bash
+        run: |
+          set -uo pipefail
+          export WALDO_HOME="$RUNNER_TEMP/waldo-home"
+          # BatchMode plus a host that does not exist: this must be a clear
+          # error, not a hang and not a panic.
+          ./waldo.exe up ssh://waldo-nonexistent.invalid/tmp/x --name smoke > out.txt 2>&1
+          status=$?
+          cat out.txt
+          test $status -ne 0
+          grep -qi 'cannot use' out.txt
+      - name: status with no sessions is not an error
+        shell: bash
+        run: |
+          set -euo pipefail
+          export WALDO_HOME="$RUNNER_TEMP/waldo-home-empty"
+          ./waldo.exe status | grep -qi 'no waldo sessions'
 
   handler:
     name: python handler (${{ matrix.python }})
@@ -119,10 +177,8 @@ jobs:
           - { goos: darwin,  goarch: amd64 }
           - { goos: darwin,  goarch: arm64 }
           - { goos: freebsd, goarch: amd64 }
-          # Windows is not a supported platform, but it must keep compiling:
-          # the refusal that tells a Windows user to use WSL is Go code, and it
-          # can only run if the binary builds.
           - { goos: windows, goarch: amd64 }
+          - { goos: windows, goarch: arm64 }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

@@ -8,11 +8,11 @@ import (
 	"strings"
 )
 
-// bashShimName is the basename waldo answers to when installed on PATH as a
+// bashShimName is the logical name waldo answers to when installed on PATH as a
 // harness's shell.
 //
-// Harnesses that resolve their shell with execvp — Codex does — can be
-// intercepted by placing an executable named `bash` earlier on PATH. This
+// Harnesses that resolve their shell by name — Codex does, through execvp —
+// are intercepted by placing an executable called `bash` earlier on PATH. This
 // requires no fork, no chsh, and no configuration file the harness has to
 // support.
 const bashShimName = "bash"
@@ -25,9 +25,12 @@ const bashShimName = "bash"
 // back into waldo and recurse until the machine ran out of processes.
 const shimGuardEnv = "WALDO_IN_SHELL_SHIM"
 
+// shimmedShellNames are the shell names waldo installs on PATH and answers to.
+var shimmedShellNames = []string{bashShimName, "sh"}
+
 // isBashShimInvocation reports whether waldo was started as a harness's shell.
 func isBashShimInvocation() bool {
-	base := filepath.Base(os.Args[0])
+	base := programBase(os.Args[0])
 	return base == bashShimName || base == "sh" || base == "zsh"
 }
 
@@ -91,22 +94,36 @@ func execRealShell(args []string) int {
 
 // findRealShell locates a shell that is not one of waldo's shims.
 func findRealShell() (string, error) {
-	shimDir, _ := binDir()
-	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
-		if dir == shimDir || filepath.Base(dir) == "shim" {
+	shimDir, _ := shimBinDir()
+	for _, dir := range filepath.SplitList(pathEnvValue()) {
+		if dir == "" || sameDir(dir, shimDir) {
 			continue
 		}
-		p := filepath.Join(dir, "bash")
-		if fi, err := os.Stat(p); err == nil && !fi.IsDir() && fi.Mode()&0o111 != 0 {
-			return p, nil
+		for _, name := range shellCandidateNames() {
+			p := filepath.Join(dir, name)
+			if isExecutableFile(p) {
+				return p, nil
+			}
 		}
 	}
-	for _, p := range []string{"/bin/bash", "/usr/bin/bash", "/bin/sh"} {
-		if fi, err := os.Stat(p); err == nil && fi.Mode()&0o111 != 0 {
+	for _, p := range fallbackShellPaths() {
+		if isExecutableFile(p) {
 			return p, nil
 		}
 	}
 	return "", fmt.Errorf("no shell found on PATH")
+}
+
+// sameDir compares two directory paths for identity.
+//
+// Windows paths differ in case and separator without differing in meaning, so a
+// byte comparison would fail to recognise waldo's own shim directory and send
+// the shim straight back into itself.
+func sameDir(a, b string) bool {
+	if b == "" {
+		return false
+	}
+	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
 }
 
 // sanitisedEnv returns the environment with waldo's shim directory removed
@@ -116,64 +133,40 @@ func sanitisedEnv() []string {
 	if err != nil {
 		return os.Environ()
 	}
-	out := make([]string, 0, len(os.Environ()))
-	for _, kv := range os.Environ() {
-		if k, v, ok := strings.Cut(kv, "="); ok && k == "PATH" {
-			var kept []string
-			for _, d := range filepath.SplitList(v) {
-				if d != shimDir {
-					kept = append(kept, d)
-				}
-			}
-			out = append(out, "PATH="+strings.Join(kept, string(filepath.ListSeparator)))
-			continue
+	var kept []string
+	for _, d := range filepath.SplitList(pathEnvValue()) {
+		if !sameDir(d, shimDir) {
+			kept = append(kept, d)
 		}
-		out = append(out, kv)
 	}
-	return out
+	return setPathEnv(os.Environ(), strings.Join(kept, string(filepath.ListSeparator)))
 }
 
 // shimBinDir is the directory holding the PATH-based shell shims. It is kept
 // separate from the general bin directory so that prepending it to PATH
 // exposes only the shell, never waldo itself.
 func shimBinDir() (string, error) {
-	base := os.Getenv("WALDO_HOME")
-	if base == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		base = filepath.Join(home, ".waldo")
-	}
-	dir := filepath.Join(base, "shim")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
-	return dir, nil
+	return waldoSubdir("shim")
 }
 
 // ensurePathShim installs shell shims and returns the directory to prepend to
 // PATH.
 func ensurePathShim() (string, error) {
-	self, err := os.Executable()
+	self, err := selfPath()
 	if err != nil {
-		return "", err
-	}
-	if self, err = filepath.EvalSymlinks(self); err != nil {
 		return "", err
 	}
 	dir, err := shimBinDir()
 	if err != nil {
 		return "", err
 	}
-	for _, name := range []string{"bash", "sh"} {
-		link := filepath.Join(dir, name)
-		if cur, err := os.Readlink(link); err == nil && cur == self {
+	for _, name := range shimmedShellNames {
+		alias := filepath.Join(dir, programName(name))
+		if programAliasIsCurrent(alias, self) {
 			continue
 		}
-		_ = os.Remove(link)
-		if err := os.Symlink(self, link); err != nil {
-			return "", fmt.Errorf("install %s shim: %w", name, err)
+		if err := installProgramAlias(self, alias); err != nil {
+			return "", fmt.Errorf("install the %s shim at %s: %w", name, alias, err)
 		}
 	}
 	return dir, nil

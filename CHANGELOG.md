@@ -13,6 +13,19 @@ project makes without a version attached.
 
 ### Added
 
+- **Native Windows support.** waldo runs on Windows as a first-class operator
+  platform, driving a remote POSIX target. Shims are installed as hard links
+  (falling back to copies) rather than symlinks, which need Developer Mode;
+  harnesses are launched as child processes, since Windows has no `execve`;
+  executables are found through `PATHEXT` rather than a Unix execute bit; and
+  the search path is matched case-insensitively, because Windows spells it
+  `Path`. Unit tests and a CLI smoke test run on `windows-latest` on every
+  commit.
+- **Connection multiplexing is probed rather than assumed.** Win32-OpenSSH does
+  not implement `ControlMaster`, so waldo establishes a master and asks the
+  client to confirm it, records the answer in the session, and reports it in
+  `waldo up` and `waldo doctor`. A Windows OpenSSH that gains the feature will
+  be used without a code change.
 - **File-operation tiers 1, 2 and 3.** Only tier 0 existed; the other three were
   described in `docs/TRANSPORTS.md` and silently served by tier 0.
   - `sftp`: a dependency-free SFTP v3 client over `ssh -s sftp`. Zero remote
@@ -45,13 +58,14 @@ project makes without a version attached.
 
 ### Fixed
 
-- **Native Windows compiled, installed, and then misbehaved.** Go stubs
-  `syscall.Exec` on Windows to fail unconditionally, so `waldo codex`, `waldo
-  kimi` and the shell shim died with "not supported by windows" while `waldo
-  claude` limped through a fallback. waldo now refuses to start on native
-  Windows with an explanation and a pointer to WSL, and the supported platforms
-  are written down. Two of the three launch sites also had no fallback at all,
-  which made any `execve` failure fatal on Unix too.
+- **Windows silently did the wrong thing in three places**, each of which ended
+  with the agent's commands running on the operator's own machine while it
+  believed it was working on the target: the search path was matched as `PATH`
+  when Windows spells it `Path`, so the shim directory was never actually put in
+  front of the harness; executables were detected by a Unix execute bit that
+  Windows never sets, so every harness looked uninstalled; and two of the three
+  harness launch sites had no fallback for a failed `execve`, which on Windows
+  is every one of them.
 - `waldo fs mkdir` failed against every BSD-userland target (macOS included).
   BSD `chmod` takes the mode as a positional argument, so option parsing stops
   there and the `--` that followed was read as a filename.

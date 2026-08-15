@@ -13,7 +13,7 @@ import (
 
 func newLocalPOSIX(t *testing.T) *POSIX {
 	t.Helper()
-	tr := transport.NewLocal()
+	tr := localTransport(t)
 	caps, err := Probe(context.Background(), tr)
 	if err != nil {
 		t.Fatalf("probe: %v", err)
@@ -22,7 +22,7 @@ func newLocalPOSIX(t *testing.T) *POSIX {
 }
 
 func TestProbeDetectsUserland(t *testing.T) {
-	caps, err := Probe(context.Background(), transport.NewLocal())
+	caps, err := Probe(context.Background(), localTransport(t))
 	if err != nil {
 		t.Fatalf("probe: %v", err)
 	}
@@ -270,4 +270,17 @@ func TestReadLargerThanOutputCap(t *testing.T) {
 	if !bytes.Equal(got, want) {
 		t.Fatalf("large read corrupted: got %d bytes want %d", len(got), len(want))
 	}
+}
+
+// localTransport builds a local:// transport, skipping when this machine cannot
+// be a target. A local target needs a POSIX shell, which Windows only has when
+// Git for Windows or MSYS2 supplied one — and a Windows machine is never a
+// supported target, so skipping is the honest outcome rather than a failure.
+func localTransport(t *testing.T) transport.Transport {
+	t.Helper()
+	tr, err := transport.NewLocal()
+	if err != nil {
+		t.Skipf("this machine cannot host a local:// target: %v", err)
+	}
+	return tr
 }

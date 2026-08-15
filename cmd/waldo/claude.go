@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/bojieli/waldo/internal/session"
@@ -60,7 +61,7 @@ func cmdClaude(ctx context.Context, args []string) int {
 		fmt.Fprintln(os.Stderr, "waldo:", err)
 		return 1
 	}
-	claudePath, err := exeLook("claude")
+	claudePath, err := exec.LookPath("claude")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "waldo: Claude Code is not installed or not in PATH")
 		return 1

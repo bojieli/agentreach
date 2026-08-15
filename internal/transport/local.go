@@ -22,7 +22,19 @@ type LocalTransport struct {
 }
 
 // NewLocal builds a local transport.
-func NewLocal() *LocalTransport { return &LocalTransport{Shell: "/bin/sh"} }
+//
+// It resolves a POSIX shell rather than assuming /bin/sh, because on Windows
+// there is not one. A local:// target means "the machine waldo is running on is
+// the target", and every file-operation tier below the agent speaks to a target
+// through a POSIX shell — so on Windows this is only usable when Git for
+// Windows or MSYS2 has supplied one, and says so plainly when it has not.
+func NewLocal() (*LocalTransport, error) {
+	shell, err := localShell()
+	if err != nil {
+		return nil, err
+	}
+	return &LocalTransport{Shell: shell}, nil
+}
 
 // Run implements Transport.
 func (t *LocalTransport) Run(ctx context.Context, req waldo.ExecRequest) (waldo.ExecResult, error) {

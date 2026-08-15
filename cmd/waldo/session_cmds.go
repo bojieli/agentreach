@@ -115,6 +115,9 @@ func cmdUp(ctx context.Context, args []string) error {
 	fmt.Printf("  target   %s\n", s.Caps.Uname)
 	fmt.Printf("  fileops  %s%s\n", s.Tier, tierNote(s))
 	fmt.Printf("  search   %s\n", searchEngine(s))
+	if s.Target.Kind == session.KindSSH {
+		fmt.Printf("  connect  %s\n", connectionNote(s))
+	}
 	if s.Untrusted {
 		fmt.Printf("  policy   untrusted: no installs, no agent forwarding\n")
 	}
@@ -138,6 +141,24 @@ func tierNote(s *session.Session) string {
 	default:
 		return " (negotiated; nothing written to the target)"
 	}
+}
+
+// connectionNote describes how commands will reach the target.
+//
+// Multiplexing is the difference between ~7 ms and ~130 ms per command, and
+// between authenticating once and authenticating on every tool call. On a host
+// where it is unavailable, an operator with a passphrase-protected key and no
+// agent will meet that fact once per command, so it is worth a line at `up`
+// rather than a discovery later.
+func connectionNote(s *session.Session) string {
+	if s.Multiplex {
+		return "multiplexed (one authenticated connection, reused)"
+	}
+	note := "one connection per command"
+	if s.MultiplexNote != "" {
+		note += " — " + s.MultiplexNote
+	}
+	return note
 }
 
 func searchEngine(s *session.Session) string {

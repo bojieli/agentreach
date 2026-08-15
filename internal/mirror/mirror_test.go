@@ -13,7 +13,7 @@ import (
 
 func newTestMirror(t *testing.T) (*Mirror, string) {
 	t.Helper()
-	tr := transport.NewLocal()
+	tr := localTransport(t)
 	caps, err := fileops.Probe(context.Background(), tr)
 	if err != nil {
 		t.Fatalf("probe: %v", err)
@@ -210,4 +210,17 @@ func TestCheckContainedRejectsOutsidePaths(t *testing.T) {
 	if err := m.checkContained(filepath.Join(m.Root(), "a", "b")); err != nil {
 		t.Errorf("a path inside the mirror root was rejected: %v", err)
 	}
+}
+
+// localTransport builds a local:// transport, skipping when this machine cannot
+// be a target. A local target needs a POSIX shell, which Windows only has when
+// Git for Windows or MSYS2 supplied one — and a Windows machine is never a
+// supported target, so skipping is the honest outcome rather than a failure.
+func localTransport(t *testing.T) transport.Transport {
+	t.Helper()
+	tr, err := transport.NewLocal()
+	if err != nil {
+		t.Skipf("this machine cannot host a local:// target: %v", err)
+	}
+	return tr
 }

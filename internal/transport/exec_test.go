@@ -12,7 +12,7 @@ import (
 // wrapWithSentinel. Agents write `exit N` routinely; if that killed the
 // wrapper, waldo would report a transport failure for an ordinary command.
 func TestExitIsNotMistakenForTransportFailure(t *testing.T) {
-	tr := NewLocal()
+	tr := localTransport(t)
 	for _, code := range []int{0, 1, 3, 66, 127, 255} {
 		res, err := tr.Run(context.Background(), waldo.ExecRequest{
 			Command: "echo before; exit " + itoa(code),
@@ -30,7 +30,7 @@ func TestExitIsNotMistakenForTransportFailure(t *testing.T) {
 }
 
 func TestStdoutIsByteExact(t *testing.T) {
-	tr := NewLocal()
+	tr := localTransport(t)
 	for _, tc := range []struct{ cmd, want string }{
 		{"printf 'no newline'", "no newline"},
 		{"printf 'with newline\\n'", "with newline\n"},
@@ -51,7 +51,7 @@ func TestStdoutIsByteExact(t *testing.T) {
 // where capping stdout discarded the trailing status marker, making every
 // high-output command look like a transport failure.
 func TestOutputCapPreservesHeadTailAndExitCode(t *testing.T) {
-	tr := NewLocal()
+	tr := localTransport(t)
 	const outputCap = 4096
 	res, err := tr.Run(context.Background(), waldo.ExecRequest{
 		Command:   "echo FIRST_LINE; yes abcdefghij | head -n 200000; echo LAST_LINE; exit 7",
@@ -85,7 +85,7 @@ func TestOutputCapPreservesHeadTailAndExitCode(t *testing.T) {
 }
 
 func TestShellQuoteSurvivesHostileInput(t *testing.T) {
-	tr := NewLocal()
+	tr := localTransport(t)
 	for _, s := range []string{
 		"plain", "with space", "it's", `"double"`, "$(whoami)", "`id`",
 		"back\\slash", "semi;colon", "pipe|char", "new\nline", "{brace}", "*glob*",
@@ -119,4 +119,17 @@ func itoa(i int) string {
 		i /= 10
 	}
 	return string(b)
+}
+
+// localTransport builds a local:// transport, skipping when this machine cannot
+// be a target. A local target needs a POSIX shell, which Windows only has when
+// Git for Windows or MSYS2 supplied one — and a Windows machine is never a
+// supported target, so skipping is the honest outcome rather than a failure.
+func localTransport(t *testing.T) *LocalTransport {
+	t.Helper()
+	tr, err := NewLocal()
+	if err != nil {
+		t.Skipf("this machine cannot host a local:// target: %v", err)
+	}
+	return tr
 }

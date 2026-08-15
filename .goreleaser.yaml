@@ -34,8 +34,11 @@ builds:
     binary: waldo
     env: [CGO_ENABLED=0]
     # waldo runs on the operator's machine, not the target, so these are the
-    # platforms a developer drives agents from.
-    goos: [linux, darwin]
+    # platforms a developer drives agents from. The *target* platforms are a
+    # different and wider set — see the agent builds above, which ship inside
+    # every archive including the Windows ones, because a Windows operator's
+    # target is a POSIX host.
+    goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
     ldflags:
       - -s -w
@@ -46,6 +49,11 @@ builds:
 
 archives:
   - formats: [tar.gz]
+    # Windows gets a zip: tar.gz needs a tool that is not on a stock Windows,
+    # and an archive an operator cannot open is not a release.
+    format_overrides:
+      - goos: windows
+        formats: [zip]
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     files:

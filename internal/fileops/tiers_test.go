@@ -30,7 +30,7 @@ func TestTierConformance(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
 			fileopstest.Run(t, root, func(t *testing.T) fileops.FileOps {
-				tr := transport.NewLocal()
+				tr := localTransport(t)
 				caps, err := fileops.Probe(context.Background(), tr)
 				if err != nil {
 					t.Fatalf("probe: %v", err)
@@ -60,7 +60,7 @@ func TestTierConformance(t *testing.T) {
 // names a tier gets that tier or an error, never a quiet downgrade that leaves
 // `waldo status` reporting something untrue.
 func TestPinnedTierIsNeverSubstituted(t *testing.T) {
-	tr := transport.NewLocal()
+	tr := localTransport(t)
 	caps, err := fileops.Probe(context.Background(), tr)
 	if err != nil {
 		t.Fatalf("probe: %v", err)
@@ -75,7 +75,7 @@ func TestPinnedTierIsNeverSubstituted(t *testing.T) {
 // TestAutonegotiationDegradesVisibly is the other half: when waldo chose the
 // tier itself, it may step down — but never silently.
 func TestAutonegotiationDegradesVisibly(t *testing.T) {
-	tr := transport.NewLocal()
+	tr := localTransport(t)
 	caps, err := fileops.Probe(context.Background(), tr)
 	if err != nil {
 		t.Fatalf("probe: %v", err)
@@ -104,4 +104,17 @@ func TestAutonegotiationDegradesVisibly(t *testing.T) {
 		t.Errorf("Ops.Tier() = %s but Effective = %s; a strategy must report what it is",
 			sel.Ops.Tier(), sel.Effective)
 	}
+}
+
+// localTransport builds a local:// transport, skipping when this machine cannot
+// be a target. A local target needs a POSIX shell, which Windows only has when
+// Git for Windows or MSYS2 supplied one — and a Windows machine is never a
+// supported target, so skipping is the honest outcome rather than a failure.
+func localTransport(t *testing.T) transport.Transport {
+	t.Helper()
+	tr, err := transport.NewLocal()
+	if err != nil {
+		t.Skipf("this machine cannot host a local:// target: %v", err)
+	}
+	return tr
 }

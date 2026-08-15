@@ -4,8 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
+	"os/exec"
 
 	"github.com/bojieli/waldo/internal/session"
 )
@@ -32,7 +31,7 @@ func launchWithPathShim(ctx context.Context, binary, label, sessName string, ext
 		fmt.Fprintln(os.Stderr, "waldo:", err)
 		return 1
 	}
-	binPath, err := exeLook(binary)
+	binPath, err := exec.LookPath(binary)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "waldo: %s is not installed or not in PATH\n", label)
 		return 1
@@ -52,23 +51,6 @@ func launchWithPathShim(ctx context.Context, binary, label, sessName string, ext
 
 	argv := append([]string{binPath}, args...)
 	return replaceProcess(ctx, binPath, argv, env)
-}
-
-func prependPath(env []string, dir string) []string {
-	out := make([]string, 0, len(env))
-	found := false
-	for _, kv := range env {
-		if k, v, ok := strings.Cut(kv, "="); ok && k == "PATH" {
-			out = append(out, "PATH="+dir+string(filepath.ListSeparator)+v)
-			found = true
-			continue
-		}
-		out = append(out, kv)
-	}
-	if !found {
-		out = append(out, "PATH="+dir)
-	}
-	return out
 }
 
 // cmdCodex launches Codex against the session's target.

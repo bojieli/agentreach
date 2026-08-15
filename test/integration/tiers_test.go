@@ -9,6 +9,7 @@ import (
 
 	"github.com/bojieli/waldo/internal/fileops"
 	"github.com/bojieli/waldo/internal/fileops/fileopstest"
+	"github.com/bojieli/waldo/internal/transport"
 	"github.com/bojieli/waldo/internal/waldo"
 )
 
@@ -107,5 +108,75 @@ func TestTiersAgreeByteForByte(t *testing.T) {
 				t.Errorf("%s hash = %s, but tier posix says %s", reader, digest, want)
 			}
 		}
+	}
+}
+
+// TestWorksWithoutMultiplexing exercises the connection path Windows is
+// permanently on.
+//
+// Win32-OpenSSH does not implement ControlMaster, so waldo there opens and
+// authenticates a connection per command. That is a different code path — no
+// control socket, no master to tear down, a fresh authentication every time —
+// and it cannot be exercised on the platform where it matters, because this
+// suite cannot run a Windows target. Disabling multiplexing on Unix runs the
+// identical path against a real sshd, which is the closest thing to evidence
+// available without a Windows machine in the loop.
+func TestWorksWithoutMultiplexing(t *testing.T) {
+	tr, err := transport.NewSSH(transport.SSHConfig{
+		Host: sshHostAlias, BatchMode: true, Multiplex: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tr.Close() })
+
+	ctx := context.Background()
+
+	// Several commands in sequence: each one is its own connection, and the
+	// exit-status protocol has to survive that just as it does on a shared one.
+	for i, tc := range []struct {
+		command string
+		code    int
+	}{
+		{"echo one", 0},
+		{"exit 3", 3},
+		{"exit 255", 255}, // ssh's own failure code, which must not be confused
+	} {
+		res, err := tr.Run(ctx, waldo.ExecRequest{Command: tc.command})
+		if err != nil {
+			t.Fatalf("command %d (%q) failed without multiplexing: %v", i, tc.command, err)
+		}
+		if res.Code != tc.code {
+			t.Errorf("command %q exited %d, want %d", tc.command, res.Code, tc.code)
+		}
+	}
+
+	// File operations too: the tier stack must not assume a shared connection.
+	caps, err := fileops.Probe(ctx, tr)
+	if err != nil {
+		t.Fatalf("probe without multiplexing: %v", err)
+	}
+	sel, err := fileops.New(ctx, caps.BestTier(), tr, caps, false, nil)
+	if err != nil {
+		t.Fatalf("build tier without multiplexing: %v", err)
+	}
+	t.Cleanup(func() { _ = sel.Ops.Close() })
+
+	p := filepath.Join(workspace, "no-mux.bin")
+	content := []byte("no multiplexing\x00\xff\r\n")
+	if err := sel.Ops.Write(ctx, p, content, 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	got, err := sel.Ops.Read(ctx, p, 0, 0)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(got) != string(content) {
+		t.Errorf("round trip without multiplexing: got % x, want % x", got, content)
+	}
+
+	// Closing must be clean even though there is no master to shut down.
+	if err := tr.Close(); err != nil {
+		t.Errorf("Close without a master: %v", err)
 	}
 }

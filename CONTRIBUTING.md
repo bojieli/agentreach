@@ -69,6 +69,16 @@ SSH agent forwarding is off unconditionally. Output from a target is untrusted
 input — it flows into the context of an agent holding the operator's
 credentials.
 
+### Platform differences
+
+waldo runs on Linux, macOS and Windows. Every difference between them lives in
+`cmd/waldo/platform_other.go` and `cmd/waldo/platform_windows.go`; if you find
+yourself adding a `runtime.GOOS` check anywhere else, add a function to those
+two files instead. The reason is not tidiness: three of the Windows differences
+fail *silently*, in the direction where an agent runs commands on the operator's
+own machine, and they are only findable when they are all in one place with the
+reasoning attached. See [docs/WINDOWS.md](docs/WINDOWS.md).
+
 ## Code
 
 - Go 1.23+, `gofmt`, `go vet` clean.

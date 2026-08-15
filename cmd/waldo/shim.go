@@ -6,24 +6,31 @@ import (
 	"path/filepath"
 )
 
-// shimName is the basename waldo answers to when acting as a harness shell
+// shimName is the logical name waldo answers to when acting as a harness shell
 // shim.
 //
 // Harnesses accept a *program path* for their shell hook, not a command line:
 // Claude Code stats the value of CLAUDE_CODE_SHELL_PREFIX directly, so
 // "waldo shell-prefix" is looked up as a single filename and fails. Dispatching
-// on argv[0] through a symlink gives a bare path that works, and costs nothing
-// at run time — no wrapper script, no extra process per tool call.
+// on argv[0] through an alias of the binary gives a bare path that works, and
+// costs nothing at run time — no wrapper script, no extra process per tool call.
+//
+// The name is logical because Windows decorates it: see programName.
 const shimName = "waldo-shell-prefix"
 
 // isShimInvocation reports whether this process was started through the shim
-// symlink rather than as `waldo <command>`.
+// alias rather than as `waldo <command>`.
 func isShimInvocation() bool {
-	return filepath.Base(os.Args[0]) == shimName
+	return programBase(os.Args[0]) == shimName
 }
 
-// binDir is where waldo keeps the shim symlink.
+// binDir is where waldo keeps the shim alias.
 func binDir() (string, error) {
+	return waldoSubdir("bin")
+}
+
+// waldoSubdir resolves a directory beneath waldo's state directory, creating it.
+func waldoSubdir(name string) (string, error) {
 	base := os.Getenv("WALDO_HOME")
 	if base == "" {
 		home, err := os.UserHomeDir()
@@ -32,46 +39,55 @@ func binDir() (string, error) {
 		}
 		base = filepath.Join(home, ".waldo")
 	}
-	dir := filepath.Join(base, "bin")
+	dir := filepath.Join(base, name)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
 	return dir, nil
 }
 
-// ensureShim creates or refreshes the shim symlink and returns its path.
-//
-// It is refreshed on every use rather than created once: waldo may have been
-// upgraded, moved, or reinstalled at a different path since the link was made,
-// and a stale link would fail at the worst possible moment — inside a tool
-// call, where the harness reports it as a broken shell rather than a waldo
-// problem.
-func ensureShim() (string, error) {
+// selfPath resolves the running binary, following symlinks.
+func selfPath() (string, error) {
 	self, err := os.Executable()
 	if err != nil {
 		return "", err
 	}
-	if self, err = filepath.EvalSymlinks(self); err != nil {
+	resolved, err := filepath.EvalSymlinks(self)
+	if err != nil {
+		// Deliberately not an error. A binary whose path cannot be resolved
+		// through symlinks is still perfectly runnable — this happens on
+		// filesystems that do not support them, and on Windows where the check
+		// is meaningless — and the unresolved path makes a slightly worse alias
+		// than a resolved one, which is a great deal better than refusing to
+		// start.
+		//nolint:nilerr // the unresolved path is a valid answer, not a failure
+		return self, nil
+	}
+	return resolved, nil
+}
+
+// ensureShim creates or refreshes the shim alias and returns its path.
+//
+// It is checked on every use rather than created once: waldo may have been
+// upgraded, moved, or reinstalled at a different path since the alias was made,
+// and a stale one would fail at the worst possible moment — inside a tool call,
+// where the harness reports it as a broken shell rather than as a waldo problem.
+func ensureShim() (string, error) {
+	self, err := selfPath()
+	if err != nil {
 		return "", err
 	}
 	dir, err := binDir()
 	if err != nil {
 		return "", err
 	}
-	link := filepath.Join(dir, shimName)
+	alias := filepath.Join(dir, programName(shimName))
 
-	if current, err := os.Readlink(link); err == nil && current == self {
-		return link, nil
+	if programAliasIsCurrent(alias, self) {
+		return alias, nil
 	}
-	_ = os.Remove(link)
-	if err := os.Symlink(self, link); err != nil {
-		// Symlinks can be unavailable (some filesystems, some Windows setups).
-		// A tiny exec wrapper is slower but keeps waldo working rather than
-		// refusing to start.
-		script := fmt.Sprintf("#!/bin/sh\nexec %q shell-prefix \"$@\"\n", self)
-		if werr := os.WriteFile(link, []byte(script), 0o700); werr != nil {
-			return "", fmt.Errorf("create shell shim at %s: %w", link, err)
-		}
+	if err := installProgramAlias(self, alias); err != nil {
+		return "", fmt.Errorf("install the shell shim at %s: %w", alias, err)
 	}
-	return link, nil
+	return alias, nil
 }

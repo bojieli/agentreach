@@ -112,8 +112,8 @@ at runs waldo and the agent; the target only ever sees shell commands.
 |---|---|
 | **Linux** (amd64, arm64) | supported; unit and integration tests on every commit |
 | **macOS** (Intel, Apple silicon) | supported; unit and integration tests on every commit |
+| **Windows** (amd64, arm64) | supported; unit tests and a CLI smoke test on every commit — see the caveat below |
 | **Windows via WSL** | supported — inside WSL this *is* Linux |
-| **Windows, natively** | **not supported.** waldo refuses to start, and says why |
 
 | your target | status |
 |---|---|
@@ -122,12 +122,27 @@ at runs waldo and the agent; the target only ever sees shell commands.
 | **busybox / toybox** | probed at connect time and degraded per capability, but not yet tested end to end — `waldo doctor` reports what it found |
 | **Windows** | not supported: waldo's floor is a POSIX shell |
 
-Native Windows needs three things waldo does not have: an `execve` replacement
-(Go stubs `syscall.Exec` there to fail unconditionally), shims that are not
-symlinks, and an answer for `ControlMaster`, which Win32-OpenSSH does not
-implement. Rather than half-work, waldo refuses to start — a shell shim that
-fails quietly is precisely how an agent ends up running commands on your own
-machine while believing it is working on the target.
+**The Windows caveat is speed, not correctness.** Win32-OpenSSH does not
+implement `ControlMaster`: its multiplexing passes file descriptors over a Unix
+socket, which Windows has no equivalent for. So every command opens and
+authenticates its own connection — roughly 130 ms instead of 7 ms, and one
+authentication per tool call instead of one per session.
+
+waldo does not assume this. It establishes a multiplexed connection during
+`waldo up` and asks the client to confirm it, so the answer reflects what your
+client will actually do against that host, and a future Windows OpenSSH that
+gains the feature will simply be used. `waldo up` prints which you got, and
+`waldo doctor` explains it. Full detail, including what is verified on Windows
+and what is not: [docs/WINDOWS.md](docs/WINDOWS.md).
+
+Two practical consequences on Windows:
+
+- **Run an `ssh-agent`.** Without one, a passphrase-protected key needs its
+  passphrase on every single tool call, and waldo runs `ssh` in batch mode, so
+  they will all fail instead of prompting.
+- **A POSIX shell is optional.** waldo does not need Git for Windows or MSYS2 to
+  drive a remote host; it only matters if you want this Windows machine to be
+  the *target*, which is not supported.
 
 ## Use
 

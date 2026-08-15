@@ -47,11 +47,19 @@ type Session struct {
 	// tier is an instruction, not a preference: waldo fails rather than quietly
 	// giving them a different one.
 	Pinned bool `json:"pinned,omitempty"`
+	// MultiplexNote explains why multiplexing is unavailable, and is empty when
+	// it is available.
+	MultiplexNote string `json:"multiplex_note,omitempty"`
 	// TierReason explains a tier that is lower than the one asked for, and is
 	// empty when nothing was degraded.
 	TierReason string                `json:"tier_reason,omitempty"`
 	Caps       *fileops.Capabilities `json:"caps"`
 	Created    time.Time             `json:"created"`
+	// Multiplex records whether the local ssh client proved it can hold a
+	// multiplexed master to this target. It is the difference between ~7 ms and
+	// ~130 ms per command, and it is recorded rather than assumed because
+	// Win32-OpenSSH does not implement the feature.
+	Multiplex bool `json:"multiplex"`
 	// Untrusted marks a target whose operator you are not. waldo will not
 	// install anything on it and will not forward an SSH agent to it.
 	Untrusted bool `json:"untrusted"`
@@ -262,6 +270,11 @@ func (s *Session) transport(batch bool) (transport.Transport, error) {
 			Host: s.Target.Host,
 			User: s.Target.User,
 			Port: s.Target.Port,
+			// Whether the local ssh client can multiplex was settled during
+			// `waldo up` by establishing one and asking the client to confirm
+			// it. Assuming it here would mean sending options that a client
+			// without the feature may refuse outright.
+			Multiplex: s.Multiplex,
 			// Agent forwarding is refused outright for untrusted targets: a
 			// forwarded agent socket lets root on that host authenticate as
 			// the operator against every other system they can reach.
@@ -274,7 +287,7 @@ func (s *Session) transport(batch bool) (transport.Transport, error) {
 			Container: s.Target.Container,
 		})
 	case KindLocal:
-		return transport.NewLocal(), nil
+		return transport.NewLocal()
 	}
 	return nil, fmt.Errorf("unsupported target kind %q", s.Target.Kind)
 }
@@ -333,6 +346,20 @@ func (s *Session) Probe(ctx context.Context) error {
 		return err
 	}
 	s.Caps = caps
+
+	// Settle connection multiplexing now, while an operator is present to read
+	// the answer, rather than discovering it inside a tool call. The probe
+	// establishes a master and asks the client to confirm it, so the result
+	// reflects what this client will actually do against this host.
+	if s.Target.Kind == KindSSH {
+		ok, why := transport.DetectMultiplexing(ctx, transport.SSHConfig{
+			Host: s.Target.Host,
+			User: s.Target.User,
+			Port: s.Target.Port,
+		})
+		s.Multiplex = ok
+		s.MultiplexNote = why
+	}
 
 	if !s.Pinned {
 		// Autonegotiation deliberately stops below TierAgent: that tier writes

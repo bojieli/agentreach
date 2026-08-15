@@ -50,7 +50,7 @@ than on a filesystem mount.
 │  │ transport ssh · docker · podman · local │               │
 │  └───┬─────────────────────────────────────┘               │
 └──────┼─────────────────────────────────────────────────────┘
-       │  system ssh, multiplexed over ControlMaster
+       │  system ssh (multiplexed where the client supports it)
 ┌──────▼─────────────────────────────────────────────────────┐
 │ target: stock sshd only. no node, no python, no waldo bits │
 └────────────────────────────────────────────────────────────┘
@@ -73,6 +73,28 @@ for nothing.
 
 One consequence is worth stating early, because it shapes the tier design more
 than anything else: **waldo runs one process per tool call.**
+
+## Platforms
+
+waldo runs on Linux, macOS and Windows, and targets any POSIX host. The split
+matters because the two sides need different things: the operator's machine runs
+a harness and needs to intercept its shell, while the target only ever sees
+shell commands.
+
+Every operating-system difference lives in two files — `platform_other.go` and
+`platform_windows.go` — so the cost of supporting Windows is visible in one
+place rather than spread through the adapters. Windows needs four things Unix
+gives for free: a launcher that is not `execve`, shims that are not symlinks,
+executability decided by `PATHEXT` rather than a mode bit, and a search-path
+variable matched case-insensitively.
+
+The fifth difference cannot be abstracted away. Win32-OpenSSH does not implement
+`ControlMaster`, so a Windows operator pays a full connection setup per command
+rather than ~7 ms on a shared one. That is not a portability detail: the
+argument for [having no daemon](#there-is-no-daemon) is precisely that
+ControlMaster already provides connection reuse, and on Windows that premise is
+false. waldo therefore *probes* for multiplexing rather than assuming it, records
+the answer, and reports it — see [WINDOWS.md](WINDOWS.md).
 
 ## waldo uses the system ssh, not a Go SSH library
 
