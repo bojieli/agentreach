@@ -147,10 +147,37 @@ Full details, including the exact captured envelope, in
 
 | harness | exec | file read/write/edit | mechanism |
 |---|---|---|---|
-| **Claude Code** | verified | via shell (native file tools denied — see below) | `CLAUDE_CODE_SHELL_PREFIX` |
+| **Claude Code** | verified | **verified** — native `Read`/`Edit`/`Write` act on the target in `--mode mirror` | `CLAUDE_CODE_SHELL_PREFIX` + hooks |
 | **Codex** | seam verified | **via shell** — reads, writes and `apply_patch` all travel over the shell tool, so one seam covers everything | `bash` shim on `PATH` (`execvp`) |
-| **Kimi Code** | in progress | native tools are local-only | PATH shim / hooks |
+| **Kimi Code** | working | native tools still local | PATH shim (hooks planned) |
 | **opencode** | planned | full — tools shadowed by name | plugin |
+
+### Two modes
+
+**`exec`** (default) — commands run on the target. Claude Code's native file
+tools are **denied**, because they would keep acting on your local filesystem
+while the agent believes otherwise. The agent uses the shell, which is
+transparently remote.
+
+**`mirror`** — additionally makes native file tools work. waldo fetches each
+file the moment a tool opens it and writes it back when it changes:
+
+```console
+waldo up ssh://box/srv/app --mode mirror
+waldo claude          # Read and Edit now operate on the target
+```
+
+This is deliberately **not** a sync engine. Nothing is mirrored until a tool
+asks for it, and there is no background reconciliation — a sync engine would
+have to answer questions waldo has no good answer to (both sides changed;
+deleted or never fetched), and getting those wrong loses your work. Writes are
+guarded by a content digest taken at fetch time, so a file that changed on the
+target in between is refused rather than overwritten from a stale base.
+
+`Grep` and `Glob` stay denied in mirror mode: the mirror holds only files
+already opened, so a search would report confidently incomplete results. The
+agent is pointed at `rg`/`find` over the shell, which run on the target and are
+faster anyway.
 
 **Why Claude Code's file tools are denied.** `Read`, `Edit`, `Write`, `Glob`
 and `Grep` have no interception seam, and Claude Code ships as a compiled Node
@@ -185,7 +212,11 @@ docs. Reproduce with `make e2e` (spends model tokens) and `make conformance`.
 
 - Claude Code 2.1.233 runs its native Bash tool on a remote sshd container,
   reads a file that exists only there, and `cd` persists across separate agent
-  tool calls — 8/8 end-to-end assertions.
+  tool calls.
+- In mirror mode, Claude Code used its native `Read` and `Edit` tools to change
+  a file that exists only on the remote container, and the edit landed there.
+- A `PreToolUse` hook can rewrite `Read`'s `file_path` via `updatedInput` —
+  verified by having an agent read one path and receive another's content.
 - `NODE_OPTIONS=--require` does **not** work against Claude Code's SEA binary.
 - Codex 0.147.0 resolves its shell through `execvp`, so a `PATH` shim
   intercepts it.

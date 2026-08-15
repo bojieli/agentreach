@@ -1,0 +1,37 @@
+version: 2
+project_name: waldo
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: waldo
+    main: ./cmd/waldo
+    binary: waldo
+    env: [CGO_ENABLED=0]
+    # waldo runs on the operator's machine, not the target, so these are the
+    # platforms a developer drives agents from.
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X main.buildVersion={{.Version}}
+    mod_timestamp: '{{ .CommitTimestamp }}'
+
+archives:
+  - formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files: [README.md, LICENSE, docs/*]
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude: ['^docs:', '^test:', '^chore:', Merge pull request]
