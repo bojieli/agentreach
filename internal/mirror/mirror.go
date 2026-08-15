@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -41,8 +42,33 @@ func (m *Mirror) Root() string { return m.root }
 //
 // The target's absolute path is reproduced beneath the mirror root, so the
 // mapping is total, reversible, and obvious when inspected by hand.
+//
+// The path is cleaned before joining. Without that, a target path containing
+// ".." would escape the mirror root once filepath.Join normalised it, and
+// waldo would read or write an arbitrary local file on behalf of whatever
+// supplied the path. Since file paths can originate in content read from an
+// untrusted target, that is a real attack path and not a theoretical one.
 func (m *Mirror) Local(targetPath string) string {
-	return filepath.Join(m.root, filepath.FromSlash(strings.TrimPrefix(targetPath, "/")))
+	clean := path.Clean("/" + strings.TrimPrefix(path.Clean(targetPath), "/"))
+	return filepath.Join(m.root, filepath.FromSlash(strings.TrimPrefix(clean, "/")))
+}
+
+// checkContained is a belt-and-braces guard that the computed local path really
+// is inside the mirror root, independent of how it was derived.
+func (m *Mirror) checkContained(local string) error {
+	rootAbs, err := filepath.Abs(m.root)
+	if err != nil {
+		return err
+	}
+	localAbs, err := filepath.Abs(local)
+	if err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(rootAbs, localAbs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("refusing to touch %s: it is outside the mirror root %s", localAbs, rootAbs)
+	}
+	return nil
 }
 
 // Target reverses Local. It returns ok=false for a path outside the mirror.
@@ -61,6 +87,9 @@ func (m *Mirror) Fetch(ctx context.Context, targetPath string) (string, error) {
 		return "", err
 	}
 	local := m.Local(targetPath)
+	if err := m.checkContained(local); err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(filepath.Dir(local), 0o700); err != nil {
 		return "", err
 	}
@@ -77,6 +106,9 @@ func (m *Mirror) Fetch(ctx context.Context, targetPath string) (string, error) {
 // which is the case for a fresh Write.
 func (m *Mirror) Prepare(ctx context.Context, targetPath string) (string, error) {
 	local := m.Local(targetPath)
+	if err := m.checkContained(local); err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(filepath.Dir(local), 0o700); err != nil {
 		return "", err
 	}
@@ -101,6 +133,9 @@ func (m *Mirror) Prepare(ctx context.Context, targetPath string) (string, error)
 // refusal the agent can see is always better than a quiet loss.
 func (m *Mirror) Push(ctx context.Context, targetPath string) error {
 	local := m.Local(targetPath)
+	if err := m.checkContained(local); err != nil {
+		return err
+	}
 	data, err := os.ReadFile(local)
 	if err != nil {
 		return fmt.Errorf("read mirrored file: %w", err)

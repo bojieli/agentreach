@@ -171,3 +171,43 @@ func TestPathMappingIsReversible(t *testing.T) {
 		t.Error("a path outside the mirror was accepted as mirrored")
 	}
 }
+
+// TestPathTraversalIsRefused covers a real attack path: file paths can come
+// from content read off an untrusted target, and a ".." segment would otherwise
+// escape the mirror root once filepath.Join normalised it — letting a hostile
+// target make waldo read or overwrite arbitrary files on the operator's machine.
+func TestPathTraversalIsRefused(t *testing.T) {
+	m, target := newTestMirror(t)
+	ctx := context.Background()
+
+	for _, evil := range []string{
+		"/../../../etc/passwd",
+		"/srv/app/../../../../etc/passwd",
+		"/srv/../../root/.ssh/authorized_keys",
+	} {
+		local := m.Local(evil)
+		rel, err := filepath.Rel(m.Root(), local)
+		if err != nil || strings.HasPrefix(rel, "..") {
+			t.Errorf("Local(%q) = %q escaped the mirror root", evil, local)
+		}
+	}
+
+	// A legitimate path with interior ".." that stays inside must still work.
+	real := filepath.Join(target, "sub", "..", "ok.txt")
+	if err := os.WriteFile(filepath.Join(target, "ok.txt"), []byte("fine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Fetch(ctx, real); err != nil {
+		t.Errorf("legitimate path with interior .. was rejected: %v", err)
+	}
+}
+
+func TestCheckContainedRejectsOutsidePaths(t *testing.T) {
+	m := New(t.TempDir(), nil)
+	if err := m.checkContained("/etc/passwd"); err == nil {
+		t.Error("a path outside the mirror root was accepted")
+	}
+	if err := m.checkContained(filepath.Join(m.Root(), "a", "b")); err != nil {
+		t.Errorf("a path inside the mirror root was rejected: %v", err)
+	}
+}
