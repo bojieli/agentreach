@@ -103,6 +103,32 @@ out to your system `ssh` on purpose, so `~/.ssh/config` — `ProxyJump`,
 `IdentityFile`, `Match` blocks, hardware tokens, 2FA — keeps working exactly as
 it does today.
 
+### Where it runs
+
+waldo has two sides, and they have different requirements. The machine you sit
+at runs waldo and the agent; the target only ever sees shell commands.
+
+| your machine | status |
+|---|---|
+| **Linux** (amd64, arm64) | supported; unit and integration tests on every commit |
+| **macOS** (Intel, Apple silicon) | supported; unit and integration tests on every commit |
+| **Windows via WSL** | supported — inside WSL this *is* Linux |
+| **Windows, natively** | **not supported.** waldo refuses to start, and says why |
+
+| your target | status |
+|---|---|
+| **Linux** (GNU coreutils, any arch) | supported; all four tiers tested against a real sshd |
+| **macOS / BSD** | supported; all four tiers tested against a real sshd |
+| **busybox / toybox** | probed at connect time and degraded per capability, but not yet tested end to end — `waldo doctor` reports what it found |
+| **Windows** | not supported: waldo's floor is a POSIX shell |
+
+Native Windows needs three things waldo does not have: an `execve` replacement
+(Go stubs `syscall.Exec` there to fail unconditionally), shims that are not
+symlinks, and an answer for `ControlMaster`, which Win32-OpenSSH does not
+implement. Rather than half-work, waldo refuses to start — a shell shim that
+fails quietly is precisely how an agent ends up running commands on your own
+machine while believing it is working on the target.
+
 ## Use
 
 ```console

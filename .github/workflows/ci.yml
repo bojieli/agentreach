@@ -119,6 +119,10 @@ jobs:
           - { goos: darwin,  goarch: amd64 }
           - { goos: darwin,  goarch: arm64 }
           - { goos: freebsd, goarch: amd64 }
+          # Windows is not a supported platform, but it must keep compiling:
+          # the refusal that tells a Windows user to use WSL is Go code, and it
+          # can only run if the binary builds.
+          - { goos: windows, goarch: amd64 }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

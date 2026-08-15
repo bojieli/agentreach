@@ -3,13 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"syscall"
 
 	"github.com/bojieli/waldo/internal/session"
 )
@@ -97,20 +94,7 @@ func cmdClaude(ctx context.Context, args []string) int {
 
 	// Replace this process so signals, the terminal and the exit status all
 	// belong to Claude Code directly, with no wrapper in between.
-	if err := syscall.Exec(claudePath, argv, env); err != nil {
-		// Exec only returns on failure; fall back to a child process.
-		c := exec.CommandContext(ctx, claudePath, argv[1:]...)
-		c.Env, c.Stdin, c.Stdout, c.Stderr = env, os.Stdin, os.Stdout, os.Stderr
-		if runErr := c.Run(); runErr != nil {
-			var ee *exec.ExitError
-			if errors.As(runErr, &ee) {
-				return ee.ExitCode()
-			}
-			fmt.Fprintln(os.Stderr, "waldo:", runErr)
-			return 1
-		}
-	}
-	return 0
+	return replaceProcess(ctx, claudePath, argv, env)
 }
 
 const mirrorModeGuidance = `This session is operating on a REMOTE target through waldo.

@@ -1,11 +1,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 )
 
 // bashShimName is the basename waldo answers to when installed on PATH as a
@@ -86,11 +86,7 @@ func execRealShell(args []string) int {
 	}
 	env := append(sanitisedEnv(), shimGuardEnv+"=1")
 	argv := append([]string{shell}, args...)
-	if err := syscall.Exec(shell, argv, env); err != nil {
-		fmt.Fprintln(os.Stderr, "waldo:", err)
-		return 127
-	}
-	return 0
+	return replaceProcess(context.Background(), shell, argv, env)
 }
 
 // findRealShell locates a shell that is not one of waldo's shims.

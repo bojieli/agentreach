@@ -53,6 +53,16 @@ Run 'waldo <command> --help' for details.
 `
 
 func main() {
+	// The platform check comes before everything, including the shim dispatch.
+	// A shim that half-works on an unsupported platform is the worst outcome
+	// this program has: the harness cannot tell its shell was not redirected, so
+	// the model's commands run on the operator's own machine while the agent
+	// believes they are running on the target.
+	if err := platformCheck(); err != nil {
+		fmt.Fprintln(os.Stderr, "waldo:", err)
+		os.Exit(2)
+	}
+
 	// The shim path is latency-sensitive and runs once per tool call, so it is
 	// dispatched before anything else and does no extra work. Harnesses invoke
 	// it through a symlink, which arrives as argv[0].

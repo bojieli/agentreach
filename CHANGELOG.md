@@ -45,6 +45,13 @@ project makes without a version attached.
 
 ### Fixed
 
+- **Native Windows compiled, installed, and then misbehaved.** Go stubs
+  `syscall.Exec` on Windows to fail unconditionally, so `waldo codex`, `waldo
+  kimi` and the shell shim died with "not supported by windows" while `waldo
+  claude` limped through a fallback. waldo now refuses to start on native
+  Windows with an explanation and a pointer to WSL, and the supported platforms
+  are written down. Two of the three launch sites also had no fallback at all,
+  which made any `execve` failure fatal on Unix too.
 - `waldo fs mkdir` failed against every BSD-userland target (macOS included).
   BSD `chmod` takes the mode as a positional argument, so option parsing stops
   there and the `--` that followed was read as a filename.
