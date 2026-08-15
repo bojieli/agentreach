@@ -455,3 +455,23 @@ func infoFromMap(m map[string]any) waldo.FileInfo {
 }
 
 var _ FileOps = (*handlerOps)(nil)
+
+// limitedWriter keeps at most a bounded prefix of what is written to it, so a
+// chatty or hostile server cannot grow waldo's memory through a diagnostic
+// buffer.
+type limitedWriter struct {
+	w         io.Writer
+	remaining int
+}
+
+func (l *limitedWriter) Write(p []byte) (int, error) {
+	if l.remaining <= 0 {
+		return len(p), nil
+	}
+	if len(p) > l.remaining {
+		p = p[:l.remaining]
+	}
+	n, err := l.w.Write(p)
+	l.remaining -= n
+	return len(p), err
+}

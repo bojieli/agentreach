@@ -11,8 +11,25 @@ project makes without a version attached.
 
 ## [Unreleased]
 
+### Removed
+
+- **The SFTP tier.** It was implemented, tested, measured, and then deleted.
+  SFTP cannot answer a tool call in one network round trip — `READ` takes a
+  handle that only exists in `OPEN`'s response, so its floor was two, while
+  every other tier does it in one. Its remaining advantage was bandwidth, and
+  that turned out to be waldo's own fault: tier 0 base64-encoded content
+  unconditionally. Once waldo began proving whether a link is 8-bit clean and
+  skipping the encoding when it is, the shell tier read 8 MiB in 6.4 s against
+  SFTP's 8.1 s and matched it elsewhere. `--fileops=sftp` now explains the
+  removal rather than reporting an unknown tier. Full reasoning in
+  `docs/TRANSPORTS.md`.
+
 ### Added
 
+- **Content moves unencoded on links proven 8-bit clean.** waldo pipes every
+  byte value through the target's own digest command, and has the target print
+  them back; base64 is used only where something garbles a byte. That is a third
+  of the bandwidth on every file, in both directions.
 - **An audit log.** waldo records every command it runs on a target and every
   file it changes there, readable with `waldo log`. The situation waldo is built
   for ends with somebody asking what the agent did on a machine you do not own,

@@ -45,7 +45,7 @@ than on a filesystem mount.
 │  │ session   target · cwd · capabilities   │  a file,      │
 │  │           tier decision                 │  not a daemon │
 │  ├─────────────────────────────────────────┤               │
-│  │ fileops   posix · sftp · pipe · agent   │               │
+│  │ fileops   posix · pipe · agent          │               │
 │  ├─────────────────────────────────────────┤               │
 │  │ transport ssh · docker · podman · local │               │
 │  └───┬─────────────────────────────────────┘               │
@@ -127,10 +127,6 @@ type Transport interface {
     Close() error
 }
 
-// Implemented only by ssh: starts a subsystem rather than a command.
-type SubsystemOpener interface {
-    OpenSubsystem(ctx, name string) (Stream, error)
-}
 ```
 
 ```go
@@ -151,7 +147,9 @@ type FileOps interface {
 }
 ```
 
-`Search` and `Glob` are first-class operations, not helpers derived from `List`.
+`Search` and `Glob` are first-class operations, not helpers derived from `List`,
+and no tier has ever implemented them any other way: a search is one command on
+the target, and only matches cross the network.
 They execute **on the target** and return only matches, at every tier — which is
 precisely what a mount cannot do, and the main reason waldo beats one on the
 operation that matters most. Deriving them client-side would mean dragging every
@@ -160,9 +158,9 @@ answered locally.
 
 ## Tiers
 
-Four strategies implement `FileOps`. They share almost no code — a shell
-pipeline, an SFTP subsystem, a Python handler, a Go binary — and a user cannot
-tell which is in use. That interchangeability claim is only worth something
+Three strategies implement `FileOps`. They share almost no code — a shell
+pipeline, a Python handler, a Go binary — and a user cannot tell which is in
+use. That interchangeability claim is only worth something
 because every tier runs one identical conformance suite
 (`internal/fileops/fileopstest`): over the local transport in unit tests, and
 over a real sshd in `test/integration`, which additionally asserts that a file
@@ -172,6 +170,10 @@ that cannot pass it does not ship.
 Full detail, including what each tier requires and writes, is in
 [TRANSPORTS.md](TRANSPORTS.md). The architectural points:
 
+- **Every tier answers one file operation in one round trip.** A protocol that
+  cannot — SFTP, which hands out a handle before it will read — was implemented
+  and then removed for that reason, and the reasoning is kept in
+  [TRANSPORTS.md](TRANSPORTS.md#why-there-is-no-sftp-tier).
 - **Tier 0 is the floor and needs only a POSIX shell.** Everything above it is
   an optimisation that is never required.
 - **Negotiation follows measurement, not the tier numbering.** The numbers rank

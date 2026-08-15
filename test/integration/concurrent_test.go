@@ -23,7 +23,7 @@ func TestConcurrentWritesOnOneTier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, tier := range []waldo.Tier{waldo.TierSFTP, waldo.TierPipe, waldo.TierPOSIX} {
+	for _, tier := range []waldo.Tier{waldo.TierPipe, waldo.TierPOSIX} {
 		t.Run(tier.String(), func(t *testing.T) {
 			if ok, why := caps.Qualifies(tier); !ok {
 				t.Skipf("not available: %s", why)

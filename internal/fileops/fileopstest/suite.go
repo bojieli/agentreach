@@ -1,8 +1,8 @@
 // Package fileopstest is the conformance suite every file-operation tier must
 // pass.
 //
-// waldo has four ways to touch a file on a target and they share almost no
-// code: a shell pipeline, an SFTP subsystem, a Python handler, and a Go binary.
+// waldo has three ways to touch a file on a target and they share almost no
+// code: a shell pipeline, a Python handler, and a Go binary.
 // A user cannot tell which one is in use, and must not need to — the whole
 // design rests on the claim that they are interchangeable. That claim is only
 // worth anything if it is tested, so every tier runs this identical suite and a
@@ -445,9 +445,9 @@ func clip(b []byte) string {
 // Agents issue tool calls in parallel, so a tier is asked to write several
 // files into one directory at once. Every tier does that by writing to a
 // temporary name and renaming it into place, which makes the temporary name a
-// shared namespace — and a shared namespace is where the sftp tier failed:
-// it numbered temporaries from a counter that restarted in every process, so
-// concurrent writers collided and all but one were refused.
+// shared namespace — and a shared namespace is where a since-removed tier
+// failed: it numbered temporaries from a counter that restarted in every
+// process, so concurrent writers collided and all but one were refused.
 //
 // This case is in the shared suite rather than in that tier's own tests
 // because the mistake was not specific to it. Any tier can invent a bad

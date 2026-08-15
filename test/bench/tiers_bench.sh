@@ -57,10 +57,6 @@ else
   find_one() { for p in "$@"; do [[ -x "$p" ]] && { echo "$p"; return 0; }; done; return 1; }
   SSHD=$(find_one /usr/sbin/sshd /usr/local/sbin/sshd /opt/homebrew/sbin/sshd) \
     || die "no sshd found"
-  SFTP_SERVER=$(find_one /usr/libexec/sftp-server /usr/lib/openssh/sftp-server \
-    /usr/libexec/openssh/sftp-server /usr/lib/ssh/sftp-server) \
-    || die "no sftp-server found"
-
   mkdir -p "$BENCH_DIR/workspace"
   ssh-keygen -q -t ed25519 -N '' -f "$BENCH_DIR/id"
   ssh-keygen -q -t ed25519 -N '' -f "$BENCH_DIR/hostkey"
@@ -77,7 +73,6 @@ StrictModes no
 UsePAM no
 PasswordAuthentication no
 LogLevel ERROR
-Subsystem sftp $SFTP_SERVER
 EOF
   cat > "$BENCH_DIR/ssh_config" <<EOF
 Host waldo-bench
@@ -118,7 +113,7 @@ on_target "head -c $((LARGE_MB * 1024 * 1024)) /dev/urandom > '$WS/large.bin'" |
 info "waldo tier benchmark against $LABEL — one process per operation"
 printf '\n%-8s %18s %14s %14s\n' tier "${SMALL_READS} x 1KiB read" "${LARGE_MB}MiB read" "${LARGE_MB}MiB write"
 
-for tier in posix sftp pipe agent; do
+for tier in posix pipe agent; do
   if ! "$ROOT/waldo" up "ssh://$HOST$WS" --fileops="$tier" --name bench >/dev/null 2>&1; then
     printf '%-8s %18s\n' "$tier" "unavailable"
     continue

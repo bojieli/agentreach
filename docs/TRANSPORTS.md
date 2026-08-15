@@ -13,9 +13,12 @@ shell.** Higher tiers are optimisations, never requirements.
 | tier | name | remote requirement | writes to remote disk |
 |---|---|---|---|
 | 0 | `posix` | a POSIX shell | none |
-| 1 | `sftp` | SFTP subsystem (OpenSSH default) | none |
-| 2 | `pipe` | `python3` present | none |
-| 3 | `agent` | ability to execute an uploaded binary | one cached binary |
+| 1 | `pipe` | `python3` present | none |
+| 2 | `agent` | ability to execute an uploaded binary | one cached binary |
+
+**Every tier answers one file operation in one network round trip.** That is the
+rule the set is chosen by, not an accident of which protocols were available —
+see [Why there is no SFTP tier](#why-there-is-no-sftp-tier).
 
 ## What they actually cost
 
@@ -37,83 +40,25 @@ differs:
 
 Tier 0 is 7× more expensive on the macOS target, and waldo's own startup is not
 the reason — 40 invocations of `waldo version` take 0.13 s. The cause is that
-tier 0 spawns `sh`, `tail`, `head` and `base64` *per read*, and macOS creates
-processes far more slowly than Linux does. The higher tiers spawn one process
-per session instead, so they are much less sensitive to it, and the ordering
-flips: on a Linux target `posix` is the fastest tier for small reads, on a macOS
-target it is the slowest.
+tier 0 spawns a process per read on the target, and macOS creates processes far
+more slowly than Linux. A loopback benchmark therefore mostly measures the
+target's process spawner. Useful to know — **if your target is macOS, tier 0
+costs disproportionately more** — but not what should decide anything.
 
-The lesson is that a loopback benchmark mostly measures the target's process
-spawner. Useful to know — **if your target is macOS, tier 0 costs
-disproportionately more** — but not what should decide the negotiation order.
-
-**Over two real links**, measured the way waldo uses them. (Measure with
-`ssh -o ControlPath=… host true` in a loop. ICMP is not a proxy for it: on a
-tunnelled or split-DNS setup ping is answered by the local client, and reported
-0.3 ms for hosts whose commands actually cost 540 ms.)
-
-A host ~171 ms per command, median of three runs:
+**Over a real link**, a host ~171 ms per command, median of three runs:
 
 | tier | 15 × 1 KiB read | 8 MiB read | 8 MiB write |
 |---|---|---|---|
-| `posix` | 6.01 s | 8.06 s | 7.72 s |
-| `sftp` | 5.71 s | 8.18 s | 5.41 s |
-| `pipe` | **5.35 s** | **5.25 s** | **5.16 s** |
-| `agent` | 10.16 s | 5.51 s | 5.77 s |
+| `posix` | 5.97 s | 6.42 s | 5.73 s |
+| `pipe` | **4.88 s** | **5.30 s** | **5.19 s** |
+| `agent` | 10.83 s | 5.60 s | 6.50 s |
 
-The uncomfortable row is `sftp`. It exists to beat the shell tier on file
-content, and after cutting its reads from four round trips to two it is 5%
-ahead on small reads, 30% ahead on writes, and *level* on large reads — while
-`pipe`, which is a plain request/response, beats it on all three. See
-[Is sftp worth it?](#is-sftp-worth-it).
-
-A host ~540 ms per command, on a lossy tunnel:
-
-| tier | 15 × 1 KiB read | 8 MiB read | 8 MiB write |
-|---|---|---|---|
-| `posix` | 22.42 s | 33.87 s | 8.65 s |
-| `sftp` | 36.27 s | 27.78 s | 15.43 s |
-| `pipe` | **20.35 s** | **7.46 s** | **6.36 s** |
-| `agent` | 42.72 s | 12.23 s | 13.51 s |
-
-Once latency is real, round trips dominate everything else, and the ordering is
-consistent at both: `pipe` beats `sftp` on every axis on both hosts, `agent` is
-the slowest to start on both, and `posix` is the worst on large reads on both.
-The margins narrow as latency falls, which is what should happen if round trips
-are what is being counted — and at zero latency they vanish into the target's
-process-spawn cost, as the table above shows.
-
-That is why the negotiation order is decided by the real-link numbers. waldo
-exists to drive remote hosts; a benchmark with no network in it is measuring
-something else.
-
-The reason is that the tiers differ in *round trips per operation*, not in work
-done. `pipe` and `agent` answer a whole file in one request and one response
-over a channel that is already open. SFTP needs several — open, fstat, read,
-close — and each is a round trip. Its cheap setup dominates when round trips are
-free and stops mattering the instant they are not.
-
-waldo exists to drive *remote* hosts, so the second table decides the
-negotiation order: `pipe`, then `sftp`, then `posix`.
-
-Two more things these numbers show:
-
-**The agent tier is the slowest to start**, in both tables, which is the
-opposite of what "fastest tier" suggests. Its advantage is per-operation, and
-waldo runs one process per tool call, so a binary launching is pure overhead
-that batching never gets to amortise.
-
-**Small reads are dominated by the process model**, not the tier: ~1.4 s each
-against a 258 ms host, most of it a new waldo process and a new channel. No tier
-fixes that; only a resident process would, which is the trade discussed in
-[ARCHITECTURE.md](ARCHITECTURE.md#there-is-no-daemon).
-
-Getting this wrong once already cost something concrete. SFTP writes were a
-sequential loop of 32 KiB chunks — one round trip each — which is invisible on
-loopback and took **79 seconds** to write 8 MiB over the real link, eleven times
-slower than the shell tier it exists to beat. Pipelining the writes as the reads
-already were brought it to 15 s. A benchmark on the wrong link would have found
-none of it.
+`pipe` wins on every axis because it moves a whole file in one frame with no
+per-operation process on the target. `posix` is close behind, and much closer
+than it used to be, because it no longer base64-encodes on links proven 8-bit
+clean. `agent` is fastest in bulk and slowest to start, which is binary launch
+cost and nothing else — its advantage is per-operation, and waldo runs one
+process per tool call, so batching never gets to amortise it.
 
 ## Tier 0 — `posix` (strict SSH, universal)
 
@@ -148,36 +93,7 @@ which makes a large offset pathologically slow.
 
 This tier is the floor, and the fallback whenever nothing higher can be proven.
 
-## Tier 1 — `sftp`
-
-Uses the SFTP subsystem that ships enabled in stock OpenSSH, reached with
-`ssh -s <host> sftp` over the same multiplexed connection as everything else —
-no extra authentication, no extra TCP connection. Structured file operations, no
-encoding overhead, and reads pipelined eight deep so a high-latency link stays
-full instead of paying one round trip per 32 KiB.
-
-waldo implements the client (`internal/sftp`) rather than importing one. Version
-3 has been frozen since 2001, the subset waldo needs is a few hundred lines, and
-every dependency this project takes on is supply chain that an operator inherits
-from a tool whose entire premise is touching nothing.
-
-SFTP is used as a **protocol, not a mount**: waldo asks for bytes and gets bytes
-or an error. Nothing is written to the target, and no operation can wedge in
-uninterruptible sleep the way a stalled mount does.
-
-Atomic writes use OpenSSH's `posix-rename@openssh.com` extension when the server
-advertises it. Plain v3 `rename` refuses an existing destination, so without the
-extension an overwrite needs remove-then-rename, which has a window where the
-file does not exist at all.
-
-Search and glob are **not** SFTP operations — the protocol has no such request,
-and answering them client-side would mean transferring every candidate file.
-They run as shell commands on the target, exactly as at tier 0.
-
-Falls back to tier 0 automatically if the subsystem is disabled, which some
-hardened hosts do. `waldo doctor` reports whether it answered.
-
-## Tier 2 — `pipe`
+## Tier 1 — `pipe`
 
 A stdlib-only Python handler runs on the target and speaks a length-framed
 protocol over one long-lived channel. **Nothing is ever written to the remote
@@ -202,11 +118,11 @@ not changed never crosses the network at all.
 `exec` replaces the shell with the interpreter, so closing the channel kills the
 handler rather than leaving an orphan on someone else's machine.
 
-## Tier 3 — `agent` (auto-installed)
+## Tier 2 — `agent` (auto-installed)
 
 A small static Go binary, installed by waldo when this tier is selected. The
 user is never asked to install anything by hand. It speaks the identical
-protocol to tier 2 — one client serves both, because a second implementation
+protocol to tier 1 — one client serves both, because a second implementation
 would be a second thing to keep honest.
 
 This is the only tier that writes to a target, so everything about it is built
@@ -270,32 +186,41 @@ it works. Recording a tier that turns out to be unusable would move the failure
 out of `waldo up`, where an operator is present to act on it, and into the
 middle of an agent's turn, where it looks like a broken tool.
 
-## Is sftp worth it?
+## Why there is no SFTP tier
 
-An honest question, and the numbers do not flatter it.
+waldo had one, and removing it is the most useful thing this document records.
 
-The tier exists because SFTP is the one structured file protocol every stock
-`sshd` already speaks, so it promised faster file access with nothing installed.
-What the measurements show is that it is a *chatty* protocol on a link where
-round trips are the entire cost: every read needs a handle, so the floor is two
-round trips even after `open` and `stat` are issued in parallel and the `close`
-is not waited for. A request/response tier answers the same read in one.
+SFTP is the one structured file protocol every stock `sshd` already speaks, so a
+tier built on it promised faster file access with nothing installed. It was
+implemented, tested, measured — and then deleted, for two reasons that only
+became clear once it was measured on a real network.
 
-Where it still wins is writes on a host without `python3` — 5.41 s against
-7.72 s — because base64 costs the shell tier a third of its bandwidth. Where it
-does not win is anywhere `pipe` or `agent` can run.
+**It cannot answer a tool call in one round trip.** `READ` takes a handle, and
+the handle only exists in `OPEN`'s response. That dependency is in the protocol,
+so no amount of pipelining removes it: `OPEN` and `STAT` can share a round trip
+because both take a path, but `READ` cannot join them, and version 3 has no
+composite open-and-read. Two was the floor. Every surviving tier does it in one —
+the shell tier sends a command and reads its output, the pipe and agent tiers
+send a request and read a response.
 
-So the case for keeping it is narrow: a target with no `python3`, where nothing
-may be installed, doing many writes. The case against is that it is several
-hundred lines of hand-written protocol that has to be kept correct — and it is
-where three of this project's bugs came from, all of them concurrency or
-round-trip mistakes that the shell tier's simplicity made impossible.
+**Its remaining advantage was bandwidth, and that turned out to be waldo's own
+fault.** Tier 0 base64-encoded file content unconditionally, which costs a third
+of the bandwidth, and SFTP did not. Once waldo started *proving* whether a link
+is 8-bit clean and skipping the encoding when it is, the shell tier read 8 MiB
+in 6.4 s against SFTP's 8.1 s, and matched it on small reads and writes. The
+tier that existed to beat the shell on file content no longer beat it on any
+axis.
 
-It is kept for now, no longer preferred by autonegotiation, and available
-explicitly with `--fileops=sftp`. If it is removed later, the replacement for
-its niche is `--fileops=agent`, which is a request/response tier that needs no
-`python3` — at the cost of the one thing it must not do silently, which is
-write a binary to the target.
+What it cost while it lived: several hundred lines of hand-written protocol, and
+three bugs — temporary filenames that collided between processes, writes that
+were not pipelined and so took 79 s to move 8 MiB over a slow link, and four
+serial round trips per read. All three were mistakes the shell tier's simplicity
+makes impossible.
+
+If you need file access on a target with no `python3` and nothing installable,
+that is tier 0, and it is now as fast. If you want request/response without
+`python3`, that is `--fileops=agent`, at the cost of the one thing waldo will
+not do silently: writing a binary to the target.
 
 ## Conformance
 

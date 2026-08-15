@@ -58,8 +58,8 @@ type FileOps interface {
 	// be able to report the tier it failed to reach.
 	Tier() waldo.Tier
 
-	// Close releases whatever the strategy holds open — an SFTP channel, a
-	// long-lived handler process. Tier 0 holds nothing and returns nil. It is
-	// safe to call more than once.
+	// Close releases whatever the strategy holds open — a long-lived handler
+	// process, an installed agent's channel. Tier 0 holds nothing and returns
+	// nil. It is safe to call more than once.
 	Close() error
 }

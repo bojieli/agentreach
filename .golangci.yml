@@ -49,11 +49,9 @@ linters:
 
     gosec:
       excludes:
-        # G115: integer conversions. Every remaining one in this codebase is a
-        # protocol length or offset bounded by an explicit limit checked at the
-        # call site — maxFrame, maxDataChunk, or a chunk size. The conversions
-        # that were *not* bounded were sizes reported by the far end, and those
-        # are clamped through sftp.ClampSize instead of silenced here.
+        # G115: integer conversions. Every remaining one is a protocol length
+        # or offset bounded by an explicit limit checked at the call site —
+        # maxFrame, or a chunk size — rather than a value the far end chose.
         - G115
         # G304: opening a file whose path came from a variable is this program's
         # entire job. Containment is enforced where it matters (mirror.Local)

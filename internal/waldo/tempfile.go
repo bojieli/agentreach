@@ -25,7 +25,7 @@ import (
 //
 // *Processes*, not goroutines. waldo runs one process per tool call and a
 // harness issues tool calls in parallel, so concurrent writers are the ordinary
-// case rather than an edge one. The sftp tier learned this the hard way: it
+// case rather than an edge one. A tier since removed learned this the hard way: it
 // numbered temporaries from a per-client counter that restarted at 1 in every
 // process, so parallel writers all chose `.waldo.tmp.1` and the exclusive
 // create refused all but one — three of eight writes failing, against a real

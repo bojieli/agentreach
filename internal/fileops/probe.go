@@ -57,9 +57,6 @@ type Capabilities struct {
 	// operator, when it differs from the one a non-interactive command gets.
 	// Empty means they matched and nothing needs overriding.
 	LoginPath string
-	// SFTP reports whether the SFTP subsystem answered. Only meaningful for
-	// ssh transports.
-	SFTP bool
 	// Shell is the target's /bin/sh identity, informational.
 	Uname string
 }
@@ -184,10 +181,6 @@ func Probe(ctx context.Context, t transport.Transport) (*Capabilities, error) {
 	}
 	c.LoginPath = loginPath
 	c.RawStdin, c.RawStdout = probeRawIO(ctx, t, c)
-	// Whether the SFTP subsystem answers cannot be read out of the target's
-	// userland, only by asking it. One extra channel during `waldo up` buys a
-	// tier decision that is proven rather than assumed.
-	c.SFTP = ProbeSFTP(ctx, t)
 	return c, nil
 }
 
@@ -295,25 +288,6 @@ func (c *Capabilities) Env() map[string]string {
 	return pathEnv(c.LoginPath)
 }
 
-// ProbeSFTP reports whether the target answers on the SFTP subsystem.
-//
-// This is done by completing a real handshake rather than by asking sshd what
-// it is configured to do. A host can advertise the subsystem and still refuse
-// it — a Match block, a forced command, a chroot without the server binary —
-// and a tier that is available in theory and refused in practice would fail on
-// first use instead of during negotiation.
-func ProbeSFTP(ctx context.Context, t transport.Transport) bool {
-	if _, ok := t.(transport.SubsystemOpener); !ok {
-		return false
-	}
-	ops, err := NewSFTP(ctx, t, NewPOSIX(t, &Capabilities{}))
-	if err != nil {
-		return false
-	}
-	_ = ops.Close()
-	return true
-}
-
 // Qualifies reports whether a target can support a tier, and why not when it
 // cannot. The reason is shown by `waldo doctor`, so an operator can see that a
 // host is on tier 0 because it lacks python3 rather than because waldo decided
@@ -326,11 +300,6 @@ func (c *Capabilities) Qualifies(tier waldo.Tier) (bool, string) {
 		}
 		if c.StatFlavor == "" {
 			return false, "no usable stat command"
-		}
-		return true, ""
-	case waldo.TierSFTP:
-		if !c.SFTP {
-			return false, "the SFTP subsystem did not answer"
 		}
 		return true, ""
 	case waldo.TierPipe:
@@ -350,35 +319,28 @@ func (c *Capabilities) Qualifies(tier waldo.Tier) (bool, string) {
 // negotiationOrder is the order autonegotiation prefers tiers in, most
 // preferred first.
 //
-// It is measured, and it was measured twice, because the first measurement was
-// taken in the wrong place.
+// Every remaining tier answers one file operation in one network round trip:
+// the shell tier sends a command and reads its output, the pipe and agent
+// tiers send a request and read a response. That is the property that decides
+// this list, and the reason a since-removed SFTP tier is not on it: SFTP hands
+// out a handle before it will read, so its floor was two.
 //
-// A benchmark with no network in it measures the target's process spawner, not
-// the tiers: tier 0 spawns several processes per read, and the same measurement
-// is 7x cheaper against a Linux target than a macOS one. Over a real link,
-// round trips dominate and the tiers separate properly:
+// Between the survivors it is bandwidth and startup cost. Measured against a
+// host 171 ms away, median of three runs:
 //
 //	                15x1KiB read   8MiB read   8MiB write
-//	posix                 22.42s      33.87s        8.65s
-//	sftp                  36.27s      27.78s       15.43s
-//	pipe                  20.35s       7.46s        6.36s
-//	agent                 42.72s      12.23s       13.51s
+//	posix                  5.97s       6.42s        5.73s
+//	pipe                   4.88s       5.30s        5.19s
+//	agent                 10.83s       5.60s        6.50s
 //
-// Latency, not CPU, is what a remote target actually costs, and the tiers
-// differ in round trips per operation rather than in work done. The pipe and
-// agent tiers answer a whole file in one request/response over a channel that
-// is already open; SFTP needs several — open, fstat, read, close — each a round
-// trip, and its cheap setup stops mattering the moment a round trip is not
-// free.
+// pipe wins because it moves a whole file in one frame with no per-operation
+// process on the target. posix is close behind now that it no longer
+// base64-encodes on links proven to be 8-bit clean. agent is fastest in bulk
+// and slowest to start, which is pure binary launch cost.
 //
-// waldo exists to drive *remote* hosts, so the remote numbers decide this, and
-// they agree at both 171 ms and 540 ms. sftp stays ahead of posix, and above
-// both sits pipe.
-//
-// TierAgent is deliberately absent: that tier writes a binary to the target, and
-// waldo never makes that choice on the operator's behalf. It is also the
-// slowest to start, which the small-read column shows plainly.
-var negotiationOrder = []waldo.Tier{waldo.TierPipe, waldo.TierSFTP}
+// TierAgent is deliberately absent: that tier writes a binary to the target,
+// and waldo never makes that choice on the operator's behalf.
+var negotiationOrder = []waldo.Tier{waldo.TierPipe}
 
 // BestTier reports the tier autonegotiation would choose for this target.
 func (c *Capabilities) BestTier() waldo.Tier {

@@ -199,20 +199,7 @@ func (t *SSHTransport) Run(ctx context.Context, req waldo.ExecRequest) (waldo.Ex
 
 // Open implements Transport, starting a long-lived remote process.
 func (t *SSHTransport) Open(ctx context.Context, command string) (Stream, error) {
-	return t.open(ctx, append(t.baseArgs(), "-T", t.cfg.Host, command))
-}
-
-// OpenSubsystem implements SubsystemOpener.
-//
-// `ssh -s <host> <name>` asks sshd to start a subsystem rather than a shell
-// command. It multiplexes over the same ControlMaster connection as everything
-// else, so the SFTP tier costs no additional authentication and no additional
-// TCP connection.
-func (t *SSHTransport) OpenSubsystem(ctx context.Context, name string) (Stream, error) {
-	return t.open(ctx, append(t.baseArgs(), "-T", "-s", t.cfg.Host, name))
-}
-
-func (t *SSHTransport) open(ctx context.Context, args []string) (Stream, error) {
+	args := append(t.baseArgs(), "-T", t.cfg.Host, command)
 	cmd := exec.CommandContext(ctx, t.cfg.Binary, args...)
 
 	stdin, err := cmd.StdinPipe()

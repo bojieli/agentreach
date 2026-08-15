@@ -74,10 +74,8 @@ func cmdDoctor(ctx context.Context, args []string) error {
 	fmt.Printf("  ripgrep          %s\n", orNone(caps.Ripgrep))
 	fmt.Printf("  python3          %s\n", ok(caps.Python3))
 
-	fmt.Printf("  sftp subsystem   %s\n", ok(caps.SFTP))
-
 	fmt.Println("\nFILE-OPERATION TIERS")
-	for _, tier := range []waldo.Tier{waldo.TierPOSIX, waldo.TierSFTP, waldo.TierPipe, waldo.TierAgent} {
+	for _, tier := range []waldo.Tier{waldo.TierPOSIX, waldo.TierPipe, waldo.TierAgent} {
 		qualifies, why := caps.Qualifies(tier)
 		mark := "no "
 		if qualifies {
@@ -111,9 +109,9 @@ func cmdDoctor(ctx context.Context, args []string) error {
 	if caps.StatFlavor == "" {
 		fmt.Println("  ! No usable stat. File metadata is unavailable; this target cannot be used.")
 	}
-	if !caps.SFTP {
-		fmt.Println("  ! The SFTP subsystem did not answer, so file content moves base64-framed")
-		fmt.Println("    over the shell. That is universal and about a third slower on the wire.")
+	if !caps.RawStdin || !caps.RawStdout {
+		fmt.Println("  ! This link is not 8-bit clean in both directions, so file content is")
+		fmt.Println("    base64-framed. That is always safe and about a third slower on the wire.")
 	}
 
 	fmt.Println("\nLOCAL HARNESSES")

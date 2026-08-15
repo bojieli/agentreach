@@ -169,7 +169,7 @@ harness (claude · codex · kimi · opencode)
 adapter          per harness · no fork · config or plugin
     │
 waldo            session state · cwd · capability probe
-    │            fileops tier: posix · sftp · pipe · agent
+    │            fileops tier: posix · pipe · agent
     │  ssh · docker · podman · local
 target           stock sshd only
 ```
@@ -187,13 +187,12 @@ fourth installs a small helper, only when you ask for it by name, and
 | tier | needs on target | writes | picked automatically |
 |---|---|---|---|
 | `posix` | a POSIX shell | nothing | yes (floor) |
-| `sftp` | SFTP subsystem | nothing | yes |
 | `pipe` | `python3` | nothing | yes (preferred) |
 | `agent` | can run an upload | one cached binary | **never** |
 
-Which tier is fastest is [measured, not assumed](docs/TRANSPORTS.md) — and the
-answer inverts between loopback and a real network, which is a good story on its
-own.
+Which tier is fastest is [measured, not assumed](docs/TRANSPORTS.md), on a real
+network rather than on loopback — and one tier was deleted when the measurement
+said it had stopped earning its place.
 
 ## Two modes
 

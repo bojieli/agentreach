@@ -27,8 +27,8 @@ make e2e          # real agents against a real target. SPENDS TOKENS.
 `make integration` starts an `sshd` owned by your user on a high port, so it
 needs neither root, nor Docker, nor a network. Mocks are deliberately not used
 there: shell quoting that works locally but not through ssh's own re-parsing,
-exit statuses lost to ssh's use of 255, and the SFTP subsystem are exactly the
-things a mock cannot catch. Set `WALDO_TEST_SSHD=docker` to run against a Debian
+exit statuses lost to ssh's use of 255, and whether a link is 8-bit clean are
+exactly the things a mock cannot catch. Set `WALDO_TEST_SSHD=docker` to run against a Debian
 container instead, which is how a GNU target gets exercised from a BSD host.
 
 Tests that spend model tokens are never part of `make check`, so a contributor
@@ -37,7 +37,7 @@ without an API key can still develop and verify most of the project.
 ### Adding or changing a file-operation tier
 
 Every tier runs one shared conformance suite, `internal/fileops/fileopstest`.
-Add cases there rather than to a single tier's tests: the four tiers share
+Add cases there rather than to a single tier's tests: the tiers share
 almost no code, a user cannot tell which is in use, and the entire design rests
 on their being interchangeable. A case that only one tier passes is a case that
 belongs in the shared suite until every tier passes it.

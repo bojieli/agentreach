@@ -21,7 +21,8 @@ import (
 // The integration suite needs a real OpenSSH server, because the bugs it exists
 // to catch only appear there: shell quoting that survives one round of
 // interpretation but not ssh's second, exit statuses lost to ssh's own use of
-// 255, and the SFTP subsystem, which cannot be simulated at all.
+// 255, and whether the link is 8-bit clean, which decides whether file content
+// is base64-framed.
 //
 // It starts one as the current user on a high port rather than requiring
 // Docker. That runs anywhere sshd is installed — both CI runners, and a
@@ -158,10 +159,6 @@ func startLocalTarget() (func(), error) {
 	if err != nil {
 		return nil, err
 	}
-	sftpServer, err := findSFTPServer()
-	if err != nil {
-		return nil, err
-	}
 	key := filepath.Join(testDir, "id")
 	hostKey := filepath.Join(testDir, "hostkey")
 	for _, k := range []string{key, hostKey} {
@@ -201,8 +198,7 @@ KbdInteractiveAuthentication no
 PermitUserEnvironment no
 PrintMotd no
 LogLevel ERROR
-Subsystem sftp %s
-`, localPort, hostKey, filepath.Join(testDir, "sshd.pid"), authorized, sftpServer)
+`, localPort, hostKey, filepath.Join(testDir, "sshd.pid"), authorized)
 	cfgPath := filepath.Join(testDir, "sshd_config")
 	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
 		return nil, err
@@ -326,24 +322,6 @@ func findSSHD() (string, error) {
 		return p, nil
 	}
 	return "", fmt.Errorf("no sshd found; install openssh-server or set WALDO_TEST_SSHD=docker")
-}
-
-// findSFTPServer locates the subsystem binary. Without it the SFTP tier cannot
-// be tested, and a tier that ships untested is exactly what this suite exists
-// to prevent.
-func findSFTPServer() (string, error) {
-	for _, p := range []string{
-		"/usr/libexec/sftp-server",
-		"/usr/lib/openssh/sftp-server",
-		"/usr/libexec/openssh/sftp-server",
-		"/usr/lib/ssh/sftp-server",
-		"/opt/homebrew/libexec/sftp-server",
-	} {
-		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
-			return p, nil
-		}
-	}
-	return "", fmt.Errorf("no sftp-server binary found; the sftp tier could not be tested")
 }
 
 func newTransport(t *testing.T) transport.Transport {

@@ -16,8 +16,8 @@ import (
 //
 // The local transport is a real transport, not a mock: the same shell quoting,
 // the same exit-status protocol, the same base64 framing. What it cannot cover
-// is ssh's second round of shell interpretation and the SFTP subsystem, which
-// is what test/integration exists for.
+// is ssh's second round of shell interpretation, which is what test/integration
+// exists for.
 func TestTierConformance(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -65,9 +65,12 @@ func TestPinnedTierIsNeverSubstituted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("probe: %v", err)
 	}
-	// The local transport is not ssh, so it can never provide an SFTP
-	// subsystem. Pinning it must fail rather than hand back tier 0.
-	if _, err := fileops.New(context.Background(), waldo.TierSFTP, tr, caps, true, nil); err == nil {
+	// A tier the target cannot support must fail rather than hand back tier 0.
+	// The agent tier needs a platform waldo has a build for; an unknown uname
+	// is exactly the case where a pin cannot be honoured.
+	impossible := *caps
+	impossible.Uname = "Plan9 unknown-arch"
+	if _, err := fileops.New(context.Background(), waldo.TierAgent, tr, &impossible, true, nil); err == nil {
 		t.Fatal("pinning an impossible tier succeeded; it must fail loudly")
 	}
 }
@@ -80,16 +83,19 @@ func TestAutonegotiationDegradesVisibly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("probe: %v", err)
 	}
+	// Ask for a tier this target cannot build, without pinning it.
+	degraded := *caps
+	degraded.Python3 = false
 	var warnings []string
-	sel, err := fileops.New(context.Background(), waldo.TierSFTP, tr, caps, false,
+	sel, err := fileops.New(context.Background(), waldo.TierPipe, tr, &degraded, false,
 		func(msg string) { warnings = append(warnings, msg) })
 	if err != nil {
 		t.Fatalf("autonegotiation should have fallen back, not failed: %v", err)
 	}
 	defer func() { _ = sel.Ops.Close() }()
 
-	if sel.Effective >= waldo.TierSFTP {
-		t.Fatalf("effective tier = %s, expected a fallback below sftp", sel.Effective)
+	if sel.Effective >= waldo.TierPipe {
+		t.Fatalf("effective tier = %s, expected a fallback below pipe", sel.Effective)
 	}
 	if !sel.Degraded() {
 		t.Error("Degraded() is false after a fallback")

@@ -82,8 +82,6 @@ func build(ctx context.Context, tier waldo.Tier, t transport.Transport, caps *Ca
 			return nil, fmt.Errorf("no base64 or openssl on the target")
 		}
 		return base, nil
-	case waldo.TierSFTP:
-		return NewSFTP(ctx, t, base)
 	case waldo.TierPipe:
 		if !caps.Python3 {
 			return nil, fmt.Errorf("no python3 on the target")

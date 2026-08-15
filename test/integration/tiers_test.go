@@ -18,11 +18,11 @@ import (
 //
 // This is where the interchangeability claim is actually settled. The unit
 // tests run the same suite over the local transport, which cannot cover ssh's
-// second round of shell interpretation, and cannot cover the SFTP tier at all
-// because a local shell has no subsystem channel.
+// second round of shell interpretation, nor whether the link is 8-bit clean —
+// which is what decides whether file content is base64-framed.
 func TestTierConformanceOverSSH(t *testing.T) {
 	for _, tier := range []waldo.Tier{
-		waldo.TierPOSIX, waldo.TierSFTP, waldo.TierPipe, waldo.TierAgent,
+		waldo.TierPOSIX, waldo.TierPipe, waldo.TierAgent,
 	} {
 		t.Run(tier.String(), func(t *testing.T) {
 			tr := newTransport(t)
@@ -69,7 +69,7 @@ func TestTiersAgreeByteForByte(t *testing.T) {
 		t.Fatalf("probe: %v", err)
 	}
 
-	tiers := []waldo.Tier{waldo.TierPOSIX, waldo.TierSFTP, waldo.TierPipe, waldo.TierAgent}
+	tiers := []waldo.Tier{waldo.TierPOSIX, waldo.TierPipe, waldo.TierAgent}
 	ops := map[waldo.Tier]fileops.FileOps{}
 	for _, tier := range tiers {
 		sel, err := fileops.New(ctx, tier, tr, caps, true, nil)

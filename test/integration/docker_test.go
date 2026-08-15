@@ -89,10 +89,6 @@ func imageOr(env, fallback string) string {
 
 // TestDockerTierConformance runs the shared suite against a container, for every
 // tier a container can support.
-//
-// A container has no SSH subsystem, so tier 1 is genuinely unavailable here —
-// and that is worth asserting rather than skipping past, because "unavailable"
-// must be reported as such rather than silently satisfied by something else.
 func TestDockerTierConformance(t *testing.T) {
 	const name = "waldo-it-gnu"
 	startContainer(t, name, imageOr(gnuImageEnv, "python:3.11-slim"))
@@ -105,10 +101,6 @@ func TestDockerTierConformance(t *testing.T) {
 	}
 	t.Logf("container userland: %s stat=%s python3=%v find-printf=%v",
 		caps.Uname, caps.StatFlavor, caps.Python3, caps.FindPrintf)
-
-	if ok, why := caps.Qualifies(waldo.TierSFTP); ok {
-		t.Errorf("a container claimed to support the sftp tier (%q); it has no subsystem channel", why)
-	}
 
 	for _, tier := range []waldo.Tier{waldo.TierPOSIX, waldo.TierPipe, waldo.TierAgent} {
 		t.Run(tier.String(), func(t *testing.T) {

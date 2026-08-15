@@ -32,19 +32,6 @@ type Transport interface {
 	Close() error
 }
 
-// SubsystemOpener is implemented by transports that can start an SSH
-// subsystem, which is how the SFTP tier reaches stock OpenSSH's sftp-server
-// without running a command or installing anything.
-//
-// It is deliberately an optional interface rather than a method on Transport.
-// A container or a local shell has no subsystem concept, and giving them a
-// method that can only return "unsupported" would invite callers to treat the
-// absence as a runtime failure instead of what it is: a tier this target does
-// not qualify for.
-type SubsystemOpener interface {
-	OpenSubsystem(ctx context.Context, name string) (Stream, error)
-}
-
 // Stream is a long-lived remote process.
 type Stream struct {
 	Stdin  io.WriteCloser

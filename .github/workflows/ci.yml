@@ -45,7 +45,7 @@ jobs:
           fi
       - run: go vet ./...
       # The race detector needs a C toolchain and is markedly slower on Windows;
-      # the concurrency it guards (the SFTP pipeline, the handler client) is
+      # the concurrency it guards (the handler client, the mirror) is
       # platform-independent and covered on the other two runners.
       - name: test
         shell: bash
@@ -86,7 +86,8 @@ jobs:
           cache: true
       # Exercises every file-operation tier against a real OpenSSH server, which
       # is the only way to cover ssh's second round of shell interpretation, its
-      # use of exit 255 for its own failures, and the SFTP subsystem. The suite
+      # use of exit 255 for its own failures, and whether the link is 8-bit
+      # clean, which decides whether content is base64-framed. The suite
       # starts an sshd owned by the runner user, so this needs no container and
       # no network — and it runs on both userlands rather than only on Linux.
       - name: install openssh-server (linux)
@@ -164,24 +165,20 @@ jobs:
           cache: true
       # Short runs on every pull request: enough to catch a parser regression
       # while it is still cheap to fix, not enough to find something deep. These
-      # three parse input waldo does not control — an SFTP server's responses,
-      # the agent's framing, and a closed harness's command envelope — in a
-      # process holding the operator's credentials.
+      # both parse input waldo does not control — the agent's framing, and a
+      # closed harness's command envelope — in a process holding the operator's
+      # credentials.
       - name: fuzz
         run: |
           set -euo pipefail
-          go test -run xxx -fuzz FuzzReadPacket   -fuzztime=45s ./internal/sftp/
-          go test -run xxx -fuzz FuzzAttrs        -fuzztime=45s ./internal/sftp/
-          go test -run xxx -fuzz FuzzStatusResponse -fuzztime=30s ./internal/sftp/
-          go test -run xxx -fuzz FuzzReadFrame    -fuzztime=45s ./cmd/waldo-agent/
-          go test -run xxx -fuzz FuzzParseClaudeCode -fuzztime=45s ./internal/envelope/
+          go test -run xxx -fuzz FuzzReadFrame       -fuzztime=60s ./cmd/waldo-agent/
+          go test -run xxx -fuzz FuzzParseClaudeCode -fuzztime=60s ./internal/envelope/
       - name: keep any crasher found
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: fuzz-corpus
           path: |
-            internal/sftp/testdata/fuzz/**
             cmd/waldo-agent/testdata/fuzz/**
             internal/envelope/testdata/fuzz/**
 

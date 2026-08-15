@@ -84,8 +84,6 @@ const (
 	// TierPOSIX uses only a POSIX shell on the target. Universal; requires
 	// nothing installed and writes nothing to the target's disk.
 	TierPOSIX Tier = iota
-	// TierSFTP uses the SFTP subsystem shipped with stock OpenSSH.
-	TierSFTP
 	// TierPipe streams a stdlib-only handler over stdin. No disk footprint.
 	TierPipe
 	// TierAgent uses a waldo-installed static binary. Fastest; the only tier
@@ -97,8 +95,6 @@ func (t Tier) String() string {
 	switch t {
 	case TierPOSIX:
 		return "posix"
-	case TierSFTP:
-		return "sftp"
 	case TierPipe:
 		return "pipe"
 	case TierAgent:
@@ -113,13 +109,19 @@ func ParseTier(s string) (Tier, error) {
 	case "posix":
 		return TierPOSIX, nil
 	case "sftp":
-		return TierSFTP, nil
+		// Removed rather than renamed, and worth saying so: an operator who
+		// pinned it deserves to know it is gone and why, not to be told the
+		// name is unknown.
+		return 0, fmt.Errorf("the sftp tier was removed: it could not answer a tool call in one " +
+			"round trip, because SFTP hands out a handle before it will read, and it no longer " +
+			"moved bytes faster than the shell tier once that tier stopped base64-encoding them. " +
+			"Use posix (installs nothing), pipe (needs python3), or agent")
 	case "pipe":
 		return TierPipe, nil
 	case "agent":
 		return TierAgent, nil
 	}
-	return 0, fmt.Errorf("unknown fileops tier %q (want posix, sftp, pipe or agent)", s)
+	return 0, fmt.Errorf("unknown fileops tier %q (want posix, pipe or agent)", s)
 }
 
 // ExitError reports a command that ran to completion with a non-zero status.

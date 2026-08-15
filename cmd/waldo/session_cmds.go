@@ -70,7 +70,7 @@ func cmdUp(ctx context.Context, args []string) error {
 	name := fs.String("name", defaultSessionName, "session name")
 	mode := fs.String("mode", string(session.ModeExec), "exec or mirror")
 	untrusted := fs.Bool("untrusted", false, "target is not yours: never install anything, never forward an agent")
-	tierName := fs.String("fileops", "", "pin a file-operation tier (posix, sftp, pipe, agent)")
+	tierName := fs.String("fileops", "", "pin a file-operation tier (posix, pipe, agent)")
 	timeout := fs.Duration("timeout", 2*time.Minute, "default per-command timeout")
 	pos, err := parseFlags(fs, args)
 	if err != nil {

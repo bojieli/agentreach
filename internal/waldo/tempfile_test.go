@@ -10,7 +10,7 @@ import (
 // TestTempPathsNeverCollide is the regression test for a class of bug, not for
 // one tier.
 //
-// The sftp tier numbered temporaries from a per-client counter that restarted
+// A since-removed tier numbered temporaries from a per-client counter that restarted
 // in every process, so parallel waldo processes all chose `.waldo.tmp.1` and
 // the exclusive create refused all but one: three of eight concurrent writes
 // failed against a real host. The rule was never written down, so each tier
