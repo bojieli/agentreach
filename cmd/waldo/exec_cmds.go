@@ -114,6 +114,11 @@ func runOnTarget(ctx context.Context, sessionName, command, cwdFile string) int 
 		Command: command,
 		Dir:     cwd,
 		Timeout: s.Timeout,
+		// The agent gets the PATH the operator would have on that machine.
+		// Without this, a tool the operator installed into ~/.local/bin or
+		// ~/.cargo/bin is invisible to the agent, for no reason it could work
+		// out from the error.
+		Env: s.Caps.Env(),
 	}, os.Stdout, stderr)
 
 	// Record it either way. A command that failed to reach the target is as

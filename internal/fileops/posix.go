@@ -46,8 +46,13 @@ func (p *POSIX) Close() error { return nil }
 func q(s string) string { return transport.ShellQuote(s) }
 
 // run executes a shell snippet on the target and fails on a non-zero status.
+//
+// Every command carries the target's login PATH, so the tools the probe found
+// are the tools that can actually be run. Detecting `rg` in ~/.cargo/bin and
+// then invoking it without that directory on PATH would turn a working search
+// into "command not found".
 func (p *POSIX) run(ctx context.Context, cmd string, stdin []byte) ([]byte, error) {
-	res, err := p.t.Run(ctx, waldo.ExecRequest{Command: cmd, Stdin: stdin})
+	res, err := p.t.Run(ctx, waldo.ExecRequest{Command: cmd, Stdin: stdin, Env: p.caps.Env()})
 	if err != nil {
 		return nil, err
 	}
@@ -140,6 +145,7 @@ func (p *POSIX) readRange(ctx context.Context, filePath string, off, n int64) ([
 	res, err := p.t.Run(ctx, waldo.ExecRequest{
 		Command:   cmd,
 		MaxOutput: n*4/3 + (64 << 10),
+		Env:       p.caps.Env(),
 	})
 	if err != nil {
 		return nil, err
@@ -341,7 +347,7 @@ const searchOutputCap = 8 << 20
 // Search utilities agree on the convention: 0 means matches, 1 means none, and
 // anything above means the search itself failed.
 func (p *POSIX) runSearch(ctx context.Context, cmd, tool string) ([]byte, bool, error) {
-	res, err := p.t.Run(ctx, waldo.ExecRequest{Command: cmd, MaxOutput: searchOutputCap})
+	res, err := p.t.Run(ctx, waldo.ExecRequest{Command: cmd, MaxOutput: searchOutputCap, Env: p.caps.Env()})
 	if err != nil {
 		return nil, false, err
 	}

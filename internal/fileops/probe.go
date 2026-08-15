@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/bojieli/waldo/internal/transport"
 	"github.com/bojieli/waldo/internal/waldo"
@@ -44,6 +45,10 @@ type Capabilities struct {
 	// only GNU and BSD accept --binary-files=without-match, and busybox rejects
 	// the whole command when given it.
 	GrepSkipBinary string
+	// LoginPath is the PATH the target's own login shell would give the
+	// operator, when it differs from the one a non-interactive command gets.
+	// Empty means they matched and nothing needs overriding.
+	LoginPath string
 	// SFTP reports whether the SFTP subsystem answered. Only meaningful for
 	// ssh transports.
 	SFTP bool
@@ -88,9 +93,43 @@ elif w_has openssl; then printf 'SHA=openssl dgst -sha256 -r\n'
 else printf 'SHA=\n'; fi
 `
 
+// loginPathScript asks the target what PATH the operator would actually have.
+//
+// `ssh host command` runs a non-interactive shell, which on Debian and Ubuntu
+// returns from ~/.bashrc before reaching anything that edits PATH. So waldo saw
+// /usr/bin and friends while the operator's own shell had ~/.local/bin, ~/bin
+// and ~/.cargo/bin as well — measured on a real host, where the two differed by
+// five directories.
+//
+// That gap is not cosmetic. `cargo install ripgrep` is how most people get rg,
+// and it lands in ~/.cargo/bin, so waldo would report "no ripgrep on the
+// target" and quietly fall back to grep on a machine that has it. Reporting a
+// capability as absent when it is present, and degrading on that basis, is the
+// failure this project exists to avoid.
+//
+// The login shell is asked once, with a timeout, and its answer is used for
+// every command afterwards — detection and execution together, so waldo can
+// never find a tool during the probe that it then cannot run.
+const loginPathScript = `
+w_login_path() {
+  # Prefer the operator's own shell; fall back to sh. Either may be absent or
+  # may refuse to be a login shell, and neither is worth failing the probe over.
+  for s in "$SHELL" /bin/bash /bin/sh; do
+    [ -n "$s" ] && [ -x "$s" ] || continue
+    p=$("$s" -lc 'printf %s "$PATH"' 2>/dev/null) || continue
+    [ -n "$p" ] && { printf '%s' "$p"; return 0; }
+  done
+  return 1
+}
+printf 'LOGINPATH=%s\n' "$(w_login_path 2>/dev/null)"
+`
+
 // Probe inspects a target's userland.
 func Probe(ctx context.Context, t transport.Transport) (*Capabilities, error) {
-	res, err := t.Run(ctx, waldo.ExecRequest{Command: probeScript})
+	loginPath := detectLoginPath(ctx, t)
+	// Detection runs under the login PATH, so what waldo finds is what the
+	// operator would find.
+	res, err := t.Run(ctx, waldo.ExecRequest{Command: probeScript, Env: pathEnv(loginPath)})
 	if err != nil {
 		return nil, fmt.Errorf("probe target: %w", err)
 	}
@@ -135,11 +174,55 @@ func Probe(ctx context.Context, t transport.Transport) (*Capabilities, error) {
 				"passed through the shell unencoded, which corrupts any file containing NUL or\n"+
 				"invalid UTF-8. Target reports: %s", c.Uname)
 	}
+	c.LoginPath = loginPath
 	// Whether the SFTP subsystem answers cannot be read out of the target's
 	// userland, only by asking it. One extra channel during `waldo up` buys a
 	// tier decision that is proven rather than assumed.
 	c.SFTP = ProbeSFTP(ctx, t)
 	return c, nil
+}
+
+// detectLoginPath returns the login shell's PATH when it adds anything, or ""
+// when it matches what a plain command already gets.
+func detectLoginPath(ctx context.Context, t transport.Transport) string {
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+
+	res, err := t.Run(ctx, waldo.ExecRequest{Command: loginPathScript, MaxOutput: 64 << 10})
+	if err != nil || res.Code != 0 {
+		return "" // a target that will not answer keeps the default PATH
+	}
+	var login string
+	for _, line := range strings.Split(string(res.Stdout), "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "LOGINPATH="); ok {
+			login = v
+		}
+	}
+	if login == "" || !strings.Contains(login, "/") {
+		return ""
+	}
+	// A login shell that adds nothing is not worth overriding anything for.
+	plain, err := t.Run(ctx, waldo.ExecRequest{Command: `printf %s "$PATH"`, MaxOutput: 64 << 10})
+	if err == nil && strings.TrimSpace(string(plain.Stdout)) == login {
+		return ""
+	}
+	return login
+}
+
+// pathEnv renders a PATH override, or nothing when there is none to apply.
+func pathEnv(loginPath string) map[string]string {
+	if loginPath == "" {
+		return nil
+	}
+	return map[string]string{"PATH": loginPath}
+}
+
+// Env returns the environment every command on this target should carry.
+func (c *Capabilities) Env() map[string]string {
+	if c == nil {
+		return nil
+	}
+	return pathEnv(c.LoginPath)
 }
 
 // ProbeSFTP reports whether the target answers on the SFTP subsystem.

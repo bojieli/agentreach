@@ -84,13 +84,19 @@ func BuildCommand(req waldo.ExecRequest) string {
 		b.WriteString(ShellQuote(req.Dir))
 		b.WriteString(" && ")
 	}
-	if len(req.Env) > 0 {
-		b.WriteString("env")
-		for _, k := range sortedKeys(req.Env) {
-			b.WriteString(" ")
-			b.WriteString(ShellQuote(k + "=" + req.Env[k]))
-		}
-		b.WriteString(" ")
+	// `export K=V; cmd` rather than `env K=V cmd`.
+	//
+	// env takes a *command*, and waldo's commands are frequently shell
+	// constructs — the tier-0 write is `{ ...; } || { ...; }` — which env
+	// cannot run: the shell fails with a syntax error at the brace. The export
+	// form is plain POSIX and works with anything that follows it.
+	//
+	// This was latent rather than wrong: nothing set Env until the login-PATH
+	// work, so the broken branch had never executed.
+	for _, k := range sortedKeys(req.Env) {
+		b.WriteString("export ")
+		b.WriteString(ShellQuote(k + "=" + req.Env[k]))
+		b.WriteString("; ")
 	}
 	b.WriteString(req.Command)
 	return b.String()

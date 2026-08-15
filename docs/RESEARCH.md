@@ -5,7 +5,8 @@ version by running a real agent, not inferred from documentation. Each claim
 carries the version it was checked against and the method used. Re-verify with
 `make conformance` after upgrading a harness.
 
-Last verified: 2026-08-15
+Last verified: 2026-08-15, against clean installs of each version named below,
+on Linux x86_64 and macOS arm64.
 
 ---
 
@@ -23,15 +24,16 @@ a conformance test that fails loudly when the shape changes.
 
 ### Distribution format
 
-    # Linux x86_64
+    # Linux x86_64 — verified on a clean install of this exact version
     $ file ~/.local/share/claude/versions/2.1.233
-    ELF 64-bit LSB executable, dynamically linked, not stripped  (310 MB)
-    $ strings ... | grep _ZN2v8    ->  V8 symbols present
+    ELF 64-bit LSB executable, x86-64, dynamically linked,
+      interpreter /lib64/ld-linux-x86-64.so.2, not stripped       (310 MB)
+    $ strings ... | grep -c _ZN2v8 ->  232   (V8 statically embedded)
 
     # macOS arm64, same version
     $ file ~/.local/share/claude/versions/2.1.233
-    Mach-O 64-bit executable arm64                               (293 MB)
-    $ strings ... | grep -c _ZN2v8 ->  0   (this build is stripped)
+    Mach-O 64-bit executable arm64                                (293 MB)
+    $ strings ... | grep -c _ZN2v8 ->  0     (this build is stripped)
 
 Claude Code ships as a **Node SEA (Single Executable Application)** with V8
 statically embedded. It is not a `node script.js` invocation.
@@ -45,7 +47,7 @@ Consequences, both verified:
 
 | Technique | Works? | Evidence |
 |---|---|---|
-| `NODE_OPTIONS=--require preload.js` | **No** | Verified twice, on Linux x86_64 and macOS arm64: the preload's `console.error` never fired and it never wrote its marker file, while `claude --version` ran clean. Control: the identical preload *does* fire under a real `node`, so the test itself works |
+| `NODE_OPTIONS=--require preload.js` | **No** | Verified on Linux x86_64 and macOS arm64, against 2.1.233 on both: the preload never fired and never wrote its marker, while `claude --version` ran clean. Each run carried a control — the identical preload under a real `node` **does** fire — because a preload that silently failed to fire would "confirm" this for the wrong reason |
 | `LD_PRELOAD` fs interposition | Not viable as a general strategy | Works for Claude (dynamically linked) but *not* for Codex, which is `static-pie` — no dynamic symbol interposition possible |
 
 This kills in-process monkey-patching of `node:fs`. Native `Read`/`Edit`/`Write`/
@@ -159,6 +161,20 @@ and `rg`/`find`/`grep` resolve to the remote host's real binaries. That is the
 desired behaviour — but it means **remote hosts without ripgrep get plain
 grep semantics**, which `waldo doctor` reports.
 
+Stripping the snapshot leaves a gap that had to be filled separately. The
+snapshot is also what carries the operator's `PATH`, and `ssh host command` runs
+a *non-interactive* shell, which on Debian and Ubuntu returns from `~/.bashrc`
+before reaching anything that edits it. Measured on a real host, the two PATHs
+differed by five directories: the login shell had `~/.local/bin`, `~/bin`,
+`~/.cargo/bin`, `~/.deno/bin` and a toolchain directory that a plain `ssh
+host command` never sees.
+
+That matters because `cargo install ripgrep` is how most people get `rg`. waldo
+would have reported "no ripgrep on the target" and fallen back to grep on a
+machine that has it. waldo therefore asks the login shell for its `PATH` once
+during `waldo up`, and applies it to detection and execution alike — finding a
+tool it could not then run would be worse than not finding it.
+
 ### Native file tools
 
 `Read`, `Edit`, `Write`, `Grep`, `Glob` do **not** route through any shell and
@@ -172,10 +188,13 @@ to place real files at the paths they read. See "Materialisation" in
 ## Codex CLI 0.147.0
 
 Distribution, Linux x86_64: `ELF 64-bit LSB pie executable, static-pie linked,
-stripped` (247 MB), Rust. On macOS arm64 the same version is a 210 MB Mach-O.
+stripped` (246 MB), Rust. On macOS arm64 the same version is a 210 MB Mach-O.
 
 `static-pie` means **no dynamic linking**, so `LD_PRELOAD`/`DYLD_INSERT_LIBRARIES`
-interposition is impossible by construction.
+interposition is impossible by construction. Checked rather than inferred from
+the label: the binary declares **no ELF interpreter and zero `NEEDED` entries**,
+so there is no dynamic loader to interpose on. This is the reason the Codex
+adapter is a `PATH` shim rather than a library.
 
 Relevant configuration surface found in the binary: `unified_exec`,
 `shell_command`, `shell_type`, `danger_full_access`, `workspace_write`,

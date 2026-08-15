@@ -109,6 +109,10 @@ reading of its docs.
   the same suite on all of them.
 - **The tiers agree byte for byte.** A file written through any tier reads back
   identically, with a matching digest, through every other.
+- **The agent gets the PATH you would have on that machine.** `ssh host command`
+  runs a non-interactive shell, whose PATH on a real host was missing five
+  directories the login shell had — including `~/.cargo/bin`, where
+  `cargo install ripgrep` puts `rg`.
 - **waldo runs as the operator on macOS and on Linux**, with the whole suite —
   unit and integration — passing on both, including the control-socket path that
   only exists when `XDG_RUNTIME_DIR` is set.

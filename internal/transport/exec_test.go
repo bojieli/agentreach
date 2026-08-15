@@ -133,3 +133,49 @@ func localTransport(t *testing.T) *LocalTransport {
 	}
 	return tr
 }
+
+// TestEnvSurvivesCompoundCommands is the regression test for a branch that was
+// wrong for as long as it existed and never ran.
+//
+// BuildCommand rendered an environment as `env K=V <command>`. env takes a
+// *command*, and several of waldo's are shell constructs — the tier-0 write is
+// `{ ...; } || { ...; }` — so the shell failed at the brace with a syntax
+// error. Nothing set Env until waldo began carrying the target's login PATH, so
+// the defect shipped undetected.
+func TestEnvSurvivesCompoundCommands(t *testing.T) {
+	tr := localTransport(t)
+	ctx := context.Background()
+
+	for _, tc := range []struct{ name, command, want string }{
+		{"simple", `printf %s "$WALDO_T"`, "value"},
+		{"brace group", `{ printf %s "$WALDO_T"; }`, "value"},
+		{"or list", `{ printf %s "$WALDO_T"; } || { printf nope; }`, "value"},
+		{"subshell", `( printf %s "$WALDO_T" )`, "value"},
+		{"pipeline", `printf %s "$WALDO_T" | cat`, "value"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := tr.Run(ctx, waldo.ExecRequest{
+				Command: tc.command,
+				Env:     map[string]string{"WALDO_T": "value"},
+			})
+			if err != nil {
+				t.Fatalf("%s: %v", tc.command, err)
+			}
+			if string(res.Stdout) != tc.want {
+				t.Errorf("%s: got %q want %q", tc.command, res.Stdout, tc.want)
+			}
+		})
+	}
+
+	// A value containing shell metacharacters must reach the command intact.
+	res, err := tr.Run(ctx, waldo.ExecRequest{
+		Command: `printf %s "$WALDO_T"`,
+		Env:     map[string]string{"WALDO_T": `a b'c"d$e;f|g`},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(res.Stdout) != `a b'c"d$e;f|g` {
+		t.Errorf("metacharacters mangled: got %q", res.Stdout)
+	}
+}
