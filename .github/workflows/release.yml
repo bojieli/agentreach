@@ -6,6 +6,10 @@ on:
 
 permissions:
   contents: write
+  # Keyless signing: cosign trades this workflow's OIDC token for a short-lived
+  # certificate, so a signature is bound to this repository, this tag and this
+  # workflow file. There is no private key to keep secret, leak or rotate.
+  id-token: write
 
 jobs:
   release:
@@ -15,6 +19,8 @@ jobs:
         with: { fetch-depth: 0 }
       - uses: actions/setup-go@v5
         with: { go-version: '1.23', cache: true }
+      - uses: sigstore/cosign-installer@v3
+      - uses: anchore/sbom-action/download-syft@v0
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: '~> v2'

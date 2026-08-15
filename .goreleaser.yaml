@@ -7,7 +7,7 @@ before:
     - go test ./...
     # The helper binary, built for every platform a target might run, and
     # shipped inside every archive. waldo looks for these beside its own binary,
-    # so an operator on macOS can use the agent tier against a Linux target
+    # so an operator on macOS can use the helper tier against a Linux target
     # without a Go toolchain — and waldo never has to download an executable at
     # run time to put on someone else's machine.
     - mkdir -p dist/helpers
@@ -35,7 +35,7 @@ builds:
     env: [CGO_ENABLED=0]
     # waldo runs on the operator's machine, not the target, so these are the
     # platforms a developer drives agents from. The *target* platforms are a
-    # different and wider set — see the agent builds above, which ship inside
+    # different and wider set — see the helper builds above, which ship inside
     # every archive including the Windows ones, because a Windows operator's
     # target is a POSIX host.
     goos: [linux, darwin, windows]
@@ -68,6 +68,29 @@ archives:
 checksum:
   name_template: checksums.txt
 
+# waldo's helper tier writes a binary onto a machine the operator may not own,
+# and the release archive is where that binary comes from. Provenance is not
+# decoration here: someone deciding whether to let waldo install something on
+# their production host should be able to establish that the artifact came from
+# this repository's tagged CI run and nowhere else.
+sboms:
+  - artifacts: archive
+
+# The checksums file is signed rather than each artifact. checksums.txt already
+# covers every archive, so one signature over it is a signature over all of
+# them, and verification stays short enough that someone will actually run it.
+signs:
+  - cmd: cosign
+    certificate: '${artifact}.pem'
+    args:
+      - sign-blob
+      - '--output-certificate=${certificate}'
+      - '--output-signature=${signature}'
+      - '${artifact}'
+      - '--yes'
+    artifacts: checksum
+    output: true
+
 snapshot:
   version_template: "{{ incpatch .Version }}-next"
 
@@ -81,8 +104,27 @@ release:
     ## Verifying this release
 
     Every archive ships `waldo` plus the helper binary for each target platform.
-    Check them against `checksums.txt`:
+    At the helper tier waldo copies that binary onto your target, so it is worth
+    knowing where it came from.
+
+    Check the contents against `checksums.txt`:
 
     ```console
     sha256sum -c checksums.txt --ignore-missing
     ```
+
+    And check that `checksums.txt` itself came from this repository's tagged CI
+    run. The release is signed with [cosign](https://docs.sigstore.dev/) keyless
+    signing, so there is no public key to fetch — the identity is the workflow
+    that built it:
+
+    ```console
+    cosign verify-blob checksums.txt \
+      --certificate checksums.txt.pem \
+      --signature checksums.txt.sig \
+      --certificate-identity-regexp '^https://github.com/bojieli/waldo/\.github/workflows/release\.yml@refs/tags/' \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com
+    ```
+
+    Each archive also ships with an SBOM (`.sbom.json`, SPDX) listing everything
+    compiled into it.
