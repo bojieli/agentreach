@@ -47,13 +47,16 @@ Run 'waldo <command> --help' for details.
 `
 
 func main() {
+	// The shim path is latency-sensitive and runs once per tool call, so it is
+	// dispatched before anything else and does no extra work. Harnesses invoke
+	// it through a symlink, which arrives as argv[0].
+	if isShimInvocation() {
+		os.Exit(runShellPrefix(os.Args[1:]))
+	}
 	if len(os.Args) < 2 {
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
 	}
-
-	// The shell-prefix path is latency-sensitive and is invoked once per tool
-	// call, so it is dispatched before anything else and does no extra work.
 	if os.Args[1] == "shell-prefix" {
 		os.Exit(runShellPrefix(os.Args[2:]))
 	}

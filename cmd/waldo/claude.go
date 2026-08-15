@@ -57,7 +57,7 @@ func cmdClaude(ctx context.Context, args []string) int {
 		return 1
 	}
 
-	self, err := os.Executable()
+	shim, err := ensureShim()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "waldo:", err)
 		return 1
@@ -70,7 +70,7 @@ func cmdClaude(ctx context.Context, args []string) int {
 
 	env := append(os.Environ(),
 		"WALDO_SESSION="+sessName,
-		"CLAUDE_CODE_SHELL_PREFIX="+self+" shell-prefix",
+		"CLAUDE_CODE_SHELL_PREFIX="+shim,
 	)
 
 	argv := []string{claudePath}

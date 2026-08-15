@@ -152,12 +152,12 @@ func cmdEnv(ctx context.Context, args []string) error {
 	if _, err := session.Load(name); err != nil {
 		return err
 	}
-	self, exeErr := os.Executable()
-	if exeErr != nil {
-		return exeErr
+	shim, shimErr := ensureShim()
+	if shimErr != nil {
+		return shimErr
 	}
 	fmt.Printf("export WALDO_SESSION=%s\n", name)
-	fmt.Printf("export CLAUDE_CODE_SHELL_PREFIX=%s\n", shellQuote(self+" shell-prefix"))
+	fmt.Printf("export CLAUDE_CODE_SHELL_PREFIX=%s\n", shellQuote(shim))
 	return nil
 }
 
