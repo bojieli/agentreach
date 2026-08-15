@@ -119,7 +119,7 @@ at runs waldo and the agent; the target only ever sees shell commands.
 |---|---|
 | **Linux** (GNU coreutils, any arch) | supported; all four tiers tested against a real sshd |
 | **macOS / BSD** | supported; all four tiers tested against a real sshd |
-| **busybox / toybox** | probed at connect time and degraded per capability, but not yet tested end to end — `waldo doctor` reports what it found |
+| **busybox / toybox** | supported; the full suite runs against an Alpine container |
 | **Windows** | not supported: waldo's floor is a POSIX shell |
 
 **The Windows caveat is speed, not correctness.** Win32-OpenSSH does not
@@ -325,8 +325,14 @@ docs. Reproduce with `make e2e` (spends model tokens) and `make conformance`.
   entire point. Both tables, and what they cost to learn, are in
   [docs/TRANSPORTS.md](docs/TRANSPORTS.md); reproduce with `make bench`, or
   against your own host with `WALDO_BENCH_SSH_HOST=my-box make bench`.
-- All four tiers pass the conformance suite against a real remote host, a
-  Docker container, and a busybox (Alpine) target, not only against loopback.
+- All four tiers pass the conformance suite against five real remote hosts
+  (Ubuntu 22/24, Debian 12/13, root and non-root accounts, links from
+  sub-millisecond to ~540 ms), a Docker container, and a busybox (Alpine)
+  target — not only against loopback.
+- A target with no shell at all (a `FROM scratch` container) is refused in about
+  a second with an explanation, rather than hanging. A read-only target serves
+  reads and refuses writes without leaving debris. An unprivileged target passes
+  the whole suite and refuses what it should.
 - waldo refuses SSH agent forwarding even when the operator's own ssh config
   turns it on for that host — verified against a host configured that way, by
   observing that no agent socket reaches the target.

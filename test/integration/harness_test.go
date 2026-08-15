@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/bojieli/waldo/internal/transport"
+	"github.com/bojieli/waldo/internal/waldo"
 )
 
 // The integration suite needs a real OpenSSH server, because the bugs it exists
@@ -126,7 +127,19 @@ func useExistingHost(host string) (func(), error) {
 	}
 	return func() {
 		// Leave nothing behind on a machine that was lent to the suite.
-		_ = exec.Command("ssh", host, "rm -rf "+workspace).Run()
+		//
+		// The workspace is the obvious part. The agent tier is the part that is
+		// easy to forget: the suite exercises it, which *installs a binary* on
+		// the target, and a test run that quietly leaves one on someone else's
+		// server breaks the promise the whole project is built on. Removing it
+		// here rather than in the tier test covers every path that reached it,
+		// including a failing one.
+		//
+		// Only this build's own binary is removed, by exact version, so a waldo
+		// the operator installed themselves is left alone.
+		_ = exec.Command("ssh", host, fmt.Sprintf(
+			"rm -rf %s; rm -f ~/.cache/waldo/agent-%s-*; rmdir ~/.cache/waldo 2>/dev/null || true",
+			workspace, waldo.Version)).Run()
 	}, nil
 }
 

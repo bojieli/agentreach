@@ -247,8 +247,9 @@ func finishExec(start time.Time, rawOut, rawErr []byte, procCode int, truncated 
 		// transport failure, not a command failure, and must not be reported
 		// to the agent as a non-zero exit.
 		return waldo.ExecResult{}, fmt.Errorf(
-			"%s: command did not complete (exit %d): %s",
-			describe, procCode, strings.TrimSpace(truncateForError(string(rawErr))))
+			"%s: command did not complete (exit %d): %s%s",
+			describe, procCode, strings.TrimSpace(truncateForError(string(rawErr))),
+			shellDiagnosis(procCode, rawErr))
 	}
 	return waldo.ExecResult{
 		Stdout:    stdout,
@@ -257,6 +258,30 @@ func finishExec(start time.Time, rawOut, rawErr []byte, procCode int, truncated 
 		Truncated: truncated,
 		Duration:  time.Since(start),
 	}, nil
+}
+
+// shellDiagnosis explains the two exit statuses that mean "there is no shell
+// here", which otherwise arrive as a bare number with no stderr at all.
+//
+// A container built FROM scratch or from a distroless base is an ordinary
+// production artefact, and pointing an agent at one is an easy mistake. waldo
+// already refuses it rather than hanging, which is the property that matters —
+// but "exit 126" on its own tells an operator nothing about what to do, and
+// this project's rule is that an error should say what to do next.
+func shellDiagnosis(procCode int, stderr []byte) string {
+	if len(strings.TrimSpace(string(stderr))) > 0 {
+		return "" // the target explained itself; do not talk over it
+	}
+	switch procCode {
+	case 126:
+		return "\n\nExit 126 with no output means the target would not execute a shell. " +
+			"Images built FROM scratch or from a distroless base have none, and waldo's " +
+			"floor is a POSIX shell — there is no tier that works without one."
+	case 127:
+		return "\n\nExit 127 with no output means no shell was found on the target. " +
+			"waldo needs a POSIX shell; check that /bin/sh exists."
+	}
+	return ""
 }
 
 func truncateForError(s string) string {

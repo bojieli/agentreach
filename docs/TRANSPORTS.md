@@ -34,8 +34,12 @@ a harness drives it. Reproduce with `make bench`, or against your own host with
 | `pipe` | 3.29 s | 0.35 s | **0.26 s** |
 | `agent` | 5.17 s | 0.26 s | 0.39 s |
 
-**Over a real link** — a host 258 ms away with 25% packet loss, which is an
-ordinary remote machine rather than a pathological one:
+**Over a real link** — a remote host whose multiplexed round trip measures
+~540 ms, which is an ordinary distant machine rather than a pathological one.
+(Measure the link the way waldo uses it, with `ssh -o ControlPath=… host true`
+in a loop. ICMP is not a proxy for it: on a tunnelled or split-DNS setup, ping
+is answered by the local client and reported under a millisecond for a host half
+a world away.)
 
 | tier | 15 × 1 KiB read | 8 MiB read | 8 MiB write |
 |---|---|---|---|

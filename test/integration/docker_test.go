@@ -8,8 +8,11 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bojieli/waldo/internal/fileops"
 	"github.com/bojieli/waldo/internal/fileops/fileopstest"
@@ -44,13 +47,14 @@ func dockerAvailable(t *testing.T) {
 }
 
 // startContainer runs an image with a shell kept alive, and removes it after.
-func startContainer(t *testing.T, name, image string) {
+func startContainer(t *testing.T, name, image string, runArgs ...string) {
 	t.Helper()
 	dockerAvailable(t)
 
 	_ = exec.Command("docker", "rm", "-f", name).Run()
-	out, err := exec.Command("docker", "run", "-d", "--name", name,
-		"--entrypoint", "sleep", image, "infinity").CombinedOutput()
+	args := append([]string{"run", "-d", "--name", name}, runArgs...)
+	args = append(args, "--entrypoint", "sleep", image, "infinity")
+	out, err := exec.Command("docker", args...).CombinedOutput()
 	if err != nil {
 		// A machine without the image cached and without registry access cannot
 		// run this, which is a missing prerequisite rather than a failure.
@@ -59,7 +63,8 @@ func startContainer(t *testing.T, name, image string) {
 	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", name).Run() })
 
 	if out, err := exec.Command("docker", "exec", name, "mkdir", "-p", containerWorkspace).CombinedOutput(); err != nil {
-		t.Fatalf("prepare workspace in %s: %v: %s", name, err, out)
+		t.Logf("could not prepare %s in %s (%s); the test decides whether that matters",
+			containerWorkspace, name, strings.TrimSpace(string(out)))
 	}
 }
 
@@ -214,4 +219,181 @@ func TestDockerExecReportsStatusAndOutput(t *testing.T) {
 		}
 	}
 	_ = fmt.Sprint()
+}
+
+// The tests below are about waldo's governing rule rather than about
+// containers: every failure must be a value the agent can reason about, never a
+// process that stops responding. A container runtime is simply the cheapest way
+// to build targets that are broken in specific, realistic ways — no shell, a
+// filesystem that refuses writes, a user without privileges — and to check that
+// each produces an error someone can act on.
+
+// TestTargetWithNoShellFailsClearly covers a target with no shell at all.
+//
+// waldo's floor is a POSIX shell. A target without one cannot be used, and the
+// only question is whether waldo says so or hangs trying. This is not an exotic
+// case: distroless and scratch images are ordinary production containers, and
+// pointing an agent at one is an easy mistake to make.
+//
+// The image is built here rather than pulled, from nothing but waldo's own
+// statically linked agent — which is the most honest distroless target
+// available, needs no registry, and holds itself open by blocking on the stdin
+// it expects to receive a protocol on.
+func TestTargetWithNoShellFailsClearly(t *testing.T) {
+	dockerAvailable(t)
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("no Go toolchain to build the scratch image's contents")
+	}
+
+	dir := t.TempDir()
+	arch := runtime.GOARCH // the daemon runs Linux containers of the host's arch
+	build := exec.Command("go", "build", "-trimpath", "-o", filepath.Join(dir, "agent"),
+		"./cmd/waldo-agent")
+	build.Dir = repoRoot(t)
+	build.Env = append(os.Environ(), "GOOS=linux", "GOARCH="+arch, "CGO_ENABLED=0")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Skipf("cannot cross-compile the agent: %v: %s", err, out)
+	}
+	dockerfile := "FROM scratch\nCOPY agent /agent\nENTRYPOINT [\"/agent\", \"serve\"]\n"
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte(dockerfile), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	const image = "waldo-it-scratch"
+	if out, err := exec.Command("docker", "build", "-q", "-t", image, dir).CombinedOutput(); err != nil {
+		t.Skipf("cannot build the scratch image: %v: %s", err, out)
+	}
+
+	const name = "waldo-it-noshell"
+	_ = exec.Command("docker", "rm", "-f", name).Run()
+	// -i keeps stdin open, so the agent blocks waiting for a request and the
+	// container stays up with nothing else in it.
+	if out, err := exec.Command("docker", "run", "-d", "-i", "--name", name, image).CombinedOutput(); err != nil {
+		t.Skipf("cannot start the scratch container: %v: %s", err, out)
+	}
+	t.Cleanup(func() {
+		_ = exec.Command("docker", "rm", "-f", name).Run()
+		_ = exec.Command("docker", "rmi", "-f", image).Run()
+	})
+
+	tr := containerTransport(t, name)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := fileops.Probe(ctx, tr)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("a target with no shell was probed successfully")
+		}
+		t.Logf("reported as: %v", err)
+	case <-ctx.Done():
+		t.Fatal("probing a shell-less target hung instead of failing; " +
+			"an agent cannot reason about a process that stops responding")
+	}
+}
+
+// repoRoot finds the module directory so a test can build from it.
+func repoRoot(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("no go.mod above the test directory")
+		}
+		dir = parent
+	}
+}
+
+// TestReadOnlyTargetRefusesWritesButServesReads is the shape of a hardened
+// production container, and of a filesystem that has gone read-only under a
+// disk fault.
+//
+// Reads must keep working, and a write must fail as an error the agent can act
+// on — not a partial file, and not a success the agent believes.
+func TestReadOnlyTargetRefusesWritesButServesReads(t *testing.T) {
+	const name = "waldo-it-readonly"
+	dockerAvailable(t)
+	_ = exec.Command("docker", "rm", "-f", name).Run()
+	image := imageOr(gnuImageEnv, "python:3.11-slim")
+	// A writable /tmp with a read-only root is the usual hardened arrangement.
+	out, err := exec.Command("docker", "run", "-d", "--name", name, "--read-only",
+		"--entrypoint", "sleep", image, "infinity").CombinedOutput()
+	if err != nil {
+		t.Skipf("cannot start a read-only container: %s", strings.TrimSpace(string(out)))
+	}
+	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", name).Run() })
+
+	tr := containerTransport(t, name)
+	ctx := context.Background()
+	caps, err := fileops.Probe(ctx, tr)
+	if err != nil {
+		t.Fatalf("probe: %v", err)
+	}
+	sel, err := fileops.New(ctx, waldo.TierPOSIX, tr, caps, true, nil)
+	if err != nil {
+		t.Fatalf("build tier: %v", err)
+	}
+	t.Cleanup(func() { _ = sel.Ops.Close() })
+
+	// Reading from the read-only root still works.
+	if _, err := sel.Ops.Read(ctx, "/etc/hostname", 0, 0); err != nil {
+		t.Errorf("reading from a read-only target failed: %v", err)
+	}
+	// Writing to it must fail, and say so.
+	err = sel.Ops.Write(ctx, "/etc/waldo-should-not-appear", []byte("x"), 0o644)
+	if err == nil {
+		t.Fatal("writing to a read-only filesystem was reported as success")
+	}
+	t.Logf("write refused with: %v", err)
+
+	// And must not have left debris behind while failing.
+	res, runErr := tr.Run(ctx, waldo.ExecRequest{Command: "ls /etc/.waldo.tmp.* 2>/dev/null | wc -l"})
+	if runErr == nil && strings.TrimSpace(string(res.Stdout)) != "0" {
+		t.Errorf("a failed write left temporary files behind: %s", res.Stdout)
+	}
+}
+
+// TestUnprivilegedTargetUser covers a container running as a non-root user with
+// no home directory — the default for a security-conscious image, and the case
+// where the agent tier has nowhere obvious to cache itself.
+func TestUnprivilegedTargetUser(t *testing.T) {
+	const name = "waldo-it-nonroot"
+	startContainer(t, name, imageOr(gnuImageEnv, "python:3.11-slim"), "--user", "1000:1000")
+	tr := containerTransport(t, name)
+	ctx := context.Background()
+
+	caps, err := fileops.Probe(ctx, tr)
+	if err != nil {
+		t.Fatalf("probe as an unprivileged user: %v", err)
+	}
+
+	// /tmp is writable by anyone; the prepared workspace may not be.
+	root := "/tmp/waldo-nonroot"
+	sel, err := fileops.New(ctx, waldo.TierPOSIX, tr, caps, true, nil)
+	if err != nil {
+		t.Fatalf("build tier: %v", err)
+	}
+	t.Cleanup(func() { _ = sel.Ops.Close() })
+	if err := sel.Ops.Mkdir(ctx, root, 0o755); err != nil {
+		t.Fatalf("mkdir as an unprivileged user: %v", err)
+	}
+	t.Cleanup(func() { _ = sel.Ops.Remove(context.Background(), root, true) })
+
+	fileopstest.Run(t, root, func(*testing.T) fileops.FileOps { return sel.Ops })
+
+	// Writing somewhere this user cannot must be a clean refusal.
+	if err := sel.Ops.Write(ctx, "/etc/waldo-should-not-appear", []byte("x"), 0o644); err == nil {
+		t.Error("an unprivileged write to /etc was reported as success")
+	}
 }
