@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -98,19 +99,136 @@ func TestDownReportsAMissingSession(t *testing.T) {
 	}
 }
 
-// status lists every session and takes no flags. Quietly ignoring them let
-// `waldo status --name prod` print all sessions while looking like it printed
-// one.
-func TestStatusRejectsArguments(t *testing.T) {
-	tempHome(t)
+// `waldo status NAME` shows one session, which is what the help has always
+// said. Accepting the argument and listing everything anyway looked like it had
+// printed the one that was asked for.
+func TestStatusNamesOneSession(t *testing.T) {
+	dir := tempHome(t)
+	writeSessionDoc(t, dir, "prod", map[string]any{
+		"name": "prod", "mode": "exec", "tier": "posix",
+		"target": map[string]any{"kind": "ssh", "host": "prod.invalid", "workspace": "/srv/app", "raw": "ssh://prod.invalid/srv/app"},
+	})
+	quiet(t)
 
-	err := cmdStatus(context.Background(), []string{"--name", "prod"})
+	if err := cmdStatus(context.Background(), []string{"prod"}); err != nil {
+		t.Fatalf("status prod: %v", err)
+	}
+	// A name that is not a session must say so rather than falling back to
+	// listing everything, which would look like an answer.
+	err := cmdStatus(context.Background(), []string{"no-such-session"})
 	if err == nil {
-		t.Fatal("status accepted and ignored its arguments")
+		t.Fatal("status accepted a session name that does not exist")
 	}
-	if !strings.Contains(err.Error(), "no arguments") {
-		t.Errorf("error does not explain the problem: %v", err)
+	if !strings.Contains(err.Error(), "no-such-session") {
+		t.Errorf("error does not name the session: %v", err)
 	}
+}
+
+// An unknown flag must not be swallowed. status has none, so `waldo status
+// --name prod` used to list everything while looking like it printed one.
+func TestStatusRejectsUnknownFlags(t *testing.T) {
+	tempHome(t)
+	quiet(t)
+
+	if err := cmdStatus(context.Background(), []string{"--name", "prod"}); err == nil {
+		t.Fatal("status accepted and ignored an unknown flag")
+	}
+	if err := cmdStatus(context.Background(), []string{"a", "b"}); err == nil {
+		t.Fatal("status accepted two session names")
+	}
+}
+
+// Every command that acts on a session takes its name the same way. They did
+// not: `waldo env --session prod` failed with "flag provided but not defined"
+// while `waldo log --session prod` worked, so the right spelling depended on
+// which command you happened to be running, and the error blamed the operator
+// for a flag the tool uses everywhere else.
+func TestSessionNameIsAcceptedTheSameWayEverywhere(t *testing.T) {
+	dir := tempHome(t)
+	writeSessionDoc(t, dir, "prod", map[string]any{
+		"name": "prod", "mode": "exec", "tier": "posix",
+		"target": map[string]any{"kind": "ssh", "host": "prod.invalid", "workspace": "/srv/app", "raw": "ssh://prod.invalid/srv/app"},
+	})
+	quiet(t)
+
+	// Commands that only read local state, so no target is contacted.
+	commands := map[string]func(context.Context, []string) error{
+		"status": cmdStatus,
+		"env":    cmdEnv,
+		"log":    cmdLog,
+		"down":   cmdDown,
+	}
+	for name, run := range commands {
+		for _, form := range [][]string{
+			{"prod"},
+			{"--session", "prod"},
+			{"--session=prod"},
+		} {
+			// The assertion is about the *name* being understood, not about the
+			// command having something to report: `waldo log prod` legitimately
+			// says there is no audit log yet for a session that has never run
+			// anything. A rejected flag is the failure this is guarding.
+			err := run(context.Background(), form)
+			if err != nil && strings.Contains(err.Error(), "flag provided but not defined") {
+				t.Errorf("waldo %s %v: %v", name, form, err)
+			}
+			// down removes the session, so put it back for the next form.
+			if name == "down" {
+				writeSessionDoc(t, dir, "prod", map[string]any{
+					"name": "prod", "mode": "exec", "tier": "posix",
+					"target": map[string]any{"kind": "ssh", "host": "prod.invalid", "workspace": "/srv/app", "raw": "ssh://prod.invalid/srv/app"},
+				})
+			}
+		}
+	}
+}
+
+// A bare `waldo status` lists everything even inside a harness's shell, where
+// $WALDO_SESSION is set. Narrowing to one session there would hide the others
+// at exactly the moment someone is checking what is running.
+func TestStatusIgnoresTheAmbientSession(t *testing.T) {
+	dir := tempHome(t)
+	for _, n := range []string{"one", "two"} {
+		writeSessionDoc(t, dir, n, map[string]any{
+			"name": n, "mode": "exec", "tier": "posix",
+			"target": map[string]any{"kind": "ssh", "host": "h.invalid", "workspace": "/srv/app", "raw": "ssh://h.invalid/srv/app"},
+		})
+	}
+	t.Setenv("WALDO_SESSION", "one")
+
+	out := captureStdout(t, func() {
+		if err := cmdStatus(context.Background(), nil); err != nil {
+			t.Fatal(err)
+		}
+	})
+	for _, want := range []string{"one", "two"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("status omitted %q with WALDO_SESSION set:\n%s", want, out)
+		}
+	}
+}
+
+// captureStdout collects what a function prints.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := os.Stdout
+	os.Stdout = w
+	done := make(chan string, 1)
+	go func() {
+		var b strings.Builder
+		_, _ = io.Copy(&b, r)
+		done <- b.String()
+	}()
+	fn()
+	os.Stdout = saved
+	_ = w.Close()
+	out := <-done
+	_ = r.Close()
+	return out
 }
 
 func TestIndentedLaysContinuationsUnderTheFirstLine(t *testing.T) {

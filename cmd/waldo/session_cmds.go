@@ -56,6 +56,22 @@ func versionLine() string {
 // is the common single-target case.
 const defaultSessionName = "default"
 
+// sessionFlag registers the --session flag and returns a resolver for the
+// session name, combining the flag, a positional argument, $WALDO_SESSION and
+// the default in that order.
+//
+// It exists so every command that acts on a session accepts the name the same
+// way. They did not: `waldo env --session prod` failed with "flag provided but
+// not defined" while `waldo log --session prod` worked, so which spelling was
+// right depended on which command you were running — and the error blamed the
+// operator for a flag the tool uses everywhere else.
+func sessionFlag(fs *flag.FlagSet) func([]string) string {
+	name := fs.String("session", "", "session name (default $WALDO_SESSION)")
+	return func(pos []string) string {
+		return sessionNameFromEnv(firstNonEmpty(*name, first(pos)))
+	}
+}
+
 func sessionNameFromEnv(explicit string) string {
 	if explicit != "" {
 		return explicit
@@ -173,13 +189,14 @@ func searchEngine(s *session.Session) string {
 }
 
 func cmdDown(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("down", flag.ContinueOnError)
+	fs := newFlagSet("down")
 	clean := fs.Bool("clean", false, "also remove anything waldo installed on the target")
+	sess := sessionFlag(fs)
 	pos, err := parseFlags(fs, args)
 	if err != nil {
 		return err
 	}
-	name := sessionNameFromEnv(first(pos))
+	name := sess(pos)
 
 	// A session that will not load must still be removable.
 	//
@@ -240,12 +257,25 @@ func cmdDown(ctx context.Context, args []string) error {
 }
 
 func cmdStatus(_ context.Context, args []string) error {
-	// status lists every session and takes no flags. Accepting and ignoring
-	// them would let `waldo status --name prod` print all sessions while
-	// looking like it printed one.
-	if len(args) > 0 {
-		return fmt.Errorf("status takes no arguments (got %q); it lists every session.\n"+
-			"For one session's details, run `waldo doctor --session NAME`", strings.Join(args, " "))
+	fs := newFlagSet("status")
+	named := fs.String("session", "", "show only this session")
+	pos, err := parseFlags(fs, args)
+	if err != nil {
+		return err
+	}
+	// `waldo status NAME` shows one session, as the help has always said it
+	// does. Accepting the argument and listing everything anyway would look
+	// like it had printed the one that was asked for.
+	//
+	// Unlike the other commands, an absent name here does not fall back to
+	// $WALDO_SESSION: a bare `waldo status` lists everything, and having it
+	// silently narrow to one session inside a harness's shell would hide the
+	// others at exactly the moment someone is checking what is running.
+	if len(pos) > 1 {
+		return fmt.Errorf("status takes at most one session name (got %q)", strings.Join(pos, " "))
+	}
+	if name := firstNonEmpty(*named, first(pos)); name != "" {
+		return statusOne(name)
 	}
 	sessions, broken, err := session.List()
 	if err != nil {
@@ -281,6 +311,37 @@ func cmdStatus(_ context.Context, args []string) error {
 	return nil
 }
 
+// statusOne describes a single session.
+//
+// It reports only what the session file already knows, and never touches the
+// target. `waldo doctor` is the command that goes and asks; keeping status
+// local means it still answers when the target is unreachable, which is exactly
+// when someone wants to know what waldo thinks it is connected to.
+func statusOne(name string) error {
+	s, err := session.Load(name)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("session %q -> %s\n", s.Name, s.Target.Describe())
+	fmt.Printf("  mode     %s\n", s.Mode)
+	fmt.Printf("  cwd      %s\n", s.Cwd())
+	fmt.Printf("  fileops  %s%s\n", s.Tier, tierNote(s))
+	if s.Caps != nil && s.Caps.Uname != "" {
+		fmt.Printf("  target   %s\n", s.Caps.Uname)
+		fmt.Printf("  search   %s\n", searchEngine(s))
+	}
+	if s.Target.Kind == session.KindSSH {
+		fmt.Printf("  connect  %s\n", connectionNote(s))
+	}
+	if s.Untrusted {
+		fmt.Printf("  policy   untrusted: no installs, no agent forwarding\n")
+	}
+	if !s.Created.IsZero() {
+		fmt.Printf("  started  %s\n", s.Created.Format(time.RFC3339))
+	}
+	return nil
+}
+
 // indented lays a multi-line explanation under the line that introduces it.
 // These messages are several sentences long by design — an operator whose
 // session will not load needs the reason and the way out — and unindented
@@ -294,12 +355,13 @@ func indented(msg string) string {
 }
 
 func cmdEnv(_ context.Context, args []string) error {
-	fs := flag.NewFlagSet("env", flag.ContinueOnError)
+	fs := newFlagSet("env")
+	sess := sessionFlag(fs)
 	pos, err := parseFlags(fs, args)
 	if err != nil {
 		return err
 	}
-	name := sessionNameFromEnv(first(pos))
+	name := sess(pos)
 	if _, err := session.Load(name); err != nil {
 		return err
 	}
