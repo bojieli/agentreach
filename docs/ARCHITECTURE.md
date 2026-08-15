@@ -65,8 +65,9 @@ userland supports — lives in a file under `~/.waldo`. Every waldo invocation i
 a short-lived process that reads it.
 
 A daemon would buy exactly one thing: connection reuse. SSH's `ControlMaster`
-already provides that, measured at ~7 ms per command against ~130 ms for a cold
-connect. Paying for it a second time would mean a lifecycle, a socket, crash
+already provides that — measured against real hosts at 4–5× faster per command
+than reconnecting: 171 ms against 772 ms on one, 557 ms against 2.85 s on
+another. Paying for it a second time would mean a lifecycle, a socket, crash
 recovery, version skew between a running daemon and an upgraded binary, and
 orphaned processes holding connections to someone else's server — in exchange
 for nothing.

@@ -142,16 +142,18 @@ func reportConnectionReuse(ctx context.Context, s *session.Session) {
 		Port: s.Target.Port,
 	})
 	if ok {
-		fmt.Println("  Connection reuse: yes — one authenticated connection, ~7ms per command")
+		fmt.Println("  Connection reuse: yes — one authenticated connection, reused")
+		fmt.Println("    Measured at 4-5x faster per command than reconnecting, on real links.")
 		return
 	}
 	fmt.Println("  Connection reuse: NO — every command opens and authenticates its own")
 	if why != "" {
 		fmt.Printf("    %s\n", why)
 	}
-	fmt.Println("    Expect ~130ms per command instead of ~7ms. If your key has a passphrase,")
-	fmt.Println("    run an ssh-agent: without one, every tool call needs the passphrase and")
-	fmt.Println("    BatchMode will fail them all.")
+	fmt.Println("    Every command pays a full connect and authentication: measured at 4-5x")
+	fmt.Println("    the cost of a reused connection. If your key has a passphrase, run an")
+	fmt.Println("    ssh-agent — without one, every tool call needs it, and waldo runs ssh in")
+	fmt.Println("    batch mode, so they will fail rather than prompt.")
 }
 
 // reportAgentFootprint prints what waldo has left on this target.

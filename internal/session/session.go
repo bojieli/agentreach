@@ -32,11 +32,12 @@ const (
 
 // Session is the persisted binding between a shell and a target.
 //
-// State lives in a file rather than a daemon. Connection reuse — the only
-// thing a daemon would have bought — is already provided by SSH's
-// ControlMaster, measured at ~7ms per command against ~130ms for a cold
-// connect. A daemon would add a lifecycle, a socket, crash recovery and
-// orphaned processes in exchange for nothing.
+// State lives in a file rather than a daemon. Connection reuse — the only thing
+// a daemon would have bought — is already provided by SSH's ControlMaster,
+// measured against real hosts at 4-5x faster per command than reconnecting
+// (171ms against 772ms on one, 557ms against 2.85s on another). A daemon would
+// add a lifecycle, a socket, crash recovery and orphaned processes in exchange
+// for nothing.
 type Session struct {
 	Name     string     `json:"name"`
 	Target   *Target    `json:"target"`
