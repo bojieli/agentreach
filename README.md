@@ -105,7 +105,7 @@ reading of its docs.
 - **Six real hosts on three continents** — Ubuntu 22/24, Debian 12/13, root and
   non-root accounts, links from 171 ms to 540 ms per command — plus Docker,
   Alpine/busybox, a read-only rootfs, an unprivileged container, and a
-  `FROM scratch` image with no shell at all. All four file-operation tiers pass
+  `FROM scratch` image with no shell at all. All three file-operation tiers pass
   the same suite on all of them.
 - **The tiers agree byte for byte.** A file written through any tier reads back
   identically, with a matching digest, through every other.
@@ -179,9 +179,9 @@ provides connection reuse — measured at 4–5× faster per command than
 reconnecting, against real hosts — so a daemon would add a lifecycle, a socket,
 crash recovery and orphaned processes in exchange for nothing.
 
-**Nothing is installed on your target.** Three of the four file-operation tiers
+**Nothing is installed on your target.** Two of the three file-operation tiers
 write nothing at all, and those are the only ones waldo picks on its own. The
-fourth installs a small helper, only when you ask for it by name, and
+third installs a small helper, only when you ask for it by name, and
 `waldo doctor` will tell you it's there.
 
 | tier | needs on target | writes | picked automatically |
@@ -230,14 +230,14 @@ a real agent; the others are at the stage each of
 [their notes](docs/harnesses/) says they are. Interfaces may change before 1.0.
 
 What is *not* early: the file-operation layer, which is tested against six real
-hosts, four tiers, three userlands and a fuzzer.
+hosts, three tiers, three userlands and a fuzzer.
 
 ## Docs
 
 | | |
 |---|---|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | how it fits together, and what was rejected |
-| [TRANSPORTS.md](docs/TRANSPORTS.md) | the four tiers, measured on real links |
+| [TRANSPORTS.md](docs/TRANSPORTS.md) | the three tiers, measured on real links |
 | [RESEARCH.md](docs/RESEARCH.md) | what each harness actually does, with transcripts |
 | [SECURITY.md](docs/SECURITY.md) | threat model, and what waldo does not protect you from |
 | [WINDOWS.md](docs/WINDOWS.md) | running waldo from Windows |

@@ -89,8 +89,9 @@ print them back in the other — and moves content unencoded when it is. A
 transport that garbles anything keeps base64, which is unconditionally safe and
 costs a third of the bandwidth.
 
-That measurement is not decoration. It is why this tier now reads an 8 MiB file
-faster than the SFTP tier does.
+That measurement is not decoration. It is why this tier reads an 8 MiB file
+faster than the SFTP tier did, which is most of the reason that tier no longer
+exists.
 
 Reads and writes are offset-addressed, so a dropped connection resumes rather
 than restarts.
@@ -131,7 +132,6 @@ Never chosen automatically, and no longer for performance reasons — it is the
 fastest tier for small reads. It is opt-in because it writes a binary to a
 machine the operator may not own, which is a decision waldo does not make for
 them.
-
 
 A small static Go binary, installed by waldo when this tier is selected. The
 user is never asked to install anything by hand. It speaks the identical
@@ -183,15 +183,17 @@ waldo up ssh://host/srv/app --fileops=posix  # pin tier 0 — install nothing, t
 waldo up ssh://host/srv/app --fileops=helper  # opt in to the auto-installed helper
 ```
 
-Negotiation order is `pipe`, then `sftp`, then `posix`, measured against a real
+Negotiation order is `pipe`, then `posix`, chosen by measurement against a real
 link rather than loopback — see
-[What they actually cost](#what-they-actually-cost). It never selects `agent`.
+[What they actually cost](#what-they-actually-cost). It never selects `helper`,
+the only tier that writes anything to the target.
 
 Two rules make the outcome trustworthy:
 
-- **A pinned tier is never substituted.** If `--fileops=sftp` cannot be built,
-  waldo fails and explains why. Reporting a tier the session is not using is a
-  lie the operator would act on.
+- **A pinned tier is never substituted.** If `--fileops=pipe` cannot be built —
+  no `python3` on the target — waldo fails and explains why rather than quietly
+  handing you `posix`. Reporting a tier the session is not using is a lie the
+  operator would act on.
 - **An autonegotiated tier may degrade, but never silently.** The fallback and
   its reason are printed, recorded in the session, and shown by `waldo status`.
 
@@ -238,8 +240,8 @@ not do silently: writing a binary to the target.
 
 ## Conformance
 
-The four tiers share almost no code, and a user cannot tell which is in use. So
-all four run one identical suite (`internal/fileops/fileopstest`) covering NUL
+The three tiers share almost no code, and a user cannot tell which is in use. So
+all three run one identical suite (`internal/fileops/fileopstest`) covering NUL
 bytes, invalid UTF-8, CRLF, empty files, 5 MiB payloads, offset reads, awkward
 filenames, atomic overwrite, and not-found reporting.
 

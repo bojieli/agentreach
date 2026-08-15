@@ -53,8 +53,15 @@ func cmdHelper(ctx context.Context, args []string) error {
 
 	switch sub {
 	case "status":
+		// The helper binaries are listed, not the directory. `ls -la` on a
+		// directory that exists but is empty still prints `.` and `..`, so
+		// testing that output for emptiness answered "something is installed"
+		// whenever the directory outlived its contents — after an install waldo
+		// rejected and took back, or an uninstall that left the directory. For
+		// the command whose entire job is answering "what has waldo left on this
+		// machine", a false yes is the wrong way to be wrong.
 		res, err := t.Run(ctx, waldo.ExecRequest{
-			Command:   fmt.Sprintf("ls -la %s 2>/dev/null || true", shellQuote(dir)),
+			Command:   fmt.Sprintf("ls -la %s/helper-* 2>/dev/null || true", shellQuote(dir)),
 			MaxOutput: 32 << 10,
 		})
 		if err != nil {

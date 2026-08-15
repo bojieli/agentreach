@@ -72,10 +72,35 @@ func NewHelper(ctx context.Context, t transport.Transport, base *POSIX, caps *Ca
 			return nil, err
 		}
 		if !helperMatches(ctx, t, remote, digest, goos, goarch) {
+			// Take back what was just written. waldo put this binary on the
+			// target and has now declared it cannot identify it; leaving an
+			// executable waldo does not trust on a machine the operator may not
+			// own is the opposite of what this tier promises.
+			//
+			// What the message says about it depends on whether it worked. A
+			// refusal that claims a cleanup it did not perform leaves an
+			// executable on someone else's host that nobody knows is there,
+			// which is a worse outcome than the mismatch being reported.
+			fate := "and has been removed from the target"
+			if err := base.Remove(ctx, remote, false); err != nil {
+				fate = fmt.Sprintf("and could not be removed (%v); it is still there", err)
+			}
+
+			// The local source is named, not only the destination. The usual
+			// cause is a helper from a *different* waldo sitting where this one
+			// looks: release archives ship helpers beside the waldo binary, so
+			// upgrading in place leaves the previous version's helpers exactly
+			// there. Reporting only the remote path sends the operator to
+			// inspect a file that is a faithful copy of the wrong one.
 			return nil, fmt.Errorf(
-				"the helper at %s does not report the version and digest waldo just installed.\n"+
+				"the helper waldo installed at %s did not identify itself as waldo %s,\n"+
+					"%s.\n"+
+					"It was copied from %s, so that file is probably from a different waldo:\n"+
+					"release archives ship helpers beside the waldo binary, and upgrading in\n"+
+					"place leaves the old ones there. Remove it, or point %s at the right one.\n"+
 					"waldo will not run a binary it cannot identify; use --fileops=pipe or omit\n"+
-					"--fileops to negotiate a tier that installs nothing", remote)
+					"--fileops to negotiate a tier that installs nothing",
+				remote, waldo.Version, fate, local, HelperBinaryEnv)
 		}
 	}
 
