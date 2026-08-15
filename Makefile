@@ -4,7 +4,7 @@ BIN     := waldo
 VERSION := $(shell sed -n 's/.*Version = "\(.*\)".*/\1/p' internal/waldo/types.go)
 LDFLAGS := -s -w -X main.buildVersion=$(VERSION)
 
-.PHONY: all build test vet lint e2e conformance clean install fmt check
+.PHONY: all build test vet lint e2e mock conformance clean install fmt check
 
 all: check build
 
@@ -29,6 +29,9 @@ check: vet test ## everything that runs without a network or an API key
 
 e2e: build ## end-to-end tests against real agents (SPENDS MODEL TOKENS)
 	./test/e2e/transparency_test.sh
+
+mock: ## verify the mock model server (no API key, no tokens)
+	./test/e2e/mockmodel_test.sh
 
 conformance: build ## verify harness seams still have the shape waldo expects
 	./test/e2e/conformance_test.sh

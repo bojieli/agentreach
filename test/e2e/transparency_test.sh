@@ -45,6 +45,40 @@ assert_contains "$?" "42" "exit status is passed through"
 out="$("$WALDO_BIN" exec --session e2e -- 'ls /nonexistent' 2>&1)"
 assert_contains "$out" "No such file" "stderr from the target reaches the caller"
 
+# ------------------------------------------------------------------- fs verbs
+info "waldo fs (file operations on the target)"
+"$WALDO_BIN" fs write --session e2e /srv/app/fs_test.txt <<< "content from local" >/dev/null
+out="$("$WALDO_BIN" fs read --session e2e /srv/app/fs_test.txt)"
+assert_contains "$out" "content from local" "fs write then read round-trips"
+
+# Binary safety is the property naive shell interpolation destroys.
+printf 'a\000b\377' > /tmp/waldo-bin-src.dat
+"$WALDO_BIN" fs write --session e2e /srv/app/bin.dat < /tmp/waldo-bin-src.dat >/dev/null
+"$WALDO_BIN" fs read --session e2e /srv/app/bin.dat > /tmp/waldo-bin-got.dat
+if cmp -s /tmp/waldo-bin-src.dat /tmp/waldo-bin-got.dat; then
+  ok "fs round-trips binary content (NUL and 0xFF) unchanged"
+else
+  bad "fs binary round trip" "content differs"
+fi
+rm -f /tmp/waldo-bin-src.dat /tmp/waldo-bin-got.dat
+
+out="$("$WALDO_BIN" fs ls --session e2e /srv/app)"
+assert_contains "$out" "fs_test.txt" "fs ls lists target files"
+
+out="$("$WALDO_BIN" fs grep --session e2e --json "content from" /srv/app)"
+assert_contains "$out" "fs_test.txt" "fs grep searches on the target"
+
+out="$("$WALDO_BIN" fs glob --session e2e "*.txt" /srv/app)"
+assert_contains "$out" "fs_test.txt" "fs glob expands on the target"
+
+# A missing file must be an error, never empty content: an agent cannot tell
+# "the file is empty" from "the file is gone" otherwise.
+if "$WALDO_BIN" fs read --session e2e /srv/app/definitely-absent >/dev/null 2>&1; then
+  bad "fs read of a missing file" "succeeded; should have failed"
+else
+  ok "fs read of a missing file fails instead of returning empty"
+fi
+
 # ------------------------------------------------------------------ Claude Code
 if command -v claude >/dev/null 2>&1; then
   info "Claude Code (real agent, model=$MODEL)"

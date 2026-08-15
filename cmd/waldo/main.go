@@ -25,6 +25,7 @@ SESSIONS
 
 RUNNING
   exec [cmd...]     run a command on the target
+  fs <op> ...       read, write, list, search files on the target
   shell-prefix      internal: entrypoint for CLAUDE_CODE_SHELL_PREFIX
   hook              internal: harness hook entrypoint (mirror mode)
 
@@ -32,6 +33,7 @@ HARNESSES
   claude [args...]  launch Claude Code wired to the session
   codex [args...]   launch Codex wired to the session
   kimi [args...]    launch Kimi Code wired to the session
+  opencode install  install tools that shadow opencode's built-ins
   env               print the environment a harness needs
 
 TARGETS
@@ -85,6 +87,8 @@ func main() {
 		err = cmdDoctor(ctx, os.Args[2:])
 	case "exec":
 		os.Exit(cmdExec(ctx, os.Args[2:]))
+	case "fs":
+		err = cmdFS(ctx, os.Args[2:])
 	case "env":
 		err = cmdEnv(ctx, os.Args[2:])
 	case "claude":
@@ -93,6 +97,8 @@ func main() {
 		os.Exit(cmdCodex(ctx, os.Args[2:]))
 	case "kimi":
 		os.Exit(cmdKimi(ctx, os.Args[2:]))
+	case "opencode":
+		err = cmdOpencode(ctx, os.Args[2:])
 	case "version", "--version", "-v":
 		fmt.Println("waldo", version())
 	case "help", "--help", "-h":

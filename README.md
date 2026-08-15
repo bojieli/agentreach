@@ -91,6 +91,11 @@ waldo up ssh://build-box/srv/app
 # run something there
 waldo exec -- go test ./...
 
+# work with files on the target directly
+waldo fs read /srv/app/main.go
+waldo fs grep 'func main' /srv/app
+waldo fs write /srv/app/note.txt < local.txt
+
 # launch an agent wired to it
 waldo claude
 
@@ -150,7 +155,7 @@ Full details, including the exact captured envelope, in
 | **Claude Code** | verified | **verified** — native `Read`/`Edit`/`Write` act on the target in `--mode mirror` | `CLAUDE_CODE_SHELL_PREFIX` + hooks |
 | **Codex** | seam verified | **via shell** — reads, writes and `apply_patch` all travel over the shell tool, so one seam covers everything | `bash` shim on `PATH` (`execvp`) |
 | **Kimi Code** | working | native tools still local | PATH shim (hooks planned) |
-| **opencode** | planned | full — tools shadowed by name | plugin |
+| **opencode** | partially verified | full — tools shadowed by name | generated tools (`waldo opencode install`) |
 
 ### Two modes
 
@@ -223,9 +228,11 @@ docs. Reproduce with `make e2e` (spends model tokens) and `make conformance`.
 - Tier-0 file operations round-trip NUL bytes, invalid UTF-8, CRLF and 5 MiB
   payloads without corruption.
 
-Not yet verified: a live Codex agent run (the Codex install used for
-verification points at a third-party provider that rejects its token), and
-opencode (not installed).
+Not fully verified: a live Codex agent run (the Codex install used here points
+at a third-party provider that rejects its token); a live Kimi run (no OAuth
+login); and opencode end to end — its generated tools load, but the round trip
+could not be completed on this machine. Each limitation is stated precisely in
+`docs/harnesses/`.
 
 These seams are undocumented implementation details in closed binaries. Every
 one is covered by a conformance test that fails loudly when a harness upgrade
