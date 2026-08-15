@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"strings"
 
 	"github.com/bojieli/waldo/internal/fileops"
@@ -48,15 +49,23 @@ func openFileOps(ctx context.Context, sessionName string) (*session.Session, fil
 
 // resolvePath makes a path absolute against the session's working directory,
 // mirroring how a shell on the target would interpret it.
+//
+// The result is cleaned, so `waldo fs grep pattern .` searches "/srv/app"
+// rather than "/srv/app/.", and the matches come back with ordinary paths. The
+// difference is cosmetic to a person and not to an agent, which sees those
+// paths in tool output and may hand them straight back in a later command.
+//
+// path.Clean is used rather than filepath.Clean: these are the target's paths,
+// which are POSIX regardless of the operating system waldo itself runs on.
 func resolvePath(s *session.Session, p string) string {
 	if strings.HasPrefix(p, "/") {
-		return p
+		return path.Clean(p)
 	}
 	cwd := s.Cwd()
 	if cwd == "" {
 		cwd = s.Target.Workspace
 	}
-	return strings.TrimSuffix(cwd, "/") + "/" + p
+	return path.Join(cwd, p)
 }
 
 func cmdFS(ctx context.Context, args []string) error {
