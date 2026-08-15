@@ -11,7 +11,10 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/bojieli/waldo/internal/audit"
+	"github.com/bojieli/waldo/internal/fileops"
 	"github.com/bojieli/waldo/internal/session"
+	"github.com/bojieli/waldo/internal/transport"
 	"github.com/bojieli/waldo/internal/waldo"
 )
 
@@ -168,8 +171,9 @@ func searchEngine(s *session.Session) string {
 	return "grep (no ripgrep on target)"
 }
 
-func cmdDown(_ context.Context, args []string) error {
+func cmdDown(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("down", flag.ContinueOnError)
+	clean := fs.Bool("clean", false, "also remove anything waldo installed on the target")
 	pos, err := parseFlags(fs, args)
 	if err != nil {
 		return err
@@ -184,6 +188,7 @@ func cmdDown(_ context.Context, args []string) error {
 	// session. Leaving a live master on someone else's server would be a
 	// surprising residue for a tool whose premise is leaving no trace.
 	if t, err := s.Transport(); err == nil {
+		reportOrRemoveFootprint(ctx, s, t, *clean)
 		_ = t.Close()
 	}
 	if err := session.Remove(name); err != nil {
@@ -197,6 +202,15 @@ func cmdDown(_ context.Context, args []string) error {
 	fmt.Printf("session %q closed\n", name)
 	for _, r := range removed {
 		fmt.Printf("  removed %s\n", r)
+	}
+	// The audit log deliberately outlives the session it describes: a record of
+	// what an agent did on someone else's machine is not something to delete
+	// because the session ended.
+	if dir, err := session.Dir(); err == nil {
+		if _, statErr := os.Stat(audit.Path(dir, name)); statErr == nil {
+			fmt.Printf("  kept %s (what waldo did on the target; `waldo log %s`)\n",
+				audit.Path(dir, name), name)
+		}
 	}
 	return nil
 }
@@ -257,6 +271,42 @@ func first(v []string) string {
 		return ""
 	}
 	return v[0]
+}
+
+// reportOrRemoveFootprint accounts for anything waldo installed on the target.
+//
+// waldo's central claim is that it leaves nothing behind, and exactly one tier
+// breaks that on purpose, at the operator's request. Ending a session without
+// mentioning the binary still sitting on someone else's machine would make the
+// claim false by omission — the operator would reasonably believe `down` undid
+// everything.
+//
+// It is reported rather than removed by default because the install is cached
+// deliberately: the path carries waldo's version, so the next session reuses it
+// instead of re-uploading several megabytes. --clean is for when the point was
+// to leave no trace.
+func reportOrRemoveFootprint(ctx context.Context, s *session.Session, t transport.Transport, clean bool) {
+	if s.Tier != waldo.TierAgent {
+		return
+	}
+	dir, err := fileops.AgentCacheDir(ctx, t)
+	if err != nil {
+		return
+	}
+	if !clean {
+		fmt.Printf("  note: waldo's helper binary is still installed on the target, in %s\n", dir)
+		fmt.Printf("        remove it with: waldo down --clean, or waldo agent uninstall\n")
+		return
+	}
+	res, err := t.Run(ctx, waldo.ExecRequest{
+		Command:   fmt.Sprintf("rm -rf %s && echo removed", shellQuote(dir)),
+		MaxOutput: 4 << 10,
+	})
+	if err != nil || res.Code != 0 {
+		fmt.Printf("  WARNING: could not remove %s from the target; it is still there\n", dir)
+		return
+	}
+	fmt.Printf("  removed %s from the target\n", dir)
 }
 
 // cleanupSessionArtifacts deletes the generated settings and mirrored files

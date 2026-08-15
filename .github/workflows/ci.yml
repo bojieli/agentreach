@@ -153,6 +153,38 @@ jobs:
           python-version: ${{ matrix.python }}
       - run: python -m py_compile internal/fileops/handler.py
 
+  fuzz:
+    name: fuzz parsers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      # Short runs on every pull request: enough to catch a parser regression
+      # while it is still cheap to fix, not enough to find something deep. These
+      # three parse input waldo does not control — an SFTP server's responses,
+      # the agent's framing, and a closed harness's command envelope — in a
+      # process holding the operator's credentials.
+      - name: fuzz
+        run: |
+          set -euo pipefail
+          go test -run xxx -fuzz FuzzReadPacket   -fuzztime=45s ./internal/sftp/
+          go test -run xxx -fuzz FuzzAttrs        -fuzztime=45s ./internal/sftp/
+          go test -run xxx -fuzz FuzzStatusResponse -fuzztime=30s ./internal/sftp/
+          go test -run xxx -fuzz FuzzReadFrame    -fuzztime=45s ./cmd/waldo-agent/
+          go test -run xxx -fuzz FuzzParseClaudeCode -fuzztime=45s ./internal/envelope/
+      - name: keep any crasher found
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-corpus
+          path: |
+            internal/sftp/testdata/fuzz/**
+            cmd/waldo-agent/testdata/fuzz/**
+            internal/envelope/testdata/fuzz/**
+
   vuln:
     name: govulncheck
     runs-on: ubuntu-latest

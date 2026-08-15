@@ -35,6 +35,19 @@ of these properties is a vulnerability, not a bug:
   another is a correctness bug of the most serious kind, because the operator
   cannot see which tier answered.
 
+## The audit log
+
+waldo records the commands it runs on a target to
+`~/.waldo/sessions/<name>.audit.jsonl`, mode 0600. Two consequences worth
+knowing:
+
+- **It contains whatever the agent ran**, which can include a secret that
+  appeared on a command line. It is local and never transmitted, but it is a
+  file worth the same care as your shell history. `WALDO_NO_AUDIT=1` disables it.
+- **It is evidence, not a control.** It records what waldo was asked to do, not
+  everything that happened on the target, and a compromised target can do things
+  waldo never sees.
+
 ## What is out of scope
 
 - **Prompt injection from target output.** This is real, and it is documented

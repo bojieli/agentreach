@@ -13,6 +13,13 @@ project makes without a version attached.
 
 ### Added
 
+- **An audit log.** waldo records every command it runs on a target and every
+  file it changes there, readable with `waldo log`. The situation waldo is built
+  for ends with somebody asking what the agent did on a machine you do not own,
+  and "I don't know" is not an answer about a production host. Local only,
+  outlives `waldo down` deliberately, and `WALDO_NO_AUDIT=1` turns it off.
+- **Fuzz targets** for the three parsers that read input waldo does not control:
+  the SFTP wire format, the agent's framing, and the harness command envelope.
 - **Native Windows support.** waldo runs on Windows as a first-class operator
   platform, driving a remote POSIX target. Shims are installed as hard links
   (falling back to copies) rather than symlinks, which need Developer Mode;
@@ -58,6 +65,21 @@ project makes without a version attached.
 
 ### Fixed
 
+- **Mirror-mode digests were lost under concurrent tool calls.** They lived in
+  one shared JSON document that every hook rewrote whole, so parallel fetches
+  clobbered each other — one entry survived out of twenty, measured. A lost
+  digest is not a lost optimisation: `Push` treats "no record" as "nothing to
+  verify against" and writes anyway, so the guarantee that a write cannot
+  overwrite a file that changed on the target silently stopped holding, in
+  exactly the concurrent case where two tools are most likely to touch one tree.
+  Records are now one file per path.
+- **`waldo up` accepted a workspace that does not exist**, then failed every
+  subsequent command with a `cd` error from the target — which reads as waldo
+  being broken, once per tool call, rather than as a wrong path, once, in front
+  of the operator who typed it.
+- **`waldo down` left the tier-3 helper on the target without saying so**, which
+  made "waldo leaves no trace" false by omission. It now reports the footprint,
+  and `waldo down --clean` removes it.
 - **Windows silently did the wrong thing in three places**, each of which ended
   with the agent's commands running on the operator's own machine while it
   believed it was working on the target: the search path was matched as `PATH`

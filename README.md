@@ -161,6 +161,10 @@ waldo fs write /srv/app/note.txt < local.txt
 # launch an agent wired to it
 waldo claude
 
+# what did the agent actually do on the target?
+waldo log
+waldo log --failed
+
 # what does this host actually support, and what has waldo left on it?
 waldo doctor
 waldo agent uninstall   # remove the tier-3 helper, if you opted into it
@@ -257,6 +261,27 @@ and reporting confident nonsense, or writing over your own work. waldo denies
 them and tells the agent to use the shell, which is transparently remote. This
 is a safety property, not a preference; `--allow-local-file-tools` overrides it
 if you understand the consequence.
+
+## What it did
+
+waldo records every command it runs on a target and every file it changes
+there, in a local JSON-lines file per session:
+
+```console
+$ waldo log
+WHEN      ACTION  STATUS  DETAIL
+14:02:11  exec    ok      go test ./...
+14:02:30  write   ok      /srv/app/internal/handler.go
+14:02:31  exec    exit 1  go vet ./...
+```
+
+The point is the situation waldo is built for: you pointed an autonomous agent
+at a machine you do not own, and afterwards somebody asks what it did. Without a
+record the honest answer is "I don't know".
+
+Nothing is sent anywhere — it is a file only you can read, and it outlives
+`waldo down` deliberately. `WALDO_NO_AUDIT=1` turns it off, which is the right
+call when a command line will contain a secret.
 
 ## Security
 

@@ -15,7 +15,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -175,34 +174,74 @@ func digestOf(b []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func (m *Mirror) digestFile() string { return filepath.Join(m.root, ".waldo-digests.json") }
+// Digests are stored one file per mirrored path, not in a single document.
+//
+// A shared JSON map was the obvious design and was wrong: a harness issues tool
+// calls in parallel, each hook is its own process, and each did a
+// load-modify-write of the whole map. The last writer won and the others' entries
+// vanished — measured at one surviving entry out of twenty concurrent fetches.
+//
+// A lost digest is not a lost optimisation. Push treats "no recorded digest" as
+// "nothing to verify against" and writes anyway, so the guarantee that a write
+// cannot overwrite a file that changed on the target since it was read silently
+// stopped holding, in exactly the concurrent case where two tools are most
+// likely to be touching the same tree.
+//
+// One file per path makes every record independent: no shared mutable document,
+// no lock, and each update is a single atomic rename.
 
-func (m *Mirror) loadDigests() map[string]string {
-	out := map[string]string{}
-	if data, err := os.ReadFile(m.digestFile()); err == nil {
-		_ = json.Unmarshal(data, &out)
-	}
-	return out
+// digestDir holds the per-path digest records.
+func (m *Mirror) digestDir() string { return filepath.Join(m.root, ".waldo-digests") }
+
+// digestRecordPath names a target path's record. The name is a digest of the
+// path rather than the path itself, so it is flat, fixed-length, and cannot
+// collide with, escape from, or be confused for mirrored content.
+func (m *Mirror) digestRecordPath(targetPath string) string {
+	sum := sha256.Sum256([]byte(targetPath))
+	return filepath.Join(m.digestDir(), hex.EncodeToString(sum[:]))
 }
 
+// recordDigest stores the content digest a target path had when it was fetched.
+//
+// An empty digest is meaningful: it records that the file did not exist, which
+// Push distinguishes from having no record at all.
 func (m *Mirror) recordDigest(targetPath, digest string) error {
-	d := m.loadDigests()
-	d[targetPath] = digest
-	if err := os.MkdirAll(m.root, 0o700); err != nil {
+	if err := os.MkdirAll(m.digestDir(), 0o700); err != nil {
 		return err
 	}
-	data, err := json.Marshal(d)
+	// The record carries the path it belongs to as well as the digest, so the
+	// directory can be read by a human debugging a refused write.
+	body := digest + "\n" + targetPath + "\n"
+
+	final := m.digestRecordPath(targetPath)
+	tmp, err := os.CreateTemp(m.digestDir(), "tmp-")
 	if err != nil {
 		return err
 	}
-	tmp := fmt.Sprintf("%s.%d.tmp", m.digestFile(), os.Getpid())
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	if _, err := tmp.WriteString(body); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
 		return err
 	}
-	return os.Rename(tmp, m.digestFile())
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	if err := os.Rename(tmp.Name(), final); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	return nil
 }
 
-func (m *Mirror) expectedDigest(targetPath string) (string, bool) {
-	v, ok := m.loadDigests()[targetPath]
-	return v, ok
+// expectedDigest returns the digest recorded at fetch time. known is false when
+// waldo has no record, which Push must treat as "cannot verify" rather than as
+// "the file was absent".
+func (m *Mirror) expectedDigest(targetPath string) (digest string, known bool) {
+	data, err := os.ReadFile(m.digestRecordPath(targetPath))
+	if err != nil {
+		return "", false
+	}
+	line, _, _ := strings.Cut(string(data), "\n")
+	return line, true
 }

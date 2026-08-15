@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/bojieli/waldo/internal/audit"
 	"github.com/bojieli/waldo/internal/mirror"
 	"github.com/bojieli/waldo/internal/session"
 )
@@ -150,6 +151,7 @@ func runHook(_ []string) int {
 		} else {
 			local, ferr = m.Fetch(ctx, targetPath)
 		}
+		recordFileAction(s, "read", targetPath, 0, ferr)
 		if ferr != nil {
 			emit(deny(ev, fmt.Sprintf("waldo could not fetch %s from %s: %v",
 				targetPath, s.Target.Describe(), ferr)))
@@ -168,7 +170,9 @@ func runHook(_ []string) int {
 			emit(hookReply{})
 			return 0
 		}
-		if err := m.Push(ctx, targetPath); err != nil {
+		pushErr := m.Push(ctx, targetPath)
+		recordFileAction(s, "write", targetPath, 0, pushErr)
+		if err := pushErr; err != nil {
 			// The edit already happened locally; the agent must be told it did
 			// not reach the target, or it will believe its change landed.
 			emit(hookReply{HookSpecificOutput: &hookSpecific{
@@ -193,6 +197,24 @@ func runHook(_ []string) int {
 // anything, and rejecting it would send an ordinary dotfile down the
 // "leave it alone, it is local" path, where a Read would silently return the
 // operator's own file instead of the target's.
+// recordFileAction appends one file operation to the session's audit log.
+func recordFileAction(s *session.Session, action, path string, bytes int, err error) {
+	dir, dirErr := session.Dir()
+	if dirErr != nil {
+		return
+	}
+	entry := audit.Entry{
+		Target: s.Target.Describe(),
+		Action: action,
+		Path:   path,
+		Bytes:  bytes,
+	}
+	if err != nil {
+		entry.Error = err.Error()
+	}
+	audit.Append(dir, s.Name, entry)
+}
+
 func underWorkspace(p, workspace string) bool {
 	rel, err := filepath.Rel(workspace, p)
 	if err != nil {

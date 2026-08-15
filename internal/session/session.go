@@ -311,6 +311,25 @@ func (s *Session) OperationContext(ctx context.Context) (context.Context, contex
 	return context.WithTimeout(ctx, timeout)
 }
 
+// checkWorkspace verifies the session's directory exists on the target.
+func (s *Session) checkWorkspace(ctx context.Context, t transport.Transport) error {
+	res, err := t.Run(ctx, waldo.ExecRequest{
+		Command:   fmt.Sprintf("test -d %s", transport.ShellQuote(s.Target.Workspace)),
+		MaxOutput: 4 << 10,
+	})
+	if err != nil {
+		return err
+	}
+	if res.Code == 0 {
+		return nil
+	}
+	return fmt.Errorf(
+		"%s is not a directory on %s.\n"+
+			"waldo will not create it: making directories on a machine you pointed at is\n"+
+			"not something this tool should do uninvited. Create it there, or point waldo\n"+
+			"at a path that exists.", s.Target.Workspace, s.Target.Describe())
+}
+
 // FileOps builds the file-operation strategy for this session's tier.
 //
 // A pinned tier — one the operator named with --fileops — is never silently
@@ -359,6 +378,15 @@ func (s *Session) Probe(ctx context.Context) error {
 		})
 		s.Multiplex = ok
 		s.MultiplexNote = why
+	}
+
+	// Confirm the workspace is really there. Without this, `waldo up` succeeds
+	// against any reachable host and then *every* command fails with a `cd`
+	// error from the target — which reads as waldo being broken rather than as
+	// a path being wrong, and does so once per tool call rather than once, in
+	// front of the operator who typed the path.
+	if err := s.checkWorkspace(ctx, t); err != nil {
+		return err
 	}
 
 	if !s.Pinned {

@@ -124,7 +124,10 @@ func cmdFS(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		return fo.Write(ctx, resolvePath(s, arg), data, 0o644)
+		target := resolvePath(s, arg)
+		werr := fo.Write(ctx, target, data, 0o644)
+		recordFileAction(s, "write", target, len(data), werr)
+		return werr
 
 	case "ls":
 		dir := resolvePath(s, arg)
@@ -199,10 +202,16 @@ func cmdFS(ctx context.Context, args []string) error {
 		return nil
 
 	case "rm":
-		return fo.Remove(ctx, resolvePath(s, arg), *recursive)
+		target := resolvePath(s, arg)
+		rerr := fo.Remove(ctx, target, *recursive)
+		recordFileAction(s, "remove", target, 0, rerr)
+		return rerr
 
 	case "mkdir":
-		return fo.Mkdir(ctx, resolvePath(s, arg), 0o755)
+		target := resolvePath(s, arg)
+		merr := fo.Mkdir(ctx, target, 0o755)
+		recordFileAction(s, "mkdir", target, 0, merr)
+		return merr
 
 	default:
 		fmt.Fprint(os.Stderr, fsUsage)

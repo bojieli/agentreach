@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
+
+	"github.com/bojieli/waldo/internal/audit"
 
 	"github.com/bojieli/waldo/internal/envelope"
 	"github.com/bojieli/waldo/internal/session"
@@ -53,6 +56,31 @@ func runShellPrefix(args []string) int {
 	return runOnTarget(context.Background(), sessionNameFromEnv(""), p.Command, p.CwdFile)
 }
 
+// recordExec appends one executed command to the session's audit log.
+//
+// The command recorded is the one the model asked for, not the one waldo sent:
+// the wrapper waldo adds to recover the exit status and working directory is
+// waldo's bookkeeping, and putting it in the record would bury what the agent
+// actually did under machinery it did not write.
+func recordExec(s *session.Session, command, cwd string, code int, took time.Duration, err error) {
+	dir, dirErr := session.Dir()
+	if dirErr != nil {
+		return
+	}
+	entry := audit.Entry{
+		Target:  s.Target.Describe(),
+		Action:  "exec",
+		Command: command,
+		Dir:     cwd,
+		Code:    code,
+		Millis:  took.Milliseconds(),
+	}
+	if err != nil {
+		entry.Error = err.Error()
+	}
+	audit.Append(dir, s.Name, entry)
+}
+
 // runOnTarget executes one command in a session and mirrors the harness's
 // working-directory bookkeeping.
 func runOnTarget(ctx context.Context, sessionName, command, cwdFile string) int {
@@ -71,6 +99,7 @@ func runOnTarget(ctx context.Context, sessionName, command, cwdFile string) int 
 	// the entire performance story.
 
 	cwd := s.Cwd()
+	original := command
 
 	// Ask the target for its resulting directory in the same round trip. The
 	// harness tracks `cd` between calls by reading a local file, so waldo has
@@ -80,11 +109,17 @@ func runOnTarget(ctx context.Context, sessionName, command, cwdFile string) int 
 	command = fmt.Sprintf("%s\n__waldo_rc=$?; printf '%s%%s\\n' \"$(pwd -P)\" >&2; exit $__waldo_rc", command, cwdMarker)
 
 	stderr := &cwdCapturingWriter{out: os.Stderr, marker: cwdMarker}
+	started := time.Now()
 	code, err := transport.RunStream(ctx, t, waldo.ExecRequest{
 		Command: command,
 		Dir:     cwd,
 		Timeout: s.Timeout,
 	}, os.Stdout, stderr)
+
+	// Record it either way. A command that failed to reach the target is as
+	// much a part of the account as one that ran.
+	recordExec(s, original, cwd, code, time.Since(started), err)
+
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "waldo:", err)
 		return exitTransportFailure

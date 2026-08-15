@@ -22,6 +22,7 @@ SESSIONS
   down [name]       end a session and close its connection
   status [name]     show sessions
   doctor [name]     diagnose a target: what works, what degrades, and why
+  log [name]        what waldo has run and changed on the target
   agent <op>        inspect or remove the optional helper binary (tier 3)
 
 RUNNING
@@ -112,6 +113,8 @@ func main() {
 		err = cmdOpencode(ctx, os.Args[2:])
 	case "agent":
 		err = cmdAgent(ctx, os.Args[2:])
+	case "log":
+		err = cmdLog(ctx, os.Args[2:])
 	case "version", "--version", "-v":
 		fmt.Println(versionLine())
 	case "help", "--help", "-h":
