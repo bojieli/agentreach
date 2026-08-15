@@ -62,61 +62,42 @@ func runHook(_ []string) int {
 		emit(hookReply{})
 		return 0
 	}
+	emit(hookDecide(context.Background(), raw))
+	return 0
+}
+
+// hookDecide turns one raw hook event into the reply for it.
+//
+// This is separated from runHook so the decisions can be tested without a
+// harness on stdin. Everything here returns a reply rather than exiting: the
+// caller's only job is to print it.
+func hookDecide(ctx context.Context, raw []byte) hookReply {
 	var ev hookEvent
 	if err := json.Unmarshal(raw, &ev); err != nil {
-		emit(hookReply{})
-		return 0
+		return hookReply{}
 	}
 
 	s, err := session.Load(sessionNameFromEnv(""))
 	if err != nil || s.Mode != session.ModeMirror {
-		emit(hookReply{}) // not our business
-		return 0
+		return hookReply{} // not our business
 	}
 
-	if scanTools[ev.ToolName] && ev.HookEventName == "PreToolUse" {
-		emit(deny(ev, fmt.Sprintf(
-			"%s searches the local filesystem, but this session works on %s.\n"+
-				"The local mirror holds only files already opened, so a search here would\n"+
-				"silently miss matches. Use the shell instead — it runs on the target:\n"+
-				"  rg 'pattern' %s        (or grep -rn if ripgrep is absent)\n"+
-				"  find %s -name 'glob'",
-			ev.ToolName, s.Target.Describe(), s.Target.Workspace, s.Target.Workspace)))
-		return 0
-	}
-	if !pathTools[ev.ToolName] {
-		emit(hookReply{})
-		return 0
-	}
-
-	var input map[string]any
-	if err := json.Unmarshal(ev.ToolInput, &input); err != nil {
-		emit(hookReply{})
-		return 0
-	}
-	rawPath, _ := input["file_path"].(string)
-	if rawPath == "" {
-		emit(hookReply{})
-		return 0
+	reply, input, ok := hookRoute(ev, s)
+	if !ok {
+		return reply
 	}
 
 	mirrorRoot, err := mirrorRootFor(s.Name)
 	if err != nil {
-		emit(deny(ev, "waldo: "+err.Error()))
-		return 0
+		return deny(ev, "waldo: "+err.Error())
 	}
-
-	ctx := context.Background()
-
 	tr, err := s.Transport()
 	if err != nil {
-		emit(deny(ev, "waldo: "+err.Error()))
-		return 0
+		return deny(ev, "waldo: "+err.Error())
 	}
 	sel, err := s.FileOps(ctx, tr)
 	if err != nil {
-		emit(deny(ev, "waldo: "+err.Error()))
-		return 0
+		return deny(ev, "waldo: "+err.Error())
 	}
 	defer func() { _ = sel.Ops.Close() }()
 
@@ -125,15 +106,47 @@ func runHook(_ []string) int {
 	ctx, cancel := s.OperationContext(ctx)
 	defer cancel()
 
-	m := mirror.New(mirrorRoot, sel.Ops)
+	return hookMirror(ctx, ev, s, mirror.New(mirrorRoot, sel.Ops), input)
+}
 
+// hookRoute makes every decision that needs nothing from the target.
+//
+// ok reports whether the event needs the mirror. When it is false the reply is
+// final; when it is true the reply is unset and input holds the tool's parsed
+// arguments. Nothing here touches the network, which is the point: a Grep
+// denial should not depend on the target being reachable.
+func hookRoute(ev hookEvent, s *session.Session) (reply hookReply, input map[string]any, ok bool) {
+	if scanTools[ev.ToolName] && ev.HookEventName == "PreToolUse" {
+		return deny(ev, fmt.Sprintf(
+			"%s searches the local filesystem, but this session works on %s.\n"+
+				"The local mirror holds only files already opened, so a search here would\n"+
+				"silently miss matches. Use the shell instead — it runs on the target:\n"+
+				"  rg 'pattern' %s        (or grep -rn if ripgrep is absent)\n"+
+				"  find %s -name 'glob'",
+			ev.ToolName, s.Target.Describe(), s.Target.Workspace, s.Target.Workspace)), nil, false
+	}
+	if !pathTools[ev.ToolName] {
+		return hookReply{}, nil, false
+	}
+	if err := json.Unmarshal(ev.ToolInput, &input); err != nil {
+		return hookReply{}, nil, false
+	}
+	if p, _ := input["file_path"].(string); p == "" {
+		return hookReply{}, nil, false
+	}
+	return hookReply{}, input, true
+}
+
+// hookMirror makes the decisions that need the target: fetch before a tool
+// reads, push after it writes.
+func hookMirror(ctx context.Context, ev hookEvent, s *session.Session, m *mirror.Mirror, input map[string]any) hookReply {
+	rawPath, _ := input["file_path"].(string)
 	targetPath := resolveTargetPath(rawPath, s.Target.Workspace, m)
 
 	// Paths outside the workspace are genuinely local — the harness's own
 	// config, a scratch file — and must be left alone.
 	if !underWorkspace(targetPath, s.Target.Workspace) {
-		emit(hookReply{})
-		return 0
+		return hookReply{}
 	}
 
 	switch ev.HookEventName {
@@ -147,40 +160,36 @@ func runHook(_ []string) int {
 		}
 		recordFileAction(s, "read", targetPath, 0, ferr)
 		if ferr != nil {
-			emit(deny(ev, fmt.Sprintf("waldo could not fetch %s from %s: %v",
-				targetPath, s.Target.Describe(), ferr)))
-			return 0
+			return deny(ev, fmt.Sprintf("waldo could not fetch %s from %s: %v",
+				targetPath, s.Target.Describe(), ferr))
 		}
 		input["file_path"] = local
 		updated, _ := json.Marshal(input)
-		emit(hookReply{HookSpecificOutput: &hookSpecific{
+		return hookReply{HookSpecificOutput: &hookSpecific{
 			HookEventName:      "PreToolUse",
 			PermissionDecision: "allow",
 			UpdatedInput:       updated,
-		}})
+		}}
 
 	case "PostToolUse":
 		if ev.ToolName == "Read" {
-			emit(hookReply{})
-			return 0
+			return hookReply{}
 		}
 		pushErr := m.Push(ctx, targetPath)
 		recordFileAction(s, "write", targetPath, 0, pushErr)
-		if err := pushErr; err != nil {
+		if pushErr != nil {
 			// The edit already happened locally; the agent must be told it did
 			// not reach the target, or it will believe its change landed.
-			emit(hookReply{HookSpecificOutput: &hookSpecific{
+			return hookReply{HookSpecificOutput: &hookSpecific{
 				HookEventName:     "PostToolUse",
-				AdditionalContext: "waldo: THE CHANGE WAS NOT SAVED TO THE TARGET. " + err.Error(),
-			}})
-			return 0
+				AdditionalContext: "waldo: THE CHANGE WAS NOT SAVED TO THE TARGET. " + pushErr.Error(),
+			}}
 		}
-		emit(hookReply{})
+		return hookReply{}
 
 	default:
-		emit(hookReply{})
+		return hookReply{}
 	}
-	return 0
 }
 
 // recordFileAction appends one file operation to the session's audit log.
