@@ -45,7 +45,7 @@ than on a filesystem mount.
 │  │ session   target · cwd · capabilities   │  a file,      │
 │  │           tier decision                 │  not a daemon │
 │  ├─────────────────────────────────────────┤               │
-│  │ fileops   posix · pipe · agent          │               │
+│  │ fileops   posix · pipe · helper          │               │
 │  ├─────────────────────────────────────────┤               │
 │  │ transport ssh · docker · podman · local │               │
 │  └───┬─────────────────────────────────────┘               │

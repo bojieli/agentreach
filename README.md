@@ -169,7 +169,7 @@ harness (claude · codex · kimi · opencode)
 adapter          per harness · no fork · config or plugin
     │
 waldo            session state · cwd · capability probe
-    │            fileops tier: posix · pipe · agent
+    │            fileops tier: posix · pipe · helper
     │  ssh · docker · podman · local
 target           stock sshd only
 ```
