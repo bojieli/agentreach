@@ -34,12 +34,21 @@ a harness drives it. Reproduce with `make bench`, or against your own host with
 | `pipe` | 3.29 s | 0.35 s | **0.26 s** |
 | `agent` | 5.17 s | 0.26 s | 0.39 s |
 
-**Over a real link** — a remote host whose multiplexed round trip measures
-~540 ms, which is an ordinary distant machine rather than a pathological one.
-(Measure the link the way waldo uses it, with `ssh -o ControlPath=… host true`
-in a loop. ICMP is not a proxy for it: on a tunnelled or split-DNS setup, ping
-is answered by the local client and reported under a millisecond for a host half
-a world away.)
+**Over two real links**, measured the way waldo uses them. (Measure with
+`ssh -o ControlPath=… host true` in a loop. ICMP is not a proxy for it: on a
+tunnelled or split-DNS setup ping is answered by the local client, and reported
+0.3 ms for hosts whose commands actually cost 540 ms.)
+
+A host ~171 ms per command:
+
+| tier | 15 × 1 KiB read | 8 MiB read | 8 MiB write |
+|---|---|---|---|
+| `posix` | 7.27 s | 12.09 s | 9.34 s |
+| `sftp` | 8.18 s | 5.77 s | 10.47 s |
+| `pipe` | **4.62 s** | 5.51 s | 7.59 s |
+| `agent` | 9.50 s | **5.50 s** | **5.81 s** |
+
+A host ~540 ms per command, on a lossy tunnel:
 
 | tier | 15 × 1 KiB read | 8 MiB read | 8 MiB write |
 |---|---|---|---|
@@ -48,8 +57,11 @@ a world away.)
 | `pipe` | **20.35 s** | **7.46 s** | **6.36 s** |
 | `agent` | 42.72 s | 12.23 s | 13.51 s |
 
-The ordering **inverts**. On loopback `sftp` wins everything; on a real link it
-is the slowest tier for small reads and second-slowest for large ones.
+The ordering **inverts**, and does so consistently at both latencies: `pipe`
+beats `sftp` on every axis on both hosts, `agent` is the slowest to start on
+both, and `posix` is the worst on large reads on both. On loopback `sftp` wins
+everything. The margins narrow as latency falls, which is what should happen if
+round trips are the thing being counted.
 
 The reason is that the tiers differ in *round trips per operation*, not in work
 done. `pipe` and `agent` answer a whole file in one request and one response

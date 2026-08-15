@@ -325,10 +325,10 @@ docs. Reproduce with `make e2e` (spends model tokens) and `make conformance`.
   entire point. Both tables, and what they cost to learn, are in
   [docs/TRANSPORTS.md](docs/TRANSPORTS.md); reproduce with `make bench`, or
   against your own host with `WALDO_BENCH_SSH_HOST=my-box make bench`.
-- All four tiers pass the conformance suite against five real remote hosts
-  (Ubuntu 22/24, Debian 12/13, root and non-root accounts, links from
-  sub-millisecond to ~540 ms), a Docker container, and a busybox (Alpine)
-  target — not only against loopback.
+- All four tiers pass the conformance suite against six real remote hosts on
+  three continents (Ubuntu 22/24, Debian 12/13, root and non-root accounts,
+  links from 171 ms to 540 ms per command), a Docker container, and a busybox
+  (Alpine) target — not only against loopback.
 - A target with no shell at all (a `FROM scratch` container) is refused in about
   a second with an explanation, rather than hanging. A read-only target serves
   reads and refuses writes without leaving debris. An unprivileged target passes
