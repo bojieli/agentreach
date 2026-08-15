@@ -298,7 +298,10 @@ waldo exists because the target is not trusted. Consequences, in full in
 - SSH agent forwarding is **refused by default**. On a host with a hostile root,
   a forwarded agent socket lets that host authenticate as you everywhere else
   you can reach.
-- Local paths and usernames are stripped from forwarded commands where possible.
+- The harness's shell snapshot is stripped from every forwarded command, because
+  sourcing it would disclose your username and directory layout to the target
+  for no benefit. waldo does **not** inspect or rewrite arbitrary commands: a
+  false positive that mangled one would be worse than the leak it prevented.
 - Output from the target is **untrusted input**. It flows into the context of an
   agent that holds your credentials and can write to your local disk; waldo
   frames it as untrusted data.

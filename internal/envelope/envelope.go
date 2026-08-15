@@ -83,21 +83,13 @@ func ParseClaudeCode(raw string) Parsed {
 	return p
 }
 
-// StripLocalPaths reports whether a command still mentions a local-only path
-// that would leak the operator's directory layout to the target.
+// There was a StripLocalPaths here that scanned a command for the operator's
+// home path. Nothing called it, and nothing should have: SECURITY.md says
+// plainly that waldo does not inspect or rewrite arbitrary commands, because a
+// false positive that mangled one would be worse than the leak it prevented.
+// What waldo does strip is the shell snapshot above — a specific, recognisable
+// construct the harness generates, not a guess about a path.
 //
-// waldo cannot rewrite arbitrary commands safely, so this is used to warn
-// rather than to edit: a false positive that silently mangled a command would
-// be far worse than a warning the operator can judge.
-func StripLocalPaths(cmd string, localHome string) []string {
-	var found []string
-	if localHome == "" {
-		return nil
-	}
-	for _, tok := range strings.Fields(cmd) {
-		if strings.Contains(tok, localHome) {
-			found = append(found, tok)
-		}
-	}
-	return found
-}
+// Deleted rather than kept for later. In a tool whose security posture is the
+// reason it exists, an unused function that looks like a protection is worse
+// than no function: to anyone auditing, it reads as something that runs.
