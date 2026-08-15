@@ -36,3 +36,9 @@ func parseFlags(fs *flag.FlagSet, args []string) ([]string, error) {
 	}
 	return append(positional, tail...), nil
 }
+
+// newFlagSet builds a flag set that reports errors without exiting, so callers
+// can produce their own message.
+func newFlagSet(name string) *flag.FlagSet {
+	return flag.NewFlagSet(name, flag.ContinueOnError)
+}

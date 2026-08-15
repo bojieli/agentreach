@@ -29,6 +29,8 @@ RUNNING
 
 HARNESSES
   claude [args...]  launch Claude Code wired to the session
+  codex [args...]   launch Codex wired to the session
+  kimi [args...]    launch Kimi Code wired to the session
   env               print the environment a harness needs
 
 TARGETS
@@ -52,6 +54,9 @@ func main() {
 	// it through a symlink, which arrives as argv[0].
 	if isShimInvocation() {
 		os.Exit(runShellPrefix(os.Args[1:]))
+	}
+	if isBashShimInvocation() {
+		os.Exit(runBashShim(os.Args[1:]))
 	}
 	if len(os.Args) < 2 {
 		fmt.Fprint(os.Stderr, usage)
@@ -80,6 +85,10 @@ func main() {
 		err = cmdEnv(ctx, os.Args[2:])
 	case "claude":
 		os.Exit(cmdClaude(ctx, os.Args[2:]))
+	case "codex":
+		os.Exit(cmdCodex(ctx, os.Args[2:]))
+	case "kimi":
+		os.Exit(cmdKimi(ctx, os.Args[2:]))
 	case "version", "--version", "-v":
 		fmt.Println("waldo", version())
 	case "help", "--help", "-h":
