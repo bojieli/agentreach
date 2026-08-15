@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/bojieli/waldo/internal/fileops"
@@ -24,6 +25,7 @@ const fsUsage = `waldo fs — file operations on the session's target
   glob <pattern> [root] [--json]         expand a pattern on the target
   rm <path> [--recursive]                remove a path
   mkdir <path>                           create a directory
+  mv <from> <to>                         rename or move a path
 
 Content is written to stdout as raw bytes, so binary files survive intact.
 `
@@ -68,12 +70,53 @@ func resolvePath(s *session.Session, p string) string {
 	return path.Join(cwd, p)
 }
 
+// fsSubcommands is every operation `waldo fs` offers.
+var fsSubcommands = []string{"read", "write", "ls", "stat", "grep", "glob", "rm", "mkdir", "mv"}
+
+// fsAliases point a plausible wrong guess at the right subcommand.
+//
+// These are names an operator arrives with rather than names waldo invented:
+// `search` is what the operation is called throughout waldo's own code, `find`
+// is what someone reaches for when they want glob, and `cat`/`ls -l` come from
+// the shell they were using five minutes ago. Naming the right command costs a
+// line here and saves a round trip through the usage text.
+var fsAliases = map[string]string{
+	"search": "grep",
+	"find":   "glob",
+	"cat":    "read",
+	"list":   "ls",
+	"dir":    "ls",
+	"put":    "write",
+	"get":    "read",
+	"delete": "rm",
+	"remove": "rm",
+}
+
+func checkFSSubcommand(sub string) error {
+	if slices.Contains(fsSubcommands, sub) {
+		return nil
+	}
+	if want, ok := fsAliases[sub]; ok && slices.Contains(fsSubcommands, want) {
+		return fmt.Errorf("waldo fs has no %q; you want `waldo fs %s`", sub, want)
+	}
+	fmt.Fprint(os.Stderr, fsUsage)
+	return fmt.Errorf("unknown fs subcommand %q", sub)
+}
+
 func cmdFS(ctx context.Context, args []string) error {
 	if len(args) == 0 {
 		fmt.Fprint(os.Stderr, fsUsage)
 		return fmt.Errorf("expected a subcommand")
 	}
 	sub, rest := args[0], args[1:]
+	// Checked before the flags are parsed, not after. Parsing first meant
+	// `waldo fs search --root /srv` — a plausible guess, since the operation is
+	// called Search everywhere inside waldo — reported "flag provided but not
+	// defined: -root", sending the operator to look for the right flag when the
+	// problem was the subcommand.
+	if err := checkFSSubcommand(sub); err != nil {
+		return err
+	}
 
 	fs := newFlagSet("fs " + sub)
 	sessName := fs.String("session", "", "session name (default $WALDO_SESSION)")
@@ -212,6 +255,18 @@ func cmdFS(ctx context.Context, args []string) error {
 		merr := fo.Mkdir(ctx, target, 0o755)
 		recordFileAction(s, "mkdir", target, 0, merr)
 		return merr
+
+	case "mv":
+		// Every tier implements Rename and the conformance suite covers it; the
+		// CLI simply never exposed it, so the one file operation an agent cannot
+		// express through `waldo fs` was the most ordinary one there is.
+		if len(pos) != 2 {
+			return fmt.Errorf("waldo fs mv: expected <from> and <to>\n\n%s", fsUsage)
+		}
+		from, to := resolvePath(s, pos[0]), resolvePath(s, pos[1])
+		rerr := fo.Rename(ctx, from, to)
+		recordFileAction(s, "rename", from+" -> "+to, 0, rerr)
+		return rerr
 
 	default:
 		fmt.Fprint(os.Stderr, fsUsage)
