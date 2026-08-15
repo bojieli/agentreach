@@ -66,7 +66,7 @@ func TestPinnedTierIsNeverSubstituted(t *testing.T) {
 		t.Fatalf("probe: %v", err)
 	}
 	// A tier the target cannot support must fail rather than hand back tier 0.
-	// The agent tier needs a platform waldo has a build for; an unknown uname
+	// The helper tier needs a platform waldo has a build for; an unknown uname
 	// is exactly the case where a pin cannot be honoured.
 	impossible := *caps
 	impossible.Uname = "Plan9 unknown-arch"

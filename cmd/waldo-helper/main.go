@@ -1,5 +1,5 @@
 // Command waldo-helper is the optional helper waldo installs on a target for
-// tier 3.
+// the helper tier.
 //
 // It is the only thing waldo ever writes to a target's disk, and only when the
 // operator asks for it explicitly. It therefore does as little as possible: it
@@ -28,7 +28,7 @@ import (
 )
 
 // version is stamped at build time. It is part of the installed path on the
-// target, so an upgraded waldo installs a new agent instead of silently reusing
+// target, so an upgraded waldo installs a new helper instead of silently reusing
 // a stale one.
 var version = "dev"
 

@@ -85,7 +85,7 @@ func cmdHelper(ctx context.Context, args []string) error {
 		}
 		fmt.Printf("removed %s from %s\n", dir, s.Target.Describe())
 		if s.Tier == waldo.TierHelper {
-			fmt.Println("note: this session still pins --fileops=agent, so the next command reinstalls it.")
+			fmt.Println("note: this session still pins --fileops=helper, so the next command reinstalls it.")
 			fmt.Printf("      run `waldo up %s` without --fileops to stop using it.\n", s.Target.Raw)
 		}
 		return nil

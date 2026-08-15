@@ -71,7 +71,7 @@ func cmdUp(ctx context.Context, args []string) error {
 	name := fs.String("name", defaultSessionName, "session name")
 	mode := fs.String("mode", string(session.ModeExec), "exec or mirror")
 	untrusted := fs.Bool("untrusted", false, "target is not yours: never install anything, never forward an agent")
-	tierName := fs.String("fileops", "", "pin a file-operation tier (posix, pipe, agent)")
+	tierName := fs.String("fileops", "", "pin a file-operation tier ("+waldo.TierList()+")")
 	timeout := fs.Duration("timeout", 2*time.Minute, "default per-command timeout")
 	pos, err := parseFlags(fs, args)
 	if err != nil {
@@ -349,7 +349,7 @@ func reportOrRemoveFootprint(ctx context.Context, s *session.Session, t transpor
 	}
 	if !clean {
 		fmt.Printf("  note: waldo's helper binary is still installed on the target, in %s\n", dir)
-		fmt.Printf("        remove it with: waldo down --clean, or waldo agent uninstall\n")
+		fmt.Printf("        remove it with: waldo down --clean, or waldo helper uninstall\n")
 		return
 	}
 	res, err := t.Run(ctx, waldo.ExecRequest{

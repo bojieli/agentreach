@@ -5,11 +5,12 @@ package waldo
 import (
 	"fmt"
 	"io/fs"
+	"strings"
 	"time"
 )
 
-// Version is the waldo release. It is part of the remote agent cache path, so
-// bumping it forces a fresh agent install rather than silent reuse of a stale
+// Version is the waldo release. It is part of the remote helper cache path, so
+// bumping it forces a fresh helper install rather than silent reuse of a stale
 // binary.
 const Version = "0.1.0"
 
@@ -91,23 +92,47 @@ const (
 	TierHelper
 )
 
+// AllTiers lists every tier an operator may pin, lowest first.
+//
+// String, ParseTier and the --fileops help text all derive from this, so a tier
+// cannot be added, removed or renamed in one of them and not the others. That
+// is not hypothetical: renaming `agent` to `helper` left --fileops advertising
+// a value that ParseTier had already started rejecting, so the flag's own help
+// documented a tier waldo would refuse.
+var AllTiers = []Tier{TierPOSIX, TierPipe, TierHelper}
+
+// tierNames maps a tier to its CLI spelling. Keep it in step with AllTiers;
+// TestEveryTierHasAName checks that it is.
+var tierNames = map[Tier]string{
+	TierPOSIX:  "posix",
+	TierPipe:   "pipe",
+	TierHelper: "helper",
+}
+
 func (t Tier) String() string {
-	switch t {
-	case TierPOSIX:
-		return "posix"
-	case TierPipe:
-		return "pipe"
-	case TierHelper:
-		return "helper"
+	if name, ok := tierNames[t]; ok {
+		return name
 	}
 	return fmt.Sprintf("tier(%d)", int(t))
 }
 
+// TierList renders the pinnable tiers for help text and error messages.
+func TierList() string {
+	names := make([]string, 0, len(AllTiers))
+	for _, t := range AllTiers {
+		names = append(names, t.String())
+	}
+	return strings.Join(names, ", ")
+}
+
 // ParseTier maps a CLI value to a Tier.
 func ParseTier(s string) (Tier, error) {
+	for _, t := range AllTiers {
+		if s == t.String() {
+			return t, nil
+		}
+	}
 	switch s {
-	case "posix":
-		return TierPOSIX, nil
 	case "sftp":
 		// Removed rather than renamed, and worth saying so: an operator who
 		// pinned it deserves to know it is gone and why, not to be told the
@@ -116,10 +141,6 @@ func ParseTier(s string) (Tier, error) {
 			"round trip, because SFTP hands out a handle before it will read, and it no longer " +
 			"moved bytes faster than the shell tier once that tier stopped base64-encoding them. " +
 			"Use posix (installs nothing), pipe (needs python3), or helper (installs a binary)")
-	case "pipe":
-		return TierPipe, nil
-	case "helper":
-		return TierHelper, nil
 	case "agent":
 		// Renamed, not removed. "agent" already meant the coding agent — the
 		// thing waldo exists to serve — so a tier of the same name made
@@ -127,7 +148,7 @@ func ParseTier(s string) (Tier, error) {
 		return 0, fmt.Errorf("the agent tier is now called helper: use --fileops=helper. " +
 			"It was renamed because \"agent\" already means the coding agent this tool drives")
 	}
-	return 0, fmt.Errorf("unknown fileops tier %q (want posix, pipe or helper)", s)
+	return 0, fmt.Errorf("unknown fileops tier %q (want %s)", s, TierList())
 }
 
 // ExitError reports a command that ran to completion with a non-zero status.

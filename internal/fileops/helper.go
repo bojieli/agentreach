@@ -16,7 +16,7 @@ import (
 	"github.com/bojieli/waldo/internal/waldo"
 )
 
-// HelperBinaryEnv names an explicit path to an agent binary for the target's
+// HelperBinaryEnv names an explicit path to a helper binary for the target's
 // platform, for operators who build or vendor their own.
 const HelperBinaryEnv = "WALDO_HELPER_BINARY"
 
@@ -298,7 +298,7 @@ func moduleRoot() (string, error) {
 func platformOf(uname string) (string, string, error) {
 	fields := strings.Fields(uname)
 	if len(fields) < 2 {
-		return "", "", fmt.Errorf("cannot read the target's platform from %q; tier 3 needs to know which binary to install", uname)
+		return "", "", fmt.Errorf("cannot read the target's platform from %q; the helper tier needs to know which binary to install", uname)
 	}
 	var goos string
 	switch strings.ToLower(fields[0]) {

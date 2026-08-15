@@ -366,7 +366,7 @@ func TestReadOnlyTargetRefusesWritesButServesReads(t *testing.T) {
 
 // TestUnprivilegedTargetUser covers a container running as a non-root user with
 // no home directory — the default for a security-conscious image, and the case
-// where the agent tier has nowhere obvious to cache itself.
+// where the helper tier has nowhere obvious to cache itself.
 func TestUnprivilegedTargetUser(t *testing.T) {
 	const name = "waldo-it-nonroot"
 	startContainer(t, name, imageOr(gnuImageEnv, "python:3.11-slim"), "--user", "1000:1000")

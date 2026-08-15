@@ -134,7 +134,7 @@ func useExistingHost(host string) (func(), error) {
 
 // removeInstalledHelper takes back the one thing waldo ever puts on a target.
 //
-// The suite exercises the agent tier, which *installs a binary*. A test run that
+// The suite exercises the helper tier, which *installs a binary*. A test run that
 // quietly leaves one behind breaks the promise the whole project is built on,
 // and it does so on whatever machine the suite was pointed at — a borrowed
 // server or the developer's own. Both harness modes route through here, because
@@ -210,7 +210,7 @@ LogLevel ERROR
 		return nil, fmt.Errorf("start %s: %w", sshdBin, err)
 	}
 	stop := func() {
-		// The local sshd's target is this machine, so the agent tier installed
+		// The local sshd's target is this machine, so the helper tier installed
 		// into this machine's cache. Same promise, same cleanup.
 		removeInstalledHelper(func(command string) {
 			_ = exec.Command("sh", "-c", command).Run()
