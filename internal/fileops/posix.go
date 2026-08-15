@@ -321,6 +321,61 @@ func (p *POSIX) Search(ctx context.Context, req waldo.SearchRequest) ([]waldo.Ma
 	return p.searchGrep(ctx, req, limit)
 }
 
+// searchOutputCap bounds a search response.
+//
+// Generous, because the whole point of searching on the target is that only
+// matches cross the wire — but finite, because "only matches" can still be a
+// hundred megabytes on a large tree with a loose pattern.
+const searchOutputCap = 8 << 20
+
+// runSearch executes a search command and distinguishes its three outcomes.
+//
+// This is the function that had to exist. The previous form ended in
+// `2>/dev/null || true`, which mapped *every* failure onto "no matches" — and a
+// search tool that answers "no matches" when it actually failed is the worst
+// shape a tool can have here, because an agent told the code is not there
+// concludes the code is not there and acts on it. That is not hypothetical: a
+// busybox target rejected the flag waldo passed, and every search on it came
+// back empty and confident.
+//
+// Search utilities agree on the convention: 0 means matches, 1 means none, and
+// anything above means the search itself failed.
+func (p *POSIX) runSearch(ctx context.Context, cmd, tool string) ([]byte, bool, error) {
+	res, err := p.t.Run(ctx, waldo.ExecRequest{Command: cmd, MaxOutput: searchOutputCap})
+	if err != nil {
+		return nil, false, err
+	}
+	switch res.Code {
+	case 0, 1: // matches found, or none found — both are answers
+		return res.Stdout, res.Truncated, nil
+	default:
+		msg := strings.TrimSpace(string(res.Stderr))
+		if msg == "" {
+			msg = fmt.Sprintf("exit status %d", res.Code)
+		}
+		return nil, false, fmt.Errorf("%s failed on the target: %s", tool, firstLineOf(msg))
+	}
+}
+
+func firstLineOf(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
+}
+
+// checkComplete refuses to return a partial result as if it were the whole one.
+func checkComplete(truncated bool, found, limit int, root string) error {
+	if !truncated || found >= limit {
+		return nil
+	}
+	return fmt.Errorf(
+		"the search under %s produced more output than waldo will accept (%d bytes) "+
+			"before reaching the result limit, so the matches found are incomplete. "+
+			"Narrow the pattern or search a smaller directory rather than trusting this result",
+		root, searchOutputCap)
+}
+
 func (p *POSIX) searchRipgrep(ctx context.Context, req waldo.SearchRequest, limit int) ([]waldo.Match, error) {
 	args := []string{p.caps.Ripgrep, "--json"}
 	if req.IgnoreCase {
@@ -332,18 +387,11 @@ func (p *POSIX) searchRipgrep(ctx context.Context, req waldo.SearchRequest, limi
 	if req.Glob != "" {
 		args = append(args, "-g", q(req.Glob))
 	}
-	// -m caps matches *per file*, not in total, so it alone cannot bound the
-	// response: a tree with ten thousand matching files would still produce a
-	// flood. The total is bounded by piping through head — generously, since
-	// rg --json emits several lines per match — and again by the client loop
-	// below. Without that, a large search would overrun the transport's output
-	// cap and arrive truncated mid-JSON.
+	// -m caps matches per file, not in total; the total is bounded by the
+	// output cap and by the parse loop below.
 	args = append(args, "-m", strconv.Itoa(limit), "-e", q(req.Pattern), q(req.Root))
-	// rg exits 1 when there are no matches; that is a legitimate empty result,
-	// not a failure, so it is normalised here rather than surfaced as an error.
-	cmd := fmt.Sprintf("{ %s || true; } | head -n %d", strings.Join(args, " "), limit*8)
 
-	out, err := p.run(ctx, cmd, nil)
+	out, truncated, err := p.runSearch(ctx, strings.Join(args, " "), "ripgrep")
 	if err != nil {
 		return nil, err
 	}
@@ -373,20 +421,26 @@ func (p *POSIX) searchRipgrep(ctx context.Context, req waldo.SearchRequest, limi
 			break
 		}
 	}
-	return matches, nil
+	return matches, checkComplete(truncated, len(matches), limit, req.Root)
 }
 
 func (p *POSIX) searchGrep(ctx context.Context, req waldo.SearchRequest, limit int) ([]waldo.Match, error) {
-	flags := "-rn --binary-files=without-match"
+	flags := []string{"-rn"}
+	if p.caps.GrepSkipBinary != "" {
+		flags = append(flags, p.caps.GrepSkipBinary)
+	}
 	if req.IgnoreCase {
-		flags += " -i"
+		flags = append(flags, "-i")
 	}
 	if req.Literal {
-		flags += " -F"
+		flags = append(flags, "-F")
 	}
-	cmd := fmt.Sprintf("grep %s -e %s -- %s 2>/dev/null | head -n %d || true",
-		flags, q(req.Pattern), q(req.Root), limit)
-	out, err := p.run(ctx, cmd, nil)
+	flags = append(flags, "-m", strconv.Itoa(limit))
+
+	cmd := fmt.Sprintf("grep %s -e %s -- %s",
+		strings.Join(flags, " "), q(req.Pattern), q(req.Root))
+
+	out, truncated, err := p.runSearch(ctx, cmd, "grep")
 	if err != nil {
 		return nil, err
 	}
@@ -407,8 +461,11 @@ func (p *POSIX) searchGrep(ctx context.Context, req waldo.SearchRequest, limit i
 			continue
 		}
 		matches = append(matches, waldo.Match{Path: a[0], Line: n, Text: a[2]})
+		if len(matches) >= limit {
+			break
+		}
 	}
-	return matches, nil
+	return matches, checkComplete(truncated, len(matches), limit, req.Root)
 }
 
 // Glob implements FileOps.

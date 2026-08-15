@@ -39,6 +39,11 @@ type Capabilities struct {
 	// directory listing. Without it, listing cannot represent filenames
 	// containing newlines.
 	FindPrintf bool
+	// GrepSkipBinary is the flag that makes the target's grep ignore binary
+	// files, or empty when it has none. GNU, BSD and busybox all accept -I;
+	// only GNU and BSD accept --binary-files=without-match, and busybox rejects
+	// the whole command when given it.
+	GrepSkipBinary string
 	// SFTP reports whether the SFTP subsystem answered. Only meaningful for
 	// ssh transports.
 	SFTP bool
@@ -70,6 +75,12 @@ w_has xargs && printf 'XARGS=1\n' || printf 'XARGS=0\n'
 w_has python3 && printf 'PY3=1\n' || printf 'PY3=0\n'
 
 if w_has rg; then printf 'RG=rg\n'; else printf 'RG=\n'; fi
+
+# Which flag suppresses binary files? busybox grep accepts -I but rejects
+# --binary-files=..., and rejects the *entire command* when it sees it — which
+# turned every search on an Alpine target into a confident "no matches".
+if printf 'x\n' | grep -I x >/dev/null 2>&1; then printf 'GREPI=-I\n'
+else printf 'GREPI=\n'; fi
 
 if w_has sha256sum; then printf 'SHA=sha256sum\n'
 elif w_has shasum; then printf 'SHA=shasum -a 256\n'
@@ -111,6 +122,8 @@ func Probe(ctx context.Context, t transport.Transport) (*Capabilities, error) {
 			c.Python3 = v == "1"
 		case "RG":
 			c.Ripgrep = v
+		case "GREPI":
+			c.GrepSkipBinary = v
 		case "SHA":
 			c.SHA256 = v
 		}
