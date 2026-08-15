@@ -128,13 +128,21 @@ func (p *POSIX) Read(ctx context.Context, filePath string, off, n int64) ([]byte
 
 // readRange fetches exactly one chunk.
 func (p *POSIX) readRange(ctx context.Context, filePath string, off, n int64) ([]byte, error) {
+	// The encoder is the identity when the transport is proven 8-bit clean.
+	// `cat` costs one process and no bandwidth; base64 costs one process and a
+	// third of the bytes.
+	encode := "| " + p.caps.Base64Encode
+	if p.caps.RawStdout {
+		encode = ""
+	}
 	var body string
-	if off <= 0 && n <= 0 {
-		body = fmt.Sprintf("%s < %s", p.caps.Base64Encode, q(filePath))
-	} else if n <= 0 {
-		body = fmt.Sprintf("tail -c +%d -- %s | %s", off+1, q(filePath), p.caps.Base64Encode)
-	} else {
-		body = fmt.Sprintf("tail -c +%d -- %s | head -c %d | %s", off+1, q(filePath), n, p.caps.Base64Encode)
+	switch {
+	case off <= 0 && n <= 0:
+		body = fmt.Sprintf("cat -- %s %s", q(filePath), encode)
+	case n <= 0:
+		body = fmt.Sprintf("tail -c +%d -- %s %s", off+1, q(filePath), encode)
+	default:
+		body = fmt.Sprintf("tail -c +%d -- %s | head -c %d %s", off+1, q(filePath), n, encode)
 	}
 	// Fail loudly if the path is unreadable rather than returning empty
 	// content, which an agent would misread as "the file is empty".
@@ -142,9 +150,14 @@ func (p *POSIX) readRange(ctx context.Context, filePath string, off, n int64) ([
 
 	// Size the cap to this chunk's encoded length plus slack, so an oversized
 	// response is an error rather than silent corruption.
+	// Raw content needs no headroom for encoding expansion.
+	outputCap := n*4/3 + (64 << 10)
+	if p.caps.RawStdout {
+		outputCap = n + (64 << 10)
+	}
 	res, err := p.t.Run(ctx, waldo.ExecRequest{
 		Command:   cmd,
-		MaxOutput: n*4/3 + (64 << 10),
+		MaxOutput: outputCap,
 		Env:       p.caps.Env(),
 	})
 	if err != nil {
@@ -158,6 +171,9 @@ func (p *POSIX) readRange(ctx context.Context, filePath string, off, n int64) ([
 	}
 	if res.Truncated {
 		return nil, fmt.Errorf("read %s: response exceeded output cap; refusing to return possibly corrupt content", filePath)
+	}
+	if p.caps.RawStdout {
+		return res.Stdout, nil
 	}
 	return decodeB64(res.Stdout)
 }
@@ -174,7 +190,19 @@ func (p *POSIX) Write(ctx context.Context, filePath string, data []byte, mode fs
 	}
 	dir := path.Dir(filePath)
 	tmp := waldo.TempPath(dir)
-	enc := base64.StdEncoding.EncodeToString(data)
+
+	// Content goes over the wire unencoded when the transport has been proven
+	// 8-bit clean, and base64-framed when it has not. The encoding costs a
+	// third of the bandwidth, and the probe that decides this pipes every byte
+	// value through the target's own digest command and compares — so this is a
+	// measured property of the connection rather than a guess about it.
+	//
+	// `cat` is not needed: the redirect alone copies stdin to the file, which
+	// is one less process per write on the target.
+	body, payload := p.caps.Base64Decode, []byte(base64.StdEncoding.EncodeToString(data))
+	if p.caps.RawStdin {
+		body, payload = "cat", data
+	}
 
 	// `set -C` is noclobber: the redirect fails if the temporary already
 	// exists, which is this tier's equivalent of an exclusive create. Without
@@ -183,12 +211,12 @@ func (p *POSIX) Write(ctx context.Context, filePath string, data []byte, mode fs
 	// corruption, where the exclusive create gives a clean failure instead.
 	cmd := fmt.Sprintf(
 		"set -e; set -C; %s > %s; chmod %o %s; mv -f %s %s",
-		p.caps.Base64Decode, q(tmp), mode.Perm(), q(tmp), q(tmp), q(filePath))
+		body, q(tmp), mode.Perm(), q(tmp), q(tmp), q(filePath))
 	// Clean up the temporary file if anything fails, so an interrupted write
 	// does not litter the target with debris.
 	cmd = fmt.Sprintf("{ %s; } || { rm -f %s; exit 1; }", cmd, q(tmp))
 
-	_, err := p.run(ctx, cmd, []byte(enc))
+	_, err := p.run(ctx, cmd, payload)
 	return err
 }
 

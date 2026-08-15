@@ -122,17 +122,26 @@ Every operation is an ordinary command over the SSH connection:
 
 | op | implementation |
 |---|---|
-| read | `tail -c +N \| head -c M` piped through `base64` |
-| write | `base64 -d > <tmp> && mv <tmp> <path>` (atomic rename) |
+| read | `tail -c +N \| head -c M`, raw when the link is 8-bit clean |
+| write | `> <tmp> && mv <tmp> <path>` (atomic rename), raw when clean |
 | stat | `stat -c` / BSD `stat -f` |
 | list | GNU `find -printf` with NUL records, else `find -exec stat` |
 | search | `rg --json` if present, else `grep -rn` |
 | glob | `find` with `-path` or `-name` |
 | mkdir/rename/remove | `mkdir -p` / `mv` / `rm` |
 
-Binary-safe because content is base64-framed in both directions. Reads and
-writes are offset-addressed, so a dropped connection resumes rather than
-restarts. Encoding costs ~33% bandwidth, which is the price of universality.
+Binary-safe in both directions, and only pays for it when it has to. waldo
+proves the link is 8-bit clean during `waldo up` — piping every byte value
+through the target's own digest command in one direction, and having the target
+print them back in the other — and moves content unencoded when it is. A
+transport that garbles anything keeps base64, which is unconditionally safe and
+costs a third of the bandwidth.
+
+That measurement is not decoration. It is why this tier now reads an 8 MiB file
+faster than the SFTP tier does.
+
+Reads and writes are offset-addressed, so a dropped connection resumes rather
+than restarts.
 
 `dd bs=1` is deliberately not used for ranges: it issues one syscall per byte,
 which makes a large offset pathologically slow.

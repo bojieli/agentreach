@@ -1,7 +1,10 @@
 package fileops
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -45,6 +48,11 @@ type Capabilities struct {
 	// only GNU and BSD accept --binary-files=without-match, and busybox rejects
 	// the whole command when given it.
 	GrepSkipBinary string
+	// RawStdin and RawStdout report that binary content survives the transport
+	// unencoded, in each direction, proven by a round trip rather than assumed.
+	// When they hold, file content skips base64 and costs a third less to move.
+	RawStdin  bool
+	RawStdout bool
 	// LoginPath is the PATH the target's own login shell would give the
 	// operator, when it differs from the one a non-interactive command gets.
 	// Empty means they matched and nothing needs overriding.
@@ -175,11 +183,73 @@ func Probe(ctx context.Context, t transport.Transport) (*Capabilities, error) {
 				"invalid UTF-8. Target reports: %s", c.Uname)
 	}
 	c.LoginPath = loginPath
+	c.RawStdin, c.RawStdout = probeRawIO(ctx, t, c)
 	// Whether the SFTP subsystem answers cannot be read out of the target's
 	// userland, only by asking it. One extra channel during `waldo up` buys a
 	// tier decision that is proven rather than assumed.
 	c.SFTP = ProbeSFTP(ctx, t)
 	return c, nil
+}
+
+// rawProbeBlob is every byte value, plus the sequences a transport is most
+// likely to mangle: a lone CR, a lone LF, CRLF, and a trailing newline that a
+// naive `$(...)` capture would eat.
+func rawProbeBlob() []byte {
+	b := make([]byte, 0, 300)
+	for i := 0; i < 256; i++ {
+		b = append(b, byte(i))
+	}
+	return append(b, '\r', '\n', '\r', '\n', 0x00, 0xff, '\n')
+}
+
+// probeRawIO asks whether binary content survives the transport unencoded.
+//
+// waldo has always base64-framed file content, which is unconditionally safe
+// and costs a third of the bandwidth in both directions. Whether it is
+// *necessary* is a property of the transport, and transports differ: an ssh
+// session with no pty is 8-bit clean, while a pty translates newlines, and
+// Windows ssh clients have historically translated on their own. So it is
+// measured per target instead of assumed either way.
+//
+// Neither direction writes anything to the target. Stdin fidelity is checked by
+// piping the blob into the target's own digest command and comparing; stdout
+// fidelity by having the target print the blob and comparing bytes. A target
+// that garbles either simply keeps base64.
+func probeRawIO(ctx context.Context, t transport.Transport, c *Capabilities) (stdin, stdout bool) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	blob := rawProbeBlob()
+
+	if c.SHA256 != "" {
+		sum := sha256.Sum256(blob)
+		res, err := t.Run(ctx, waldo.ExecRequest{
+			Command:   c.SHA256,
+			Stdin:     blob,
+			Env:       pathEnv(c.LoginPath),
+			MaxOutput: 4 << 10,
+		})
+		if err == nil && res.Code == 0 {
+			fields := strings.Fields(string(res.Stdout))
+			stdin = len(fields) > 0 &&
+				strings.TrimPrefix(fields[0], "\\") == hex.EncodeToString(sum[:])
+		}
+	}
+
+	// printf with octal escapes is POSIX and needs nothing installed.
+	var esc strings.Builder
+	for _, b := range blob {
+		fmt.Fprintf(&esc, "\\%03o", b)
+	}
+	res, err := t.Run(ctx, waldo.ExecRequest{
+		Command:   "printf " + transport.ShellQuote(esc.String()),
+		Env:       pathEnv(c.LoginPath),
+		MaxOutput: 64 << 10,
+	})
+	if err == nil && res.Code == 0 {
+		stdout = bytes.Equal(res.Stdout, blob)
+	}
+	return stdin, stdout
 }
 
 // detectLoginPath returns the login shell's PATH when it adds anything, or ""
