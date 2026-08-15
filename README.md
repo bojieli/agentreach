@@ -64,12 +64,12 @@ nothing to this target."
 
 See [docs/TRANSPORTS.md](docs/TRANSPORTS.md).
 
-| tier | needs on target | writes to target | large read |
+| tier | needs on target | writes to target | large read, real link |
 |---|---|---|---|
 | `posix` | a POSIX shell | **nothing** | baseline |
-| `sftp` *(negotiated when available)* | SFTP subsystem (stock OpenSSH) | **nothing** | ~7x faster |
-| `pipe` | `python3` | **nothing** | ~5x faster |
-| `agent` | can execute an upload | one cached binary, opt-in only | ~7x faster |
+| `sftp` | SFTP subsystem (stock OpenSSH) | **nothing** | ~1.2x faster |
+| `pipe` *(negotiated when available)* | `python3` | **nothing** | ~4.5x faster |
+| `agent` | can execute an upload | one cached binary, opt-in only | ~2.8x faster |
 
 Autonegotiation stops below `agent`. Writing to someone else's machine stays an
 explicit decision by the operator — and `waldo doctor` tells you whether waldo
@@ -319,10 +319,17 @@ docs. Reproduce with `make e2e` (spends model tokens) and `make conformance`.
   corruption — over the local transport and over a real sshd.
 - A file written through any tier reads back byte-for-byte, with a matching
   digest, through every other tier.
-- `sftp` is the fastest tier in practice and `agent` the slowest to start, which
-  is the opposite of what the tier numbering suggests. waldo negotiates on those
-  measurements rather than on the numbering; the table and the reasoning are in
-  [docs/TRANSPORTS.md](docs/TRANSPORTS.md), reproducible with `make bench`.
+- The tier ordering measured over loopback **inverts** over a real 258 ms link,
+  because the tiers differ in round trips per operation rather than in work
+  done. waldo negotiates on the remote numbers, since remote hosts are the
+  entire point. Both tables, and what they cost to learn, are in
+  [docs/TRANSPORTS.md](docs/TRANSPORTS.md); reproduce with `make bench`, or
+  against your own host with `WALDO_BENCH_SSH_HOST=my-box make bench`.
+- All four tiers pass the conformance suite against a real remote host, a
+  Docker container, and a busybox (Alpine) target, not only against loopback.
+- waldo refuses SSH agent forwarding even when the operator's own ssh config
+  turns it on for that host — verified against a host configured that way, by
+  observing that no agent socket reaches the target.
 
 Not fully verified: a live Codex agent run (the Codex install used here points
 at a third-party provider that rejects its token); a live Kimi run (no OAuth

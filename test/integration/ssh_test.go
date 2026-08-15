@@ -12,6 +12,7 @@ package integration
 import (
 	"bytes"
 	"context"
+	"os"
 	"strings"
 	"testing"
 
@@ -153,5 +154,47 @@ func TestSearchRunsOnTarget(t *testing.T) {
 	}
 	if len(m) != 1 || m[0].Line != 2 {
 		t.Fatalf("search result wrong: %+v", m)
+	}
+}
+
+// TestAgentForwardingIsRefused is a security guarantee under test rather than
+// under documentation.
+//
+// SECURITY.md promises that waldo never forwards an SSH agent, *including* when
+// the operator's own ssh config enables it for that host — because on a machine
+// with a hostile root, a forwarded agent socket lets that host authenticate as
+// the operator against every other system they can reach. It converts one
+// compromised server into all of them.
+//
+// The claim rested on OpenSSH giving command-line options precedence over the
+// config file. That is true, and reading it in a manual page is not the same as
+// watching the socket fail to appear.
+func TestAgentForwardingIsRefused(t *testing.T) {
+	if os.Getenv("SSH_AUTH_SOCK") == "" {
+		t.Skip("no ssh-agent running locally, so there is nothing that could be forwarded")
+	}
+	// Ask for forwarding as loudly as possible: the operator's config saying
+	// yes is exactly the case waldo has to override.
+	tr, err := transport.NewSSH(transport.SSHConfig{
+		Host:         sshHostAlias,
+		BatchMode:    true,
+		ExtraOptions: []string{"ForwardAgent=yes"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tr.Close() })
+
+	res, err := tr.Run(context.Background(), waldo.ExecRequest{
+		Command: `printf '%s' "${SSH_AUTH_SOCK:-}"`,
+	})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if sock := strings.TrimSpace(string(res.Stdout)); sock != "" {
+		t.Fatalf("an agent socket reached the target at %q.\n"+
+			"waldo must refuse agent forwarding even when asked for it: a target with a "+
+			"hostile root can use a forwarded socket to authenticate as the operator "+
+			"everywhere else they can reach.", sock)
 	}
 }

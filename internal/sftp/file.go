@@ -166,12 +166,35 @@ func (c *Client) WriteFile(ctx context.Context, filePath string, data []byte, mo
 		return cause
 	}
 
-	for off := 0; off < len(data); off += maxDataChunk {
+	// Writes are pipelined for the same reason reads are, and the cost of
+	// forgetting it here was larger than the cost of getting it wrong there.
+	//
+	// A sequential loop spends one round trip per 32 KiB chunk: on a link with
+	// 258 ms of latency, writing 8 MiB took 79 seconds — eleven times slower
+	// than the shell tier it is supposed to beat, and slow in a way that is
+	// invisible on loopback, where a round trip is free. Measured, not guessed;
+	// see docs/TRANSPORTS.md.
+	chunks := (len(data) + maxDataChunk - 1) / maxDataChunk
+	errs := make([]error, chunks)
+	sem := make(chan struct{}, pipelineDepth)
+	var wg sync.WaitGroup
+	for i := 0; i < chunks; i++ {
+		off := i * maxDataChunk
 		end := off + maxDataChunk
 		if end > len(data) {
 			end = len(data)
 		}
-		if err := c.WriteAt(ctx, handle, uint64(off), data[off:end]); err != nil {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i, off, end int) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			errs[i] = c.WriteAt(ctx, handle, uint64(off), data[off:end])
+		}(i, off, end)
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
 			return cleanup(err)
 		}
 	}

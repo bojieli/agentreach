@@ -3,9 +3,12 @@
 package integration
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -27,11 +30,15 @@ import (
 // Debian container instead, which is how a GNU target gets covered from a BSD
 // host.
 const (
-	sshHostAlias  = "waldo-it"
 	containerName = "waldo-integration-sshd"
 	dockerPort    = "22333"
 	localPort     = "22411"
 )
+
+// sshHostAlias is the destination the suite hands to ssh. It is the alias the
+// suite defines in its own throwaway config for a target it started itself, and
+// the operator's own alias when pointed at a host they already have.
+var sshHostAlias = "waldo-it"
 
 var (
 	testDir string
@@ -65,10 +72,62 @@ func TestMain(m *testing.M) {
 }
 
 func startTarget() (func(), error) {
+	// Point the suite at a host you already have. This is how waldo gets tested
+	// against a target over a real network rather than loopback — different
+	// latency, a real sshd configuration, someone else's userland — and it is
+	// the only way to exercise a host whose ssh config has ProxyJump, a
+	// certificate, or a hardware token in front of it.
+	//
+	//   WALDO_TEST_SSH_HOST=my-box go test -tags integration ./test/integration/...
+	//
+	// The suite creates one directory under WALDO_TEST_SSH_WORKSPACE (default
+	// /tmp) and removes it afterwards. It writes nothing else.
+	if host := os.Getenv("WALDO_TEST_SSH_HOST"); host != "" {
+		return useExistingHost(host)
+	}
 	if os.Getenv("WALDO_TEST_SSHD") == "docker" {
 		return startDockerTarget()
 	}
 	return startLocalTarget()
+}
+
+// useExistingHost prepares a scratch directory on a host the operator already
+// has access to, and takes it away again afterwards.
+func useExistingHost(host string) (func(), error) {
+	base := os.Getenv("WALDO_TEST_SSH_WORKSPACE")
+	if base == "" {
+		base = "/tmp"
+	}
+	// A name that cannot collide with anything already there, and that says what
+	// it is if anyone finds it.
+	var nonce [6]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return nil, err
+	}
+	workspace = path.Join(base, "waldo-integration-"+hex.EncodeToString(nonce[:]))
+
+	// Use the operator's destination verbatim, with their own ssh config and no
+	// alias of the suite's own.
+	//
+	// Defining `Host waldo-it / HostName <theirs>` looks equivalent and is not:
+	// ssh applies the first HostName it obtains and does not then re-match Host
+	// blocks against the result, so their `Host <theirs>` stanza — the one
+	// carrying the address, the user and the key — would never be consulted. The
+	// destination has to stay the string they wrote.
+	sshHostAlias = host
+	if err := os.Unsetenv("WALDO_SSH_CONFIG"); err != nil {
+		return nil, err
+	}
+	if err := waitForSSH(); err != nil {
+		return nil, fmt.Errorf("%s is not reachable: %w", host, err)
+	}
+	if out, err := exec.Command("ssh", host, "mkdir -p "+workspace).CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("create %s on %s: %v: %s", workspace, host, err, out)
+	}
+	return func() {
+		// Leave nothing behind on a machine that was lent to the suite.
+		_ = exec.Command("ssh", host, "rm -rf "+workspace).Run()
+	}, nil
 }
 
 // startLocalTarget runs an sshd owned by the current user.
@@ -221,9 +280,12 @@ func writeSSHConfig(port, user, key string) error {
 }
 
 func waitForSSH() error {
-	cfgPath := filepath.Join(testDir, "ssh_config")
+	args := []string{sshHostAlias, "true"}
+	if cfg := os.Getenv("WALDO_SSH_CONFIG"); cfg != "" {
+		args = append([]string{"-F", cfg}, args...)
+	}
 	for i := 0; i < 60; i++ {
-		if exec.Command("ssh", "-F", cfgPath, sshHostAlias, "true").Run() == nil {
+		if exec.Command("ssh", args...).Run() == nil {
 			return nil
 		}
 		time.Sleep(500 * time.Millisecond)
@@ -263,7 +325,18 @@ func findSFTPServer() (string, error) {
 
 func newTransport(t *testing.T) transport.Transport {
 	t.Helper()
-	tr, err := transport.NewSSH(transport.SSHConfig{Host: sshHostAlias, BatchMode: true})
+	// Multiplexing on, because that is what a session does: `waldo up` probes
+	// for it and records the answer, so a suite that left it off would be
+	// testing a configuration no operator runs.
+	//
+	// It is also the difference between a suite that finishes and one that does
+	// not. Against a loopback sshd a cold connect costs ~30 ms and the omission
+	// is invisible; against a real host it was 3.6 s per command, and the suite
+	// ran for twenty minutes without finishing. TestWorksWithoutMultiplexing
+	// covers the unmultiplexed path deliberately.
+	tr, err := transport.NewSSH(transport.SSHConfig{
+		Host: sshHostAlias, BatchMode: true, Multiplex: true,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

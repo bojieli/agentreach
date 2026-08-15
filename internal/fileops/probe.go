@@ -197,28 +197,34 @@ func (c *Capabilities) Qualifies(tier waldo.Tier) (bool, string) {
 // negotiationOrder is the order autonegotiation prefers tiers in, most
 // preferred first.
 //
-// It is not the tier numbering, and the difference is the point. The numbering
-// ranks how *capable* a strategy is; this ranks how fast it actually is in the
-// way waldo runs, which is one process per tool call. Measured against a real
-// sshd (see docs/TRANSPORTS.md for the full table):
+// It is measured, and it was measured twice, because the first measurement was
+// taken in the wrong place.
 //
-//	                small reads (40x1KiB)   large read (20MiB)
-//	posix                        2.53s               1.48s
-//	sftp                         1.47s               0.13s
-//	pipe                         2.55s               0.16s
-//	agent                        3.56s               0.18s
+// Over loopback, sftp wins: a subsystem channel is cheaper to set up than a
+// shell pipeline, and with round trips free that is the whole cost. Over a real
+// link — 258 ms, 25% packet loss, which is a perfectly ordinary remote host —
+// the ordering inverts completely:
 //
-// sftp wins on both axes because a subsystem channel costs less to set up than
-// a shell pipeline, and moves content without base64 expansion. pipe and agent
-// only pay for themselves across many operations in one process, and waldo does
-// not have that shape: every tool call is a new process, so an interpreter or
-// binary starting up is pure cost. That is why the theoretically fastest tier is
-// the slowest one here, and why waldo negotiates on evidence rather than on the
-// tier numbers.
+//	                15x1KiB read   8MiB read   8MiB write
+//	posix                 22.42s      33.87s        8.65s
+//	sftp                  36.27s      27.78s       15.43s
+//	pipe                  20.35s       7.46s        6.36s
+//	agent                 42.72s      12.23s       13.51s
+//
+// Latency, not CPU, is what a remote target actually costs, and the tiers
+// differ in round trips per operation rather than in work done. The pipe and
+// agent tiers answer a whole file in one request/response over a channel that
+// is already open; SFTP needs several — open, fstat, read, close — each a round
+// trip, and its cheap setup stops mattering the moment a round trip is not
+// free.
+//
+// waldo exists to drive *remote* hosts, so the remote numbers are the ones that
+// decide this. sftp stays ahead of posix, and above both sits pipe.
 //
 // TierAgent is deliberately absent: that tier writes a binary to the target, and
-// waldo never makes that choice on the operator's behalf.
-var negotiationOrder = []waldo.Tier{waldo.TierSFTP, waldo.TierPipe}
+// waldo never makes that choice on the operator's behalf. It is also the
+// slowest to start, which the small-read column shows plainly.
+var negotiationOrder = []waldo.Tier{waldo.TierPipe, waldo.TierSFTP}
 
 // BestTier reports the tier autonegotiation would choose for this target.
 func (c *Capabilities) BestTier() waldo.Tier {

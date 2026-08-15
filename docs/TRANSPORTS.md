@@ -19,9 +19,13 @@ shell.** Higher tiers are optimisations, never requirements.
 
 ## What they actually cost
 
-Measured against a real OpenSSH server, driving waldo the way a harness does —
-one process per operation, over a warm `ControlMaster` connection. Reproduce
-with `make bench`.
+Measured twice, because the first measurement was taken in the wrong place.
+
+Both tables drive waldo through its CLI, one process per operation, which is how
+a harness drives it. Reproduce with `make bench`, or against your own host with
+`WALDO_BENCH_SSH_HOST=my-box make bench`.
+
+**Over loopback**, where a round trip is free and the number measures CPU:
 
 | tier | 40 × 1 KiB read | 20 MiB read | 20 MiB write |
 |---|---|---|---|
@@ -30,27 +34,46 @@ with `make bench`.
 | `pipe` | 3.29 s | 0.35 s | **0.26 s** |
 | `agent` | 5.17 s | 0.26 s | 0.39 s |
 
-One run on one machine. Absolute times move by ±30% with load, so treat the
-ratios rather than the seconds as the result — the *ordering* was identical in
-every run: `sftp` fastest on small reads, `agent` slowest, and every tier above
-0 between five and seven times faster on a large read.
+**Over a real link** — a host 258 ms away with 25% packet loss, which is an
+ordinary remote machine rather than a pathological one:
 
-Two of those results contradict what the tier numbering suggests, and both are
-worth stating plainly:
+| tier | 15 × 1 KiB read | 8 MiB read | 8 MiB write |
+|---|---|---|---|
+| `posix` | 22.42 s | 33.87 s | 8.65 s |
+| `sftp` | 36.27 s | 27.78 s | 15.43 s |
+| `pipe` | **20.35 s** | **7.46 s** | **6.36 s** |
+| `agent` | 42.72 s | 12.23 s | 13.51 s |
 
-**`sftp` wins on both axes.** A subsystem channel costs less to set up than a
-shell pipeline, and content moves without base64's 33% expansion. It is the tier
-waldo negotiates whenever the subsystem answers.
+The ordering **inverts**. On loopback `sftp` wins everything; on a real link it
+is the slowest tier for small reads and second-slowest for large ones.
 
-**`agent` is the slowest to start, not the fastest.** Its advantage — batching
-many operations over one long-lived process — cannot be realised in a design
-where every tool call is a new waldo process, so what remains is the cost of
-launching a binary. Tiers 2 and 3 pay for themselves only on large payloads.
+The reason is that the tiers differ in *round trips per operation*, not in work
+done. `pipe` and `agent` answer a whole file in one request and one response
+over a channel that is already open. SFTP needs several — open, fstat, read,
+close — and each is a round trip. Its cheap setup dominates when round trips are
+free and stops mattering the instant they are not.
 
-Latency moves this further in tier 0's disfavour, not its favour: these numbers
-are over loopback, where a round trip is free. On a real link, tier 0's
-sequential per-chunk round trips and 33% larger payloads both get worse, while
-`sftp`'s pipelined reads keep the connection full.
+waldo exists to drive *remote* hosts, so the second table decides the
+negotiation order: `pipe`, then `sftp`, then `posix`.
+
+Two more things these numbers show:
+
+**The agent tier is the slowest to start**, in both tables, which is the
+opposite of what "fastest tier" suggests. Its advantage is per-operation, and
+waldo runs one process per tool call, so a binary launching is pure overhead
+that batching never gets to amortise.
+
+**Small reads are dominated by the process model**, not the tier: ~1.4 s each
+against a 258 ms host, most of it a new waldo process and a new channel. No tier
+fixes that; only a resident process would, which is the trade discussed in
+[ARCHITECTURE.md](ARCHITECTURE.md#there-is-no-daemon).
+
+Getting this wrong once already cost something concrete. SFTP writes were a
+sequential loop of 32 KiB chunks — one round trip each — which is invisible on
+loopback and took **79 seconds** to write 8 MiB over the real link, eleven times
+slower than the shell tier it exists to beat. Pipelining the writes as the reads
+already were brought it to 15 s. A benchmark on the wrong link would have found
+none of it.
 
 ## Tier 0 — `posix` (strict SSH, universal)
 
@@ -181,8 +204,8 @@ waldo up ssh://host/srv/app --fileops=posix  # pin tier 0 — install nothing, t
 waldo up ssh://host/srv/app --fileops=agent  # opt in to the auto-installed helper
 ```
 
-Negotiation order is `sftp`, then `pipe`, then `posix` — measured order rather
-than numeric order, for the reasons in
+Negotiation order is `pipe`, then `sftp`, then `posix`, measured against a real
+link rather than loopback — see
 [What they actually cost](#what-they-actually-cost). It never selects `agent`.
 
 Two rules make the outcome trustworthy:
