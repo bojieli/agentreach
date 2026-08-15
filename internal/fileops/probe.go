@@ -337,21 +337,24 @@ func (c *Capabilities) Qualifies(tier waldo.Tier) (bool, string) {
 // this list, and the reason a since-removed SFTP tier is not on it: SFTP hands
 // out a handle before it will read, so its floor was two.
 //
-// Between the survivors it is bandwidth and startup cost. Measured against a
+// Between the survivors it is round trips and startup cost. Measured against a
 // host 171 ms away, median of three runs:
 //
 //	                15x1KiB read   8MiB read   8MiB write
-//	posix                  5.97s       6.42s        5.73s
-//	pipe                   4.88s       5.30s        5.19s
-//	helper                10.83s       5.60s        6.50s
+//	posix                  5.83s       6.39s        6.79s
+//	pipe                   4.08s       5.19s        5.43s
+//	helper                 3.93s       5.16s        5.53s
 //
-// pipe wins because it moves a whole file in one frame with no per-operation
-// process on the target. posix is close behind now that it no longer
-// base64-encodes on links proven to be 8-bit clean. agent is fastest in bulk
-// and slowest to start, which is pure binary launch cost.
+// pipe and helper are close, because they are the same protocol with a
+// different program on the far end. posix trails on bulk because it pipes
+// content through a shell, and on small reads because it spawns processes per
+// operation — a gap that widens sharply on a macOS target, where process
+// creation is expensive.
 //
-// TierHelper is deliberately absent: that tier writes a binary to the target,
-// and waldo never makes that choice on the operator's behalf.
+// TierHelper is deliberately absent, and no longer for performance reasons —
+// it is now the fastest tier for small reads. It is absent because it writes a
+// binary to a machine the operator may not own, and that is a decision waldo
+// does not make for them. Speed is not the argument that would justify it.
 var negotiationOrder = []waldo.Tier{waldo.TierPipe}
 
 // BestTier reports the tier autonegotiation would choose for this target.

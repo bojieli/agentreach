@@ -49,16 +49,23 @@ costs disproportionately more** — but not what should decide anything.
 
 | tier | 15 × 1 KiB read | 8 MiB read | 8 MiB write |
 |---|---|---|---|
-| `posix` | 5.97 s | 6.42 s | 5.73 s |
-| `pipe` | **4.88 s** | **5.30 s** | **5.19 s** |
-| `helper` | 10.83 s | 5.60 s | 6.50 s |
+| `posix` | 5.83 s | 6.39 s | 6.79 s |
+| `pipe` | 4.08 s | 5.19 s | **5.43 s** |
+| `helper` | **3.93 s** | **5.16 s** | 5.53 s |
 
-`pipe` wins on every axis because it moves a whole file in one frame with no
-per-operation process on the target. `posix` is close behind, and much closer
-than it used to be, because it no longer base64-encodes on links proven 8-bit
-clean. `helper` is fastest in bulk and slowest to start, which is binary launch
-cost and nothing else — its advantage is per-operation, and waldo runs one
-process per tool call, so batching never gets to amortise it.
+`pipe` and `helper` land within noise of each other, which is what should
+happen: they are the same protocol with a different program on the far end.
+`posix` trails on bulk because it pipes content through a shell, and on small
+reads because it spawns processes per operation — a gap that widens sharply on
+a macOS target, where process creation is expensive.
+
+The `helper` row is worth a note. It used to read **10.83 s** here, the slowest
+tier by a wide margin, and the reason was not the binary: before touching a file
+it asked the target where its cache directory was, then asked the installed
+binary to identify itself, and only then did the work. Three round trips to
+answer one question. The cache directory is now reported by the capability
+probe, and the identity is verified once per session rather than once per tool
+call. Same binary, same protocol, a third of the time.
 
 ## Tier 0 — `posix` (strict SSH, universal)
 
@@ -119,6 +126,12 @@ not changed never crosses the network at all.
 handler rather than leaving an orphan on someone else's machine.
 
 ## Tier 2 — `helper` (auto-installed)
+
+Never chosen automatically, and no longer for performance reasons — it is the
+fastest tier for small reads. It is opt-in because it writes a binary to a
+machine the operator may not own, which is a decision waldo does not make for
+them.
+
 
 A small static Go binary, installed by waldo when this tier is selected. The
 user is never asked to install anything by hand. It speaks the identical
