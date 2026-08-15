@@ -71,6 +71,29 @@ func Dir() (string, error) {
 	return dir, nil
 }
 
+// ConfDir holds files waldo generates for harnesses, such as settings
+// documents.
+//
+// These are kept out of the sessions directory deliberately. Session discovery
+// enumerates that directory, and a generated file that happens to parse as
+// JSON would otherwise be loaded as a session with no target — which crashed
+// `waldo status` with a nil dereference until this separation existed.
+func ConfDir() (string, error) {
+	base := os.Getenv("WALDO_HOME")
+	if base == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("locate home directory: %w", err)
+		}
+		base = filepath.Join(home, ".waldo")
+	}
+	dir := filepath.Join(base, "conf")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("create %s: %w", dir, err)
+	}
+	return dir, nil
+}
+
 func pathFor(name string) (string, error) {
 	dir, err := Dir()
 	if err != nil {
@@ -124,6 +147,11 @@ func Load(name string) (*Session, error) {
 	var s Session
 	if err := json.Unmarshal(data, &s); err != nil {
 		return nil, fmt.Errorf("session %q is corrupt (%w); remove %s and start it again", name, err, p)
+	}
+	// Defence in depth: a document that parses as JSON but is not a session
+	// must not produce a Session with nil fields that callers will dereference.
+	if s.Target == nil || s.Name == "" {
+		return nil, fmt.Errorf("%s is not a waldo session file", p)
 	}
 	if t, err := waldo.ParseTier(s.TierName); err == nil {
 		s.Tier = t

@@ -130,7 +130,7 @@ redo the change; do not retry blindly.`
 // writeMirrorSettings emits a settings file wiring waldo's hook into the file
 // tools, and returns its path.
 func writeMirrorSettings(sessName string) (string, error) {
-	dir, err := session.Dir()
+	dir, err := session.ConfDir()
 	if err != nil {
 		return "", err
 	}
@@ -173,7 +173,7 @@ func writeMirrorSettings(sessName string) (string, error) {
 // writeDenySettings emits a Claude Code settings file denying the local file
 // tools, and returns its path.
 func writeDenySettings(sessName string) (string, error) {
-	dir, err := session.Dir()
+	dir, err := session.ConfDir()
 	if err != nil {
 		return "", err
 	}

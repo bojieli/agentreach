@@ -198,6 +198,9 @@ func cleanupSessionArtifacts(name string) []string {
 		base = filepath.Join(home, ".waldo")
 	}
 	candidates := []string{
+		filepath.Join(base, "conf", name+".claude-settings.json"),
+		filepath.Join(base, "conf", name+".claude-mirror-settings.json"),
+		// Older layouts kept generated settings beside session state.
 		filepath.Join(base, "sessions", name+".claude-settings.json"),
 		filepath.Join(base, "sessions", name+".claude-mirror-settings.json"),
 		filepath.Join(base, "mirror", name),

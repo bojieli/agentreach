@@ -129,3 +129,52 @@ func contains(h, n string) bool {
 	}
 	return false
 }
+
+// TestListIgnoresNonSessionJSON is the regression test for a crash: waldo
+// generates settings documents for harnesses, and when those lived beside
+// session state, List() parsed them as sessions with a nil target and
+// `waldo status` panicked.
+func TestListIgnoresNonSessionJSON(t *testing.T) {
+	withTempHome(t)
+	if err := newTestSession(t, "real").Save(); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A document that is valid JSON but is not a session.
+	if err := os.WriteFile(dir+"/real.claude-settings.json",
+		[]byte(`{"permissions":{"deny":["Read"]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("List() returned %d entries want 1", len(got))
+	}
+	for _, s := range got {
+		if s.Target == nil {
+			t.Fatal("List() returned a session with a nil target; callers will panic")
+		}
+		// Exercise the call that crashed.
+		_ = s.Target.Describe()
+	}
+}
+
+func TestConfDirIsSeparateFromSessions(t *testing.T) {
+	withTempHome(t)
+	sd, err := Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cd, err := ConfDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sd == cd {
+		t.Error("generated config shares a directory with session state; discovery will pick it up")
+	}
+}
