@@ -197,16 +197,6 @@ func (r *reader) fail() {
 	}
 }
 
-func (r *reader) byte() byte {
-	if len(r.b) < 1 {
-		r.fail()
-		return 0
-	}
-	v := r.b[0]
-	r.b = r.b[1:]
-	return v
-}
-
 func (r *reader) uint32() uint32 {
 	if len(r.b) < 4 {
 		r.fail()

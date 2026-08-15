@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"sync"
@@ -63,7 +64,7 @@ func (t *LocalTransport) Open(ctx context.Context, command string) (Stream, erro
 		once.Do(func() {
 			if e := cmd.Wait(); e != nil {
 				var ee *exec.ExitError
-				if asExitError(e, &ee) {
+				if errors.As(e, &ee) {
 					waitCode = ee.ExitCode()
 				} else {
 					waitErr = e
@@ -181,7 +182,7 @@ func (t *ContainerTransport) Open(ctx context.Context, command string) (Stream, 
 		once.Do(func() {
 			if e := cmd.Wait(); e != nil {
 				var ee *exec.ExitError
-				if asExitError(e, &ee) {
+				if errors.As(e, &ee) {
 					waitCode = ee.ExitCode()
 				} else {
 					waitErr = e

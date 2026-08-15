@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -227,7 +228,7 @@ func (t *SSHTransport) open(ctx context.Context, args []string) (Stream, error) 
 			e := cmd.Wait()
 			if e != nil {
 				var ee *exec.ExitError
-				if asExitError(e, &ee) {
+				if errors.As(e, &ee) {
 					waitCode = ee.ExitCode()
 				} else {
 					waitErr = e

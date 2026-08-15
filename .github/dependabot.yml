@@ -1,0 +1,21 @@
+version: 2
+
+# waldo has no third-party Go dependencies on purpose — it is a security tool
+# whose premise is that it touches nothing, and every dependency is supply chain
+# an operator inherits. That is a property to keep rather than to assume, so the
+# gomod ecosystem is watched here: if a dependency ever appears, its updates
+# arrive as reviewable pull requests instead of going unnoticed.
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  # Actions are the one dependency this project genuinely has, and they run with
+  # access to the release token.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

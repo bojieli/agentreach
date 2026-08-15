@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strconv"
@@ -109,26 +110,26 @@ type capWriter struct {
 	truncated        bool
 }
 
-func newCapWriter(max int64) *capWriter {
-	if max <= 0 {
-		max = defaultMaxOutput
+func newCapWriter(limit int64) *capWriter {
+	if limit <= 0 {
+		limit = defaultMaxOutput
 	}
 	// Reserve a quarter of the budget for the tail, with an 8 KiB floor so the
 	// status marker and a useful amount of trailing context always survive.
 	// The floor is then clamped to half the budget: without that clamp a small
 	// cap would be entirely consumed by the tail reservation and the head
 	// would be dropped completely.
-	tailMax := max / 4
+	tailMax := limit / 4
 	if tailMax < 8<<10 {
 		tailMax = 8 << 10
 	}
-	if half := max / 2; tailMax > half {
+	if half := limit / 2; tailMax > half {
 		tailMax = half
 	}
 	if tailMax < 1 {
 		tailMax = 1
 	}
-	return &capWriter{headMax: max - tailMax, tailMax: tailMax}
+	return &capWriter{headMax: limit - tailMax, tailMax: tailMax}
 }
 
 func (w *capWriter) Write(p []byte) (int, error) {
@@ -221,7 +222,7 @@ func runLocalProcess(ctx context.Context, argv []string, stdin []byte, maxOut in
 	exit := 0
 	if runErr != nil {
 		var ee *exec.ExitError
-		if ok := asExitError(runErr, &ee); ok {
+		if errors.As(runErr, &ee) {
 			exit = ee.ExitCode()
 		} else {
 			return so.Bytes(), se.Bytes(), 0, so.Truncated() || se.Truncated(), runErr
@@ -233,21 +234,6 @@ func runLocalProcess(ctx context.Context, argv []string, stdin []byte, maxOut in
 			fmt.Errorf("command aborted: %w", ctxErr)
 	}
 	return so.Bytes(), se.Bytes(), exit, so.Truncated() || se.Truncated(), nil
-}
-
-func asExitError(err error, target **exec.ExitError) bool {
-	for err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
-			*target = ee
-			return true
-		}
-		u, ok := err.(interface{ Unwrap() error })
-		if !ok {
-			return false
-		}
-		err = u.Unwrap()
-	}
-	return false
 }
 
 // finishExec applies the sentinel protocol and timing to a raw process result.
@@ -274,9 +260,9 @@ func finishExec(start time.Time, rawOut, rawErr []byte, procCode int, truncated 
 }
 
 func truncateForError(s string) string {
-	const max = 512
-	if len(s) <= max {
+	const limit = 512
+	if len(s) <= limit {
 		return s
 	}
-	return s[:max] + "..."
+	return s[:limit] + "..."
 }

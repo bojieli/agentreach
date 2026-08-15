@@ -48,7 +48,7 @@ func cmdDoctor(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer t.Close()
+	defer func() { _ = t.Close() }()
 
 	caps, err := fileops.Probe(ctx, t)
 	if err != nil {
@@ -92,7 +92,7 @@ func cmdDoctor(ctx context.Context, args []string) error {
 	if s.Pinned {
 		fmt.Printf("  This session pins %s with --fileops.\n", s.Tier)
 	}
-	reportAgentFootprint(ctx, t, caps)
+	reportAgentFootprint(ctx, t)
 
 	fmt.Println("\nWHAT THIS MEANS")
 	if caps.Ripgrep == "" {
@@ -128,7 +128,7 @@ func cmdDoctor(ctx context.Context, args []string) error {
 // control. The only tier that breaks that promise does so at the operator's
 // explicit request — and a promise like this one is worth nothing unless there
 // is a command that shows whether it currently holds.
-func reportAgentFootprint(ctx context.Context, t transport.Transport, caps *fileops.Capabilities) {
+func reportAgentFootprint(ctx context.Context, t transport.Transport) {
 	dir, err := fileops.AgentCacheDir(ctx, t)
 	if err != nil {
 		return

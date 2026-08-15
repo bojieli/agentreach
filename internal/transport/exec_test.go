@@ -52,18 +52,18 @@ func TestStdoutIsByteExact(t *testing.T) {
 // high-output command look like a transport failure.
 func TestOutputCapPreservesHeadTailAndExitCode(t *testing.T) {
 	tr := NewLocal()
-	const cap = 4096
+	const outputCap = 4096
 	res, err := tr.Run(context.Background(), waldo.ExecRequest{
 		Command:   "echo FIRST_LINE; yes abcdefghij | head -n 200000; echo LAST_LINE; exit 7",
-		MaxOutput: cap,
+		MaxOutput: outputCap,
 	})
 	if err != nil {
 		t.Fatalf("flooding command reported as transport failure: %v", err)
 	}
 	// The cap bounds retained content; the truncation notice is metadata and
 	// may push the total slightly past it.
-	if len(res.Stdout) > cap+256 {
-		t.Errorf("cap not enforced: %d bytes (cap %d)", len(res.Stdout), cap)
+	if len(res.Stdout) > outputCap+256 {
+		t.Errorf("cap not enforced: %d bytes (cap %d)", len(res.Stdout), outputCap)
 	}
 	if !res.Truncated {
 		t.Error("truncation not reported")

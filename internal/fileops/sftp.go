@@ -245,7 +245,7 @@ func infoFromAttrs(name, full string, a sftp.Attrs) waldo.FileInfo {
 	fi := waldo.FileInfo{
 		Name: name,
 		Path: full,
-		Size: int64(a.Size),
+		Size: sftp.ClampSize(a.Size),
 	}
 	if a.HasPermissions() {
 		fi.Mode = fs.FileMode(a.Permissions & 0o7777)

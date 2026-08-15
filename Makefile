@@ -37,6 +37,13 @@ test: ## unit and integration tests (no model tokens spent)
 vet:
 	$(GO) vet ./...
 
+lint: ## golangci-lint, the same configuration CI uses
+	@command -v golangci-lint >/dev/null || { \
+		echo "golangci-lint is not installed:"; \
+		echo "  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2"; \
+		exit 1; }
+	golangci-lint run ./...
+
 fmt:
 	$(GO) fmt ./...
 

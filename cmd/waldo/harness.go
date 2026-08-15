@@ -82,7 +82,7 @@ func prependPath(env []string, dir string) []string {
 // apply_patch edits all travel over its shell tool rather than through native
 // file tools, so intercepting the shell redirects Codex's entire tool surface
 // — no denied tools, no mirroring, no gaps.
-func cmdCodex(ctx context.Context, args []string) int {
+func cmdCodex(_ context.Context, args []string) int {
 	fs := newFlagSet("codex")
 	name := fs.String("session", "", "session name (default $WALDO_SESSION)")
 	fullAccess := fs.Bool("danger-full-access", false,
@@ -119,7 +119,7 @@ func cmdCodex(ctx context.Context, args []string) int {
 // multi_edit tools have no seam and still act locally. Until an adapter for
 // those exists, treat Kimi like Claude Code in exec mode: use the shell for
 // file access.
-func cmdKimi(ctx context.Context, args []string) int {
+func cmdKimi(_ context.Context, args []string) int {
 	fs := newFlagSet("kimi")
 	name := fs.String("session", "", "session name (default $WALDO_SESSION)")
 	pos, err := parseFlags(fs, args)

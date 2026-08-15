@@ -33,7 +33,7 @@ func NewAgent(ctx context.Context, t transport.Transport, base *POSIX, caps *Cap
 		return nil, err
 	}
 
-	local, err := LocateAgentBinary(goos, goarch)
+	local, err := LocateAgentBinary(ctx, goos, goarch)
 	if err != nil {
 		return nil, err
 	}
@@ -50,14 +50,14 @@ func NewAgent(ctx context.Context, t transport.Transport, base *POSIX, caps *Cap
 	}
 
 	if !agentMatches(ctx, t, remote, digest, goos, goarch) {
-		if err := installAgent(ctx, t, base, remote, payload); err != nil {
+		if err := installAgent(ctx, base, remote, payload); err != nil {
 			return nil, err
 		}
 		if !agentMatches(ctx, t, remote, digest, goos, goarch) {
 			return nil, fmt.Errorf(
 				"the agent at %s does not report the version and digest waldo just installed.\n"+
 					"waldo will not run a binary it cannot identify; use --fileops=pipe or omit\n"+
-					"--fileops to negotiate a tier that installs nothing.", remote)
+					"--fileops to negotiate a tier that installs nothing", remote)
 		}
 	}
 
@@ -88,7 +88,7 @@ func agentMatches(ctx context.Context, t transport.Transport, remote, digest, go
 // Tier 0 is used deliberately: bootstrapping the fast tier with the universal
 // one means installation works on exactly the hosts waldo can already reach,
 // with no separate upload path to keep correct.
-func installAgent(ctx context.Context, t transport.Transport, base *POSIX, remote string, payload []byte) error {
+func installAgent(ctx context.Context, base *POSIX, remote string, payload []byte) error {
 	if err := base.Mkdir(ctx, path.Dir(remote), 0o700); err != nil {
 		return fmt.Errorf("create the agent cache directory on the target: %w", err)
 	}
@@ -137,7 +137,7 @@ func AgentCacheDir(ctx context.Context, t transport.Transport) (string, error) {
 // after upload; neither downloads anything at run time, because a tool that
 // exists to touch nothing on a target should not be fetching executables over
 // the network to put there.
-func LocateAgentBinary(goos, goarch string) (string, error) {
+func LocateAgentBinary(ctx context.Context, goos, goarch string) (string, error) {
 	name := fmt.Sprintf("waldo-agent-%s-%s", goos, goarch)
 
 	if explicit := os.Getenv(AgentBinaryEnv); explicit != "" {
@@ -171,13 +171,13 @@ func LocateAgentBinary(goos, goarch string) (string, error) {
 	if cacheErr != nil {
 		return "", cacheErr
 	}
-	built, err := buildAgent(goos, goarch, filepath.Join(cacheDir, name))
+	built, err := buildAgent(ctx, goos, goarch, filepath.Join(cacheDir, name))
 	if err != nil {
 		return "", fmt.Errorf(
 			"no agent binary for %s/%s.\n"+
 				"Release archives ship one beside the waldo binary; from a source checkout waldo\n"+
 				"builds one with the local Go toolchain, which failed here: %w\n"+
-				"Set %s to a binary you built yourself, or use --fileops=pipe, which installs nothing.",
+				"Set %s to a binary you built yourself, or use --fileops=pipe, which installs nothing",
 			goos, goarch, err, AgentBinaryEnv)
 	}
 	return built, nil
@@ -204,7 +204,7 @@ func agentCacheDir() (string, error) {
 // The build is deliberately hermetic: -trimpath so the binary carries no local
 // paths, CGO off so it is static and runs on a target with a different libc,
 // and the version stamped in so the installed copy can identify itself.
-func buildAgent(goos, goarch, out string) (string, error) {
+func buildAgent(ctx context.Context, goos, goarch, out string) (string, error) {
 	goBin, err := exec.LookPath("go")
 	if err != nil {
 		return "", fmt.Errorf("no Go toolchain on PATH")
@@ -213,7 +213,7 @@ func buildAgent(goos, goarch, out string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	cmd := exec.Command(goBin, "build",
+	cmd := exec.CommandContext(ctx, goBin, "build",
 		"-trimpath",
 		"-ldflags", "-s -w -X main.version="+waldo.Version,
 		"-o", out,
@@ -222,7 +222,7 @@ func buildAgent(goos, goarch, out string) (string, error) {
 	cmd.Env = append(os.Environ(),
 		"GOOS="+goos, "GOARCH="+goarch, "CGO_ENABLED=0")
 	if outBytes, err := cmd.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("%v: %s", err, strings.TrimSpace(string(outBytes)))
+		return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(string(outBytes)))
 	}
 	return out, nil
 }

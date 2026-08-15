@@ -147,7 +147,7 @@ func searchEngine(s *session.Session) string {
 	return "grep (no ripgrep on target)"
 }
 
-func cmdDown(ctx context.Context, args []string) error {
+func cmdDown(_ context.Context, args []string) error {
 	fs := flag.NewFlagSet("down", flag.ContinueOnError)
 	pos, err := parseFlags(fs, args)
 	if err != nil {
@@ -180,7 +180,7 @@ func cmdDown(ctx context.Context, args []string) error {
 	return nil
 }
 
-func cmdStatus(ctx context.Context, args []string) error {
+func cmdStatus(_ context.Context, _ []string) error {
 	sessions, err := session.List()
 	if err != nil {
 		return err
@@ -190,19 +190,21 @@ func cmdStatus(ctx context.Context, args []string) error {
 		return nil
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tTARGET\tMODE\tFILEOPS\tCWD\tPOLICY")
+	// Writes to a tabwriter are buffered; the only error that matters surfaces
+	// from Flush below.
+	_, _ = fmt.Fprintln(w, "NAME\tTARGET\tMODE\tFILEOPS\tCWD\tPOLICY")
 	for _, s := range sessions {
 		policy := "-"
 		if s.Untrusted {
 			policy = "untrusted"
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
 			s.Name, s.Target.Describe(), s.Mode, s.Tier, s.Cwd(), policy)
 	}
 	return w.Flush()
 }
 
-func cmdEnv(ctx context.Context, args []string) error {
+func cmdEnv(_ context.Context, args []string) error {
 	fs := flag.NewFlagSet("env", flag.ContinueOnError)
 	pos, err := parseFlags(fs, args)
 	if err != nil {

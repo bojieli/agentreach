@@ -16,6 +16,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -143,8 +144,7 @@ func (m *Mirror) Push(ctx context.Context, targetPath string) error {
 
 	if expected, known := m.expectedDigest(targetPath); known {
 		current, readErr := m.fo.Read(ctx, targetPath, 0, 0)
-		switch {
-		case readErr == nil:
+		if readErr == nil {
 			if got := digestOf(current); got != expected {
 				if expected == "" {
 					return fmt.Errorf("refusing to overwrite %s: it did not exist when this edit began, "+
@@ -153,9 +153,9 @@ func (m *Mirror) Push(ctx context.Context, targetPath string) error {
 				return fmt.Errorf("refusing to overwrite %s: it changed on the target since it was read. "+
 					"Something else modified it. Re-read the file and redo the change.", targetPath)
 			}
-		default:
+		} else {
 			var nf *waldo.NotFoundError
-			if !errorsAsNotFound(readErr, &nf) {
+			if !errors.As(readErr, &nf) {
 				return fmt.Errorf("verify %s before writing: %w", targetPath, readErr)
 			}
 			if expected != "" {
@@ -205,19 +205,4 @@ func (m *Mirror) recordDigest(targetPath, digest string) error {
 func (m *Mirror) expectedDigest(targetPath string) (string, bool) {
 	v, ok := m.loadDigests()[targetPath]
 	return v, ok
-}
-
-func errorsAsNotFound(err error, target **waldo.NotFoundError) bool {
-	for err != nil {
-		if nf, ok := err.(*waldo.NotFoundError); ok {
-			*target = nf
-			return true
-		}
-		u, ok := err.(interface{ Unwrap() error })
-		if !ok {
-			return false
-		}
-		err = u.Unwrap()
-	}
-	return false
 }

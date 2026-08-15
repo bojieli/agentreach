@@ -138,7 +138,7 @@ Without --global the tools are written to ./.opencode/tool, which applies to the
 current project only. With --global they go to ~/.config/opencode/tool.
 `
 
-func cmdOpencode(ctx context.Context, args []string) error {
+func cmdOpencode(_ context.Context, args []string) error {
 	fs := newFlagSet("opencode")
 	sessName := fs.String("session", "", "session name (default $WALDO_SESSION)")
 	global := fs.Bool("global", false, "install into ~/.config/opencode/tool instead of ./.opencode/tool")

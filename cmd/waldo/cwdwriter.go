@@ -32,10 +32,8 @@ func (w *cwdCapturingWriter) Write(p []byte) (int, error) {
 		}
 		line := string(data[:idx+1])
 		w.pending.Next(idx + 1)
-		if emitted, err := w.consumeLine(line); err != nil {
+		if _, err := w.consumeLine(line); err != nil {
 			return 0, err
-		} else if emitted {
-			continue
 		}
 	}
 	return len(p), nil

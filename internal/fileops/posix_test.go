@@ -27,7 +27,7 @@ func TestProbeDetectsUserland(t *testing.T) {
 		t.Fatalf("probe: %v", err)
 	}
 	if caps.StatFlavor != "gnu" && caps.StatFlavor != "bsd" {
-		t.Errorf("stat flavor not detected, got %q", caps.StatFlavor)
+		t.Errorf("stat flavour not detected, got %q", caps.StatFlavor)
 	}
 	if caps.Base64Decode == "" || caps.Base64Encode == "" {
 		t.Error("base64 not detected")

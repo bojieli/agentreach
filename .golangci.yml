@@ -1,0 +1,122 @@
+version: "2"
+
+# waldo's linting is chosen for one thing above style: this program runs shell
+# commands on machines the operator does not control, holds their credentials,
+# and is trusted not to touch anything it was not asked to. The linters enabled
+# here are the ones that catch that class of mistake — an unchecked error that
+# turns a failed remote write into a silent success, a context that is never
+# cancelled, a channel left open on someone else's server.
+
+run:
+  timeout: 5m
+  build-tags:
+    - integration
+
+linters:
+  enable:
+    # An ignored error is how a failed remote write becomes a success the agent
+    # believes in. This is the most important linter in the list.
+    - errcheck
+    - govet
+    - staticcheck
+    - ineffassign
+    - unused
+    # Every long-lived channel and process waldo opens must be closed; one left
+    # behind is a live connection to a machine the operator wanted untouched.
+    - bodyclose
+    - noctx
+    # Correctness traps rather than style.
+    - errorlint
+    - nilerr
+    - copyloopvar
+    - durationcheck
+    - makezero
+    - unconvert
+    - wastedassign
+    - gosec
+    - misspell
+    - revive
+
+  settings:
+    errcheck:
+      check-type-assertions: true
+      # Deliberate best-effort cleanups are written as `_ = x.Close()`, which is
+      # visible at the call site rather than hidden in this file.
+      exclude-functions:
+        - (io.Closer).Close
+        - os.Remove
+        - os.RemoveAll
+
+    gosec:
+      excludes:
+        # G115: integer conversions. Every remaining one in this codebase is a
+        # protocol length or offset bounded by an explicit limit checked at the
+        # call site — maxFrame, maxDataChunk, or a chunk size. The conversions
+        # that were *not* bounded were sizes reported by the far end, and those
+        # are clamped through sftp.ClampSize instead of silenced here.
+        - G115
+        # G304: opening a file whose path came from a variable is this program's
+        # entire job. Containment is enforced where it matters (mirror.Local)
+        # and tested, rather than asserted by a linter that cannot see it.
+        - G304
+        # G702/G703: taint analysis flags every command and path waldo builds,
+        # which is all of them. Quoting goes through transport.ShellQuote and is
+        # covered by tests for shell metacharacters and awkward filenames; a
+        # blanket rule here would produce a wall of nolint comments that hides
+        # the cases worth reading.
+        - G702
+        - G703
+        # G301: the opencode tool directory must be readable by opencode.
+        - G301
+        # G204: waldo's entire purpose is running commands built from variables.
+        # Every construction site quotes through transport.ShellQuote and is
+        # covered by tests for shell metacharacters; a blanket ban would produce
+        # a wall of nolint comments that hides the cases worth looking at.
+        - G204
+        # G306/G302: file permissions are chosen deliberately throughout and
+        # asserted by the conformance suite, not by a linter's default.
+        - G306
+        - G302
+
+    misspell:
+      locale: UK
+
+    staticcheck:
+      checks:
+        - all
+        # ST1005 requires error strings to be lowercase and unpunctuated,
+        # because Go errors are usually fragments wrapped into a larger
+        # sentence. waldo's are not: they are the terminal message an operator
+        # or an agent reads, and several are deliberately multi-sentence
+        # instructions on what to do next — "it changed on the target since it
+        # was read. Re-read the file and redo the change." Mangling those into
+        # fragments to satisfy the rule would make the tool worse at the one
+        # thing CONTRIBUTING asks of its errors.
+        - "-ST1005"
+
+    revive:
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: unused-parameter
+        - name: redefines-builtin-id
+        # Disabled for the same reason as ST1005.
+        - name: error-strings
+          disabled: true
+
+  exclusions:
+    rules:
+      # Test helpers legitimately ignore errors while cleaning up, and the
+      # conformance suite deliberately drives failure paths.
+      - path: _test\.go
+        linters: [errcheck, gosec, noctx, errorlint]
+      - path: internal/fileops/fileopstest/
+        linters: [errcheck, gosec, revive, errorlint]
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+formatters:
+  enable:
+    - gofmt

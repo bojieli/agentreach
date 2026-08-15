@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -98,11 +99,11 @@ func cmdClaude(ctx context.Context, args []string) int {
 	// belong to Claude Code directly, with no wrapper in between.
 	if err := syscall.Exec(claudePath, argv, env); err != nil {
 		// Exec only returns on failure; fall back to a child process.
-		c := exec.Command(claudePath, argv[1:]...)
+		c := exec.CommandContext(ctx, claudePath, argv[1:]...)
 		c.Env, c.Stdin, c.Stdout, c.Stderr = env, os.Stdin, os.Stdout, os.Stderr
 		if runErr := c.Run(); runErr != nil {
 			var ee *exec.ExitError
-			if ok := errorsAs(runErr, &ee); ok {
+			if errors.As(runErr, &ee) {
 				return ee.ExitCode()
 			}
 			fmt.Fprintln(os.Stderr, "waldo:", runErr)
@@ -190,19 +191,4 @@ func writeDenySettings(sessName string) (string, error) {
 		return "", err
 	}
 	return p, nil
-}
-
-func errorsAs(err error, target **exec.ExitError) bool {
-	for err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
-			*target = ee
-			return true
-		}
-		u, ok := err.(interface{ Unwrap() error })
-		if !ok {
-			return false
-		}
-		err = u.Unwrap()
-	}
-	return false
 }

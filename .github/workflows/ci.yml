@@ -8,6 +8,9 @@ on:
 permissions:
   contents: read
 
+env:
+  GO_VERSION: '1.23'
+
 jobs:
   test:
     name: test (${{ matrix.os }})
@@ -15,32 +18,94 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # waldo's tier-0 file operations depend on the target's userland, and
-        # GNU and BSD coreutils differ on exactly the utilities involved.
-        # Testing on both is what keeps macOS targets working.
+        # waldo's file operations depend on the target's userland, and GNU and
+        # BSD coreutils differ on exactly the utilities involved. Testing on
+        # both is what keeps macOS targets working — `chmod 700 -- path` worked
+        # under GNU and failed under BSD, and only a matrix catches that.
         os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version: ${{ env.GO_VERSION }}
           cache: true
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "these files are not gofmt'd:"; echo "$unformatted"; exit 1
+          fi
       - run: go vet ./...
-      - run: go test -race -count=1 ./...
-      - run: go build ./cmd/waldo
+      - run: go test -race -count=1 -coverprofile=coverage.out -covermode=atomic ./...
+      - run: go build ./cmd/...
+      - name: coverage summary
+        run: go tool cover -func=coverage.out | tail -1
 
-  integration:
-    name: integration (real sshd)
+  lint:
+    name: lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version: ${{ env.GO_VERSION }}
           cache: true
-      # Exercises the ssh transport against a real sshd rather than a mock, so
-      # quoting, multiplexing and the exit-status protocol are tested for real.
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2.12.2
+
+  integration:
+    name: integration (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      # Exercises every file-operation tier against a real OpenSSH server, which
+      # is the only way to cover ssh's second round of shell interpretation, its
+      # use of exit 255 for its own failures, and the SFTP subsystem. The suite
+      # starts an sshd owned by the runner user, so this needs no container and
+      # no network — and it runs on both userlands rather than only on Linux.
+      - name: install openssh-server (linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y openssh-server
       - run: go test -race -count=1 -tags integration ./test/integration/...
+
+  handler:
+    name: python handler (${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The tier-2 handler is embedded in the binary and only ever executed on
+        # a target, so a syntax error in it would surface as a failing tier on
+        # somebody else's server rather than as a build failure here. Targets
+        # run whatever python3 they have, which is often an old one.
+        python: ['3.8', '3.9', '3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m py_compile internal/fileops/handler.py
+
+  vuln:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - run: govulncheck ./...
 
   crosscompile:
     name: build ${{ matrix.goos }}/${{ matrix.goarch }}
@@ -48,12 +113,16 @@ jobs:
     strategy:
       matrix:
         include:
-          - { goos: linux,  goarch: amd64 }
-          - { goos: linux,  goarch: arm64 }
-          - { goos: darwin, goarch: amd64 }
-          - { goos: darwin, goarch: arm64 }
+          - { goos: linux,   goarch: amd64 }
+          - { goos: linux,   goarch: arm64 }
+          - { goos: linux,   goarch: arm }
+          - { goos: darwin,  goarch: amd64 }
+          - { goos: darwin,  goarch: arm64 }
+          - { goos: freebsd, goarch: amd64 }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with: { go-version: '1.23', cache: true }
-      - run: GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build ./cmd/waldo
+      # The agent is built for every platform a *target* might run, which is a
+      # wider set than the platforms waldo itself is released for.
+      - run: GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} CGO_ENABLED=0 go build ./cmd/...

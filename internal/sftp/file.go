@@ -19,6 +19,20 @@ import (
 // queue a hundred outstanding requests whose failure handling gets complicated.
 const pipelineDepth = 8
 
+// ClampSize converts a server-reported size to int64 without overflowing.
+//
+// Sizes arrive from the other end of the connection, which waldo does not
+// trust. Anything at or above the int64 ceiling is capped rather than wrapped:
+// a wrapped negative length would silently change the meaning of every read
+// that used it.
+func ClampSize(v uint64) int64 {
+	const maxInt64 = uint64(1<<63 - 1)
+	if v > maxInt64 {
+		return int64(maxInt64)
+	}
+	return int64(v)
+}
+
 // ReadFile reads n bytes from path starting at off. n <= 0 means to the end.
 func (c *Client) ReadFile(ctx context.Context, filePath string, off int64, n int64) ([]byte, error) {
 	if off < 0 {
@@ -43,7 +57,11 @@ func (c *Client) ReadFile(ctx context.Context, filePath string, off int64, n int
 		if uint64(off) >= a.Size {
 			return []byte{}, nil
 		}
-		n = int64(a.Size) - off
+		// The size is whatever the server said. A hostile or broken one
+		// reporting 2^63 bytes would overflow into a negative length and turn
+		// this loop into nonsense, so it is clamped before it is used for
+		// anything.
+		n = ClampSize(a.Size) - off
 	}
 
 	chunks := int((n + maxDataChunk - 1) / maxDataChunk)

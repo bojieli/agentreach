@@ -91,6 +91,11 @@ func cmdFS(ctx context.Context, args []string) error {
 	}
 	defer func() { _ = fo.Close() }()
 
+	// Bound the operation, so an unresponsive target produces an error the
+	// caller can act on rather than a command that never returns.
+	ctx, cancel := s.OperationContext(ctx)
+	defer cancel()
+
 	arg := ""
 	if len(pos) > 0 {
 		arg = pos[0]

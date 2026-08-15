@@ -193,11 +193,11 @@ func TestPathTraversalIsRefused(t *testing.T) {
 	}
 
 	// A legitimate path with interior ".." that stays inside must still work.
-	real := filepath.Join(target, "sub", "..", "ok.txt")
+	realPath := filepath.Join(target, "sub", "..", "ok.txt")
 	if err := os.WriteFile(filepath.Join(target, "ok.txt"), []byte("fine\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.Fetch(ctx, real); err != nil {
+	if _, err := m.Fetch(ctx, realPath); err != nil {
 		t.Errorf("legitimate path with interior .. was rejected: %v", err)
 	}
 }

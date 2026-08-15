@@ -79,6 +79,10 @@ type handlerOps struct {
 	in  *bufio.Reader
 	out io.Writer
 	id  uint32
+	// broken records that the stream can no longer be trusted to be in sync,
+	// so every later call fails fast instead of reading a stale response as the
+	// answer to a new request.
+	broken error
 
 	closeOnce sync.Once
 }
@@ -127,7 +131,10 @@ func startHandler(ctx context.Context, t transport.Transport, base *POSIX, tier 
 	type result struct{ err error }
 	ch := make(chan result, 1)
 	go func() {
-		_, _, err := p.roundTrip(map[string]any{"op": "ping", "version": waldo.Version}, nil)
+		// A fresh context: the handshake has its own timeout below, and the
+		// caller's may already be close to expiring.
+		_, _, err := p.roundTrip(context.WithoutCancel(ctx), map[string]any{
+			"op": "ping", "version": waldo.Version}, nil)
 		ch <- result{err}
 	}()
 
@@ -163,10 +170,25 @@ func (p *handlerOps) Close() error {
 	return nil
 }
 
-// roundTrip sends one request and reads its response.
-func (p *handlerOps) roundTrip(req map[string]any, payload []byte) (map[string]any, []byte, error) {
+// roundTrip sends one request and waits for its response, honouring ctx.
+//
+// The cancellation path deliberately kills the channel rather than returning
+// and leaving it open. The protocol is a strict request/response sequence over
+// one stream: abandoning a response mid-flight would leave it in the pipe to be
+// read as the answer to the *next* request, which for a file read means
+// returning one file's bytes for another — a silent wrong answer, which is the
+// one failure mode this project treats as unacceptable. Closing converts it
+// into an error every later call reports.
+func (p *handlerOps) roundTrip(ctx context.Context, req map[string]any, payload []byte) (map[string]any, []byte, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
+	if p.broken != nil {
+		return nil, nil, p.broken
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 
 	p.id++
 	req["id"] = p.id
@@ -192,14 +214,33 @@ func (p *handlerOps) roundTrip(req map[string]any, payload []byte) (map[string]a
 		}
 	}
 
-	respHdr, respPayload, err := p.readFrame()
-	if err != nil {
-		return nil, nil, err
+	type response struct {
+		hdr     map[string]any
+		payload []byte
+		err     error
 	}
-	if ok, _ := respHdr["ok"].(bool); !ok {
-		return nil, nil, pipeError(respHdr, req)
+	done := make(chan response, 1)
+	go func() {
+		hdr, body, err := p.readFrame()
+		done <- response{hdr, body, err}
+	}()
+
+	select {
+	case r := <-done:
+		if r.err != nil {
+			p.broken = r.err
+			return nil, nil, r.err
+		}
+		if ok, _ := r.hdr["ok"].(bool); !ok {
+			return nil, nil, pipeError(r.hdr, req)
+		}
+		return r.hdr, r.payload, nil
+	case <-ctx.Done():
+		p.broken = fmt.Errorf("the %s was abandoned mid-operation (%w); this session's file access must be restarted",
+			p.label, ctx.Err())
+		_ = p.stream.Close()
+		return nil, nil, ctx.Err()
 	}
-	return respHdr, respPayload, nil
 }
 
 func (p *handlerOps) readFrame() (map[string]any, []byte, error) {
@@ -275,7 +316,7 @@ func (p *handlerOps) Read(ctx context.Context, filePath string, off, n int64) ([
 		if n > 0 && want <= 0 {
 			break
 		}
-		_, payload, err := p.roundTrip(map[string]any{
+		_, payload, err := p.roundTrip(ctx, map[string]any{
 			"op":     "read",
 			"path":   filePath,
 			"offset": off + int64(len(out)),
@@ -300,7 +341,7 @@ func (p *handlerOps) Write(ctx context.Context, filePath string, data []byte, mo
 	if len(data) > maxFrame {
 		return fmt.Errorf("refusing to write %d bytes in one frame (limit %d); use the shell for files this large", len(data), maxFrame)
 	}
-	_, _, err := p.roundTrip(map[string]any{
+	_, _, err := p.roundTrip(ctx, map[string]any{
 		"op": "write", "path": filePath, "mode": int(mode.Perm()),
 	}, data)
 	return err
@@ -308,7 +349,7 @@ func (p *handlerOps) Write(ctx context.Context, filePath string, data []byte, mo
 
 // Stat implements FileOps.
 func (p *handlerOps) Stat(ctx context.Context, filePath string) (*waldo.FileInfo, error) {
-	hdr, _, err := p.roundTrip(map[string]any{"op": "stat", "path": filePath}, nil)
+	hdr, _, err := p.roundTrip(ctx, map[string]any{"op": "stat", "path": filePath}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -322,7 +363,7 @@ func (p *handlerOps) Stat(ctx context.Context, filePath string) (*waldo.FileInfo
 
 // List implements FileOps.
 func (p *handlerOps) List(ctx context.Context, dir string) ([]waldo.FileInfo, error) {
-	hdr, _, err := p.roundTrip(map[string]any{"op": "list", "path": dir}, nil)
+	hdr, _, err := p.roundTrip(ctx, map[string]any{"op": "list", "path": dir}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -341,26 +382,26 @@ func (p *handlerOps) Mkdir(ctx context.Context, dir string, mode fs.FileMode) er
 	if mode == 0 {
 		mode = 0o755
 	}
-	_, _, err := p.roundTrip(map[string]any{"op": "mkdir", "path": dir, "mode": int(mode.Perm())}, nil)
+	_, _, err := p.roundTrip(ctx, map[string]any{"op": "mkdir", "path": dir, "mode": int(mode.Perm())}, nil)
 	return err
 }
 
 // Remove implements FileOps.
 func (p *handlerOps) Remove(ctx context.Context, filePath string, recursive bool) error {
-	_, _, err := p.roundTrip(map[string]any{"op": "remove", "path": filePath, "recursive": recursive}, nil)
+	_, _, err := p.roundTrip(ctx, map[string]any{"op": "remove", "path": filePath, "recursive": recursive}, nil)
 	return err
 }
 
 // Rename implements FileOps.
 func (p *handlerOps) Rename(ctx context.Context, from, to string) error {
-	_, _, err := p.roundTrip(map[string]any{"op": "rename", "from": from, "to": to}, nil)
+	_, _, err := p.roundTrip(ctx, map[string]any{"op": "rename", "from": from, "to": to}, nil)
 	return err
 }
 
 // Hash implements FileOps. The digest is computed on the target, so a file that
 // has not changed never crosses the network at all.
 func (p *handlerOps) Hash(ctx context.Context, filePath string) (string, error) {
-	hdr, _, err := p.roundTrip(map[string]any{"op": "hash", "path": filePath}, nil)
+	hdr, _, err := p.roundTrip(ctx, map[string]any{"op": "hash", "path": filePath}, nil)
 	if err != nil {
 		return "", err
 	}

@@ -54,7 +54,7 @@ var scanTools = map[string]bool{"Grep": true, "Glob": true}
 // It always exits 0 and always emits valid JSON. A hook that crashes or writes
 // garbage can wedge a harness's turn, so every failure is reported as a
 // decision the agent can read instead of as a broken hook.
-func runHook(args []string) int {
+func runHook(_ []string) int {
 	raw, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		emit(hookReply{})
@@ -117,6 +117,12 @@ func runHook(args []string) int {
 		return 0
 	}
 	defer func() { _ = sel.Ops.Close() }()
+
+	// A hook runs inside the agent's turn, so an unresponsive target must
+	// become a denial the agent can read rather than a tool call that hangs.
+	ctx, cancel := s.OperationContext(ctx)
+	defer cancel()
+
 	m := mirror.New(mirrorRoot, sel.Ops)
 
 	// A path already inside the mirror is the rewritten form coming back to us

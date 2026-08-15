@@ -279,6 +279,25 @@ func (s *Session) transport(batch bool) (transport.Transport, error) {
 	return nil, fmt.Errorf("unsupported target kind %q", s.Target.Kind)
 }
 
+// defaultOperationTimeout bounds a file operation when a session predates the
+// Timeout field or was written with a zero.
+const defaultOperationTimeout = 2 * time.Minute
+
+// OperationContext bounds one file operation with the session's timeout.
+//
+// Without this, a target that accepts a request and never answers leaves the
+// tool call blocked forever, which is precisely the failure this project exists
+// to eliminate: an agent cannot reason about a process that has stopped
+// responding, but it can reason about a timeout. Applying it here covers every
+// tier at once rather than relying on each strategy to remember.
+func (s *Session) OperationContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	timeout := s.Timeout
+	if timeout <= 0 {
+		timeout = defaultOperationTimeout
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
 // FileOps builds the file-operation strategy for this session's tier.
 //
 // A pinned tier — one the operator named with --fileops — is never silently

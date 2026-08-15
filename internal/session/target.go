@@ -13,6 +13,7 @@ import (
 // Kind identifies a target family.
 type Kind string
 
+// The target families waldo can reach.
 const (
 	KindSSH    Kind = "ssh"
 	KindDocker Kind = "docker"

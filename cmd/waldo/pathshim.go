@@ -79,14 +79,14 @@ func runBashShim(args []string) int {
 // execRealShell replaces this process with the genuine shell, with waldo's shim
 // directory removed from PATH so the real binary is found.
 func execRealShell(args []string) int {
-	real, err := findRealShell()
+	shell, err := findRealShell()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "waldo: cannot locate a real shell:", err)
 		return 127
 	}
 	env := append(sanitisedEnv(), shimGuardEnv+"=1")
-	argv := append([]string{real}, args...)
-	if err := syscall.Exec(real, argv, env); err != nil {
+	argv := append([]string{shell}, args...)
+	if err := syscall.Exec(shell, argv, env); err != nil {
 		fmt.Fprintln(os.Stderr, "waldo:", err)
 		return 127
 	}

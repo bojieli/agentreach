@@ -50,7 +50,7 @@ func TestTierConformanceOverSSH(t *testing.T) {
 			}
 			t.Cleanup(func() { _ = sel.Ops.Remove(context.Background(), root, true) })
 
-			fileopstest.Run(t, root, func(t *testing.T) fileops.FileOps { return sel.Ops })
+			fileopstest.Run(t, root, func(*testing.T) fileops.FileOps { return sel.Ops })
 		})
 	}
 }

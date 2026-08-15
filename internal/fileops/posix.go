@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"path"
@@ -93,7 +94,7 @@ func (p *POSIX) Read(ctx context.Context, filePath string, off, n int64) ([]byte
 			// empty one.
 			if _, err := p.readRange(ctx, filePath, off, 1); err != nil {
 				var nf *waldo.NotFoundError
-				if asNotFound(err, &nf) {
+				if errors.As(err, &nf) {
 					return nil, err
 				}
 			}
@@ -153,21 +154,6 @@ func (p *POSIX) readRange(ctx context.Context, filePath string, off, n int64) ([
 		return nil, fmt.Errorf("read %s: response exceeded output cap; refusing to return possibly corrupt content", filePath)
 	}
 	return decodeB64(res.Stdout)
-}
-
-func asNotFound(err error, target **waldo.NotFoundError) bool {
-	for err != nil {
-		if nf, ok := err.(*waldo.NotFoundError); ok {
-			*target = nf
-			return true
-		}
-		u, ok := err.(interface{ Unwrap() error })
-		if !ok {
-			return false
-		}
-		err = u.Unwrap()
-	}
-	return false
 }
 
 // Write implements FileOps.
@@ -325,17 +311,17 @@ func (p *POSIX) Search(ctx context.Context, req waldo.SearchRequest) ([]waldo.Ma
 	if req.Root == "" {
 		req.Root = "."
 	}
-	max := req.MaxResults
-	if max <= 0 {
-		max = 1000
+	limit := req.MaxResults
+	if limit <= 0 {
+		limit = 1000
 	}
 	if p.caps.Ripgrep != "" {
-		return p.searchRipgrep(ctx, req, max)
+		return p.searchRipgrep(ctx, req, limit)
 	}
-	return p.searchGrep(ctx, req, max)
+	return p.searchGrep(ctx, req, limit)
 }
 
-func (p *POSIX) searchRipgrep(ctx context.Context, req waldo.SearchRequest, max int) ([]waldo.Match, error) {
+func (p *POSIX) searchRipgrep(ctx context.Context, req waldo.SearchRequest, limit int) ([]waldo.Match, error) {
 	args := []string{p.caps.Ripgrep, "--json"}
 	if req.IgnoreCase {
 		args = append(args, "-i")
@@ -352,10 +338,10 @@ func (p *POSIX) searchRipgrep(ctx context.Context, req waldo.SearchRequest, max 
 	// rg --json emits several lines per match — and again by the client loop
 	// below. Without that, a large search would overrun the transport's output
 	// cap and arrive truncated mid-JSON.
-	args = append(args, "-m", strconv.Itoa(max), "-e", q(req.Pattern), q(req.Root))
+	args = append(args, "-m", strconv.Itoa(limit), "-e", q(req.Pattern), q(req.Root))
 	// rg exits 1 when there are no matches; that is a legitimate empty result,
 	// not a failure, so it is normalised here rather than surfaced as an error.
-	cmd := fmt.Sprintf("{ %s || true; } | head -n %d", strings.Join(args, " "), max*8)
+	cmd := fmt.Sprintf("{ %s || true; } | head -n %d", strings.Join(args, " "), limit*8)
 
 	out, err := p.run(ctx, cmd, nil)
 	if err != nil {
@@ -383,14 +369,14 @@ func (p *POSIX) searchRipgrep(ctx context.Context, req waldo.SearchRequest, max 
 			Line: ev.Data.LineNumber,
 			Text: strings.TrimRight(ev.Data.Lines.Text, "\r\n"),
 		})
-		if len(matches) >= max {
+		if len(matches) >= limit {
 			break
 		}
 	}
 	return matches, nil
 }
 
-func (p *POSIX) searchGrep(ctx context.Context, req waldo.SearchRequest, max int) ([]waldo.Match, error) {
+func (p *POSIX) searchGrep(ctx context.Context, req waldo.SearchRequest, limit int) ([]waldo.Match, error) {
 	flags := "-rn --binary-files=without-match"
 	if req.IgnoreCase {
 		flags += " -i"
@@ -399,7 +385,7 @@ func (p *POSIX) searchGrep(ctx context.Context, req waldo.SearchRequest, max int
 		flags += " -F"
 	}
 	cmd := fmt.Sprintf("grep %s -e %s -- %s 2>/dev/null | head -n %d || true",
-		flags, q(req.Pattern), q(req.Root), max)
+		flags, q(req.Pattern), q(req.Root), limit)
 	out, err := p.run(ctx, cmd, nil)
 	if err != nil {
 		return nil, err
@@ -472,7 +458,7 @@ func decodeB64(out []byte) ([]byte, error) {
 // parseStatLine turns one "size|mode|mtime" record into a FileInfo. GNU
 // reports the mode in hex, BSD in octal; both are raw st_mode, so the file
 // type is recovered from the S_IFMT bits.
-func parseStatLine(line, flavor string) (*waldo.FileInfo, error) {
+func parseStatLine(line, flavour string) (*waldo.FileInfo, error) {
 	parts := strings.Split(strings.TrimSpace(line), "|")
 	if len(parts) < 3 {
 		return nil, fmt.Errorf("unparsable stat output %q", line)
@@ -482,7 +468,7 @@ func parseStatLine(line, flavor string) (*waldo.FileInfo, error) {
 		return nil, fmt.Errorf("unparsable stat size %q", parts[0])
 	}
 	base := 16
-	if flavor == "bsd" {
+	if flavour == "bsd" {
 		base = 8
 	}
 	raw, err := strconv.ParseUint(strings.TrimSpace(parts[1]), base, 32)
