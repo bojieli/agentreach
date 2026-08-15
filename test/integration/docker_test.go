@@ -245,11 +245,19 @@ func TestTargetWithNoShellFailsClearly(t *testing.T) {
 		t.Skip("no Go toolchain to build the scratch image's contents")
 	}
 
+	root, ok := repoRoot()
+	if !ok {
+		// The suite is runnable as a standalone binary — cross-compiled and
+		// copied to a machine with no checkout — and this is the one test that
+		// needs the source. A missing optional prerequisite is a skip; failing
+		// here would report a broken product when the product is fine.
+		t.Skip("no module root above the working directory, so the scratch image cannot be built")
+	}
 	dir := t.TempDir()
 	arch := runtime.GOARCH // the daemon runs Linux containers of the host's arch
 	build := exec.Command("go", "build", "-trimpath", "-o", filepath.Join(dir, "agent"),
 		"./cmd/waldo-agent")
-	build.Dir = repoRoot(t)
+	build.Dir = root
 	build.Env = append(os.Environ(), "GOOS=linux", "GOARCH="+arch, "CGO_ENABLED=0")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Skipf("cannot cross-compile the agent: %v: %s", err, out)
@@ -296,20 +304,20 @@ func TestTargetWithNoShellFailsClearly(t *testing.T) {
 	}
 }
 
-// repoRoot finds the module directory so a test can build from it.
-func repoRoot(t *testing.T) string {
-	t.Helper()
+// repoRoot finds the module directory so a test can build from it, and reports
+// whether there is one at all.
+func repoRoot() (string, bool) {
 	dir, err := os.Getwd()
 	if err != nil {
-		t.Fatal(err)
+		return "", false
 	}
 	for {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
+			return dir, true
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			t.Fatal("no go.mod above the test directory")
+			return "", false
 		}
 		dir = parent
 	}

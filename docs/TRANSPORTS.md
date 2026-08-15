@@ -25,14 +25,27 @@ Both tables drive waldo through its CLI, one process per operation, which is how
 a harness drives it. Reproduce with `make bench`, or against your own host with
 `WALDO_BENCH_SSH_HOST=my-box make bench`.
 
-**Over loopback**, where a round trip is free and the number measures CPU:
+**At zero latency**, the tiers are not really what is being measured. Same
+machine, same `local://` transport, same work — only the operating system
+differs:
 
-| tier | 40 × 1 KiB read | 20 MiB read | 20 MiB write |
-|---|---|---|---|
-| `posix` | 3.55 s | 1.85 s | 0.65 s |
-| `sftp` | **1.89 s** | **0.26 s** | 0.29 s |
-| `pipe` | 3.29 s | 0.35 s | **0.26 s** |
-| `agent` | 5.17 s | 0.26 s | 0.39 s |
+| 40 × 1 KiB read | macOS arm64 | Linux x86_64 |
+|---|---|---|
+| `posix` | 1.47 s | **0.20 s** |
+| `pipe` | 1.94 s | 0.87 s |
+| `agent` | 0.95 s | 0.47 s |
+
+Tier 0 is 7× more expensive on the macOS target, and waldo's own startup is not
+the reason — 40 invocations of `waldo version` take 0.13 s. The cause is that
+tier 0 spawns `sh`, `tail`, `head` and `base64` *per read*, and macOS creates
+processes far more slowly than Linux does. The higher tiers spawn one process
+per session instead, so they are much less sensitive to it, and the ordering
+flips: on a Linux target `posix` is the fastest tier for small reads, on a macOS
+target it is the slowest.
+
+The lesson is that a loopback benchmark mostly measures the target's process
+spawner. Useful to know — **if your target is macOS, tier 0 costs
+disproportionately more** — but not what should decide the negotiation order.
 
 **Over two real links**, measured the way waldo uses them. (Measure with
 `ssh -o ControlPath=… host true` in a loop. ICMP is not a proxy for it: on a
@@ -57,11 +70,16 @@ A host ~540 ms per command, on a lossy tunnel:
 | `pipe` | **20.35 s** | **7.46 s** | **6.36 s** |
 | `agent` | 42.72 s | 12.23 s | 13.51 s |
 
-The ordering **inverts**, and does so consistently at both latencies: `pipe`
-beats `sftp` on every axis on both hosts, `agent` is the slowest to start on
-both, and `posix` is the worst on large reads on both. On loopback `sftp` wins
-everything. The margins narrow as latency falls, which is what should happen if
-round trips are the thing being counted.
+Once latency is real, round trips dominate everything else, and the ordering is
+consistent at both: `pipe` beats `sftp` on every axis on both hosts, `agent` is
+the slowest to start on both, and `posix` is the worst on large reads on both.
+The margins narrow as latency falls, which is what should happen if round trips
+are what is being counted — and at zero latency they vanish into the target's
+process-spawn cost, as the table above shows.
+
+That is why the negotiation order is decided by the real-link numbers. waldo
+exists to drive remote hosts; a benchmark with no network in it is measuring
+something else.
 
 The reason is that the tiers differ in *round trips per operation*, not in work
 done. `pipe` and `agent` answer a whole file in one request and one response

@@ -109,6 +109,9 @@ reading of its docs.
   the same suite on all of them.
 - **The tiers agree byte for byte.** A file written through any tier reads back
   identically, with a matching digest, through every other.
+- **waldo runs as the operator on macOS and on Linux**, with the whole suite —
+  unit and integration — passing on both, including the control-socket path that
+  only exists when `XDG_RUNTIME_DIR` is set.
 - **NUL bytes, invalid UTF-8, CRLF, empty files, 5 MiB payloads, filenames with
   quotes and spaces** survive every tier intact.
 - **waldo refuses SSH agent forwarding even when your own ssh config enables it

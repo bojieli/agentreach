@@ -200,10 +200,10 @@ func (c *Capabilities) Qualifies(tier waldo.Tier) (bool, string) {
 // It is measured, and it was measured twice, because the first measurement was
 // taken in the wrong place.
 //
-// Over loopback, sftp wins: a subsystem channel is cheaper to set up than a
-// shell pipeline, and with round trips free that is the whole cost. Over a real
-// link — 258 ms, 25% packet loss, which is a perfectly ordinary remote host —
-// the ordering inverts completely:
+// A benchmark with no network in it measures the target's process spawner, not
+// the tiers: tier 0 spawns several processes per read, and the same measurement
+// is 7x cheaper against a Linux target than a macOS one. Over a real link,
+// round trips dominate and the tiers separate properly:
 //
 //	                15x1KiB read   8MiB read   8MiB write
 //	posix                 22.42s      33.87s        8.65s
@@ -218,8 +218,9 @@ func (c *Capabilities) Qualifies(tier waldo.Tier) (bool, string) {
 // trip, and its cheap setup stops mattering the moment a round trip is not
 // free.
 //
-// waldo exists to drive *remote* hosts, so the remote numbers are the ones that
-// decide this. sftp stays ahead of posix, and above both sits pipe.
+// waldo exists to drive *remote* hosts, so the remote numbers decide this, and
+// they agree at both 171 ms and 540 ms. sftp stays ahead of posix, and above
+// both sits pipe.
 //
 // TierAgent is deliberately absent: that tier writes a binary to the target, and
 // waldo never makes that choice on the operator's behalf. It is also the

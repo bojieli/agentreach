@@ -126,21 +126,26 @@ func useExistingHost(host string) (func(), error) {
 		return nil, fmt.Errorf("create %s on %s: %v: %s", workspace, host, err, out)
 	}
 	return func() {
-		// Leave nothing behind on a machine that was lent to the suite.
-		//
-		// The workspace is the obvious part. The agent tier is the part that is
-		// easy to forget: the suite exercises it, which *installs a binary* on
-		// the target, and a test run that quietly leaves one on someone else's
-		// server breaks the promise the whole project is built on. Removing it
-		// here rather than in the tier test covers every path that reached it,
-		// including a failing one.
-		//
-		// Only this build's own binary is removed, by exact version, so a waldo
-		// the operator installed themselves is left alone.
-		_ = exec.Command("ssh", host, fmt.Sprintf(
-			"rm -rf %s; rm -f ~/.cache/waldo/agent-%s-*; rmdir ~/.cache/waldo 2>/dev/null || true",
-			workspace, waldo.Version)).Run()
+		_ = exec.Command("ssh", host, "rm -rf "+workspace).Run()
+		removeInstalledAgent(func(command string) { _ = exec.Command("ssh", host, command).Run() })
 	}, nil
+}
+
+// removeInstalledAgent takes back the one thing waldo ever puts on a target.
+//
+// The suite exercises the agent tier, which *installs a binary*. A test run that
+// quietly leaves one behind breaks the promise the whole project is built on,
+// and it does so on whatever machine the suite was pointed at — a borrowed
+// server or the developer's own. Both harness modes route through here, because
+// fixing it in one and not the other is exactly the mistake that produced this
+// function: a remote run was cleaned up while a local one kept installing.
+//
+// Only this build's own binary is removed, by exact version, so a waldo the
+// operator installed themselves is left alone.
+func removeInstalledAgent(run func(command string)) {
+	run(fmt.Sprintf(
+		"rm -f ~/.cache/waldo/agent-%s-*; rmdir ~/.cache/waldo 2>/dev/null || true",
+		waldo.Version))
 }
 
 // startLocalTarget runs an sshd owned by the current user.
@@ -209,6 +214,11 @@ Subsystem sftp %s
 		return nil, fmt.Errorf("start %s: %w", sshdBin, err)
 	}
 	stop := func() {
+		// The local sshd's target is this machine, so the agent tier installed
+		// into this machine's cache. Same promise, same cleanup.
+		removeInstalledAgent(func(command string) {
+			_ = exec.Command("sh", "-c", command).Run()
+		})
 		if cmd.Process != nil {
 			_ = cmd.Process.Kill()
 			_, _ = cmd.Process.Wait()
