@@ -52,13 +52,17 @@ property is why waldo is request/response over SSH and not a mount.
 
 ## What it does not put on your target
 
-Nothing. Tier 0 — the default — uses only a POSIX shell and moves file content
-base64-framed over the same SSH connection. No agent, no daemon, no cached
-binary, no temp files left behind. `waldo doctor` shows exactly what a given
-host supports and what silently degrades.
+Nothing. Three of waldo's four file-operation tiers write nothing to the target
+at all — no agent, no daemon, no cached binary, no temp files left behind — and
+those are the only ones waldo will choose on its own. The fourth installs a
+helper, and only when you ask for it by name.
 
-Higher tiers are optimisations, never requirements. See
-[docs/TRANSPORTS.md](docs/TRANSPORTS.md).
+Tier 0 needs nothing but a POSIX shell, and is the floor everything else falls
+back to. `waldo doctor` shows what a given host supports, what waldo negotiated,
+and what it has left behind — which is normally the sentence "waldo has written
+nothing to this target."
+
+See [docs/TRANSPORTS.md](docs/TRANSPORTS.md).
 
 | tier | needs on target | writes to target | large read |
 |---|---|---|---|
@@ -84,8 +88,14 @@ git clone https://github.com/bojieli/waldo && cd waldo
 make install          # builds and installs to ~/.local/bin
 ```
 
-Or take a binary from [releases](https://github.com/bojieli/waldo/releases);
-each archive also carries the optional tier-3 helper for every target platform,
+Or:
+
+```console
+go install github.com/bojieli/waldo/cmd/waldo@latest
+```
+
+Or take a binary from [releases](https://github.com/bojieli/waldo/releases).
+Each archive also carries the optional tier-3 helper for every target platform,
 so nothing is ever downloaded at run time.
 
 Requires Go 1.23+ to build, and the `ssh` client you already use. waldo shells
@@ -131,6 +141,7 @@ harness (claude · codex · kimi · opencode)
 adapter          per harness · no fork · config or plugin
     │
 waldo            session state · cwd · capability probe
+    │            fileops tier: posix · sftp · pipe · agent
     │  ssh · docker · podman · local
 target           stock sshd only
 ```
@@ -269,6 +280,17 @@ make e2e          # real agents against a real target (SPENDS TOKENS)
 
 `make integration` starts an sshd owned by your user on a high port, so it needs
 neither root, nor Docker, nor a network.
+
+## Contributing
+
+The one rule that matters: **claims about a harness must be backed by an
+experiment, not by its documentation.** Everything else is in
+[CONTRIBUTING.md](CONTRIBUTING.md), including the design rules that are
+load-bearing and the conformance suite a new file-operation tier has to pass.
+
+Security reports go through GitHub Security Advisories rather than public
+issues — see [SECURITY.md](SECURITY.md). Changes are recorded in
+[CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

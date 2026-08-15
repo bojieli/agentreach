@@ -1,0 +1,63 @@
+name: Harness seam broke
+description: An agent stopped running on the target after a harness upgrade
+labels: [harness-seam]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        waldo hooks undocumented implementation details in closed binaries, so a
+        harness upgrade can change them without notice. This is the most likely
+        way waldo breaks, and the most important kind of report to get.
+
+        **First, please run `make conformance`.** It probes the seams with a
+        real agent and says which one changed shape, which usually turns this
+        into a one-line answer.
+
+  - type: input
+    id: harness
+    attributes:
+      label: Harness and version
+      description: e.g. Claude Code 2.1.240 — the exact version matters here
+      placeholder: claude --version
+    validations:
+      required: true
+
+  - type: input
+    id: waldo-version
+    attributes:
+      label: waldo version
+      placeholder: waldo version
+    validations:
+      required: true
+
+  - type: textarea
+    id: conformance
+    attributes:
+      label: Output of `make conformance`
+      render: console
+
+  - type: dropdown
+    id: symptom
+    attributes:
+      label: What happened
+      options:
+        - Commands ran on my LOCAL machine instead of the target
+        - Commands failed with an error
+        - The agent hung
+        - '`cd` stopped persisting between tool calls'
+        - Something else
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        If commands ran locally, please say so prominently — waldo treats silent
+        wrong-target execution as its most serious possible failure, and that
+        report gets priority over everything else.
+
+  - type: textarea
+    id: details
+    attributes:
+      label: Anything else
+      description: Session details from `waldo status`, and `waldo doctor` output if the target is reachable.
