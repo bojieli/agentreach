@@ -45,9 +45,18 @@ const maxFrame = 64 << 20
 // chunk because there is no base64 expansion and no per-chunk process spawn.
 const readChunkPipe = 8 << 20
 
-// pipeStartTimeout bounds the handshake, so a target that accepts the channel
-// and then never answers fails as a value instead of hanging tier negotiation.
-const pipeStartTimeout = 20 * time.Second
+// handlerStartTimeout bounds the first request, which doubles as the handshake,
+// so a target that accepts the channel and then never answers fails as a value
+// instead of hanging.
+const handlerStartTimeout = 20 * time.Second
+
+// contextWithAtLeast returns a context with at least d remaining.
+func contextWithAtLeast(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) >= d {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, d)
+}
 
 // handlerOps implements FileOps by keeping one long-lived process alive on the
 // target and speaking a framed protocol to it.
@@ -75,10 +84,20 @@ type handlerOps struct {
 	// different next steps.
 	label string
 
-	mu  sync.Mutex
-	in  *bufio.Reader
-	out io.Writer
-	id  uint32
+	// stderr collects whatever the program on the far end complains about, for
+	// the error message produced if it turns out never to have started.
+	stderr *safeBuffer
+	// startTimeout bounds the first request, which doubles as the handshake.
+	startTimeout time.Duration
+
+	mu sync.Mutex
+	in *bufio.Reader
+	// first is true until a request has been answered. Until then a failure
+	// means "the program never started", which needs a different explanation
+	// from "the connection dropped mid-session".
+	first bool
+	out   io.Writer
+	id    uint32
 	// broken records that the stream can no longer be trusted to be in sync,
 	// so every later call fails fast instead of reading a stale response as the
 	// answer to a new request.
@@ -94,31 +113,41 @@ func NewPipe(ctx context.Context, t transport.Transport, base *POSIX) (FileOps, 
 		base64.StdEncoding.EncodeToString([]byte(pipeHandler))+"\n")
 }
 
-// startHandler opens a channel, runs a program on it, sends any preamble the
-// program expects, and confirms it answers the protocol before returning.
+// startHandler opens a channel and runs a program on it, without waiting to
+// hear back.
 //
-// The confirmation matters more than it looks: without it, a target where the
-// program failed to start would hand back a strategy that appears healthy and
-// fails on the first real file operation — in the middle of an agent's turn,
-// where it reads as a broken tool rather than an unavailable tier.
+// It used to send a ping and wait for the pong, so that a program which failed
+// to start was reported at once rather than at the first file operation. That
+// was the right instinct and the wrong mechanism: it cost a round trip on every
+// tool call, because waldo starts a fresh process per call and so paid the
+// handshake every time. Two round trips for one file read, on a tier whose
+// entire argument is that it needs only one.
+//
+// The first real request is the handshake instead. It carries the same
+// diagnosis — the captured stderr, the program's name, the timeout — so a
+// target where nothing started still says so, in the same words, one round trip
+// sooner.
 func startHandler(ctx context.Context, t transport.Transport, base *POSIX, tier waldo.Tier, label, command, preamble string) (FileOps, error) {
 	// The channel outlives this call, so it must not be tied to a context that
-	// is cancelled once the handshake returns.
+	// is cancelled once this function returns.
 	stream, err := t.Open(context.WithoutCancel(ctx), command)
 	if err != nil {
 		return nil, fmt.Errorf("start %s: %w", label, err)
 	}
 
-	var errBuf strings.Builder
-	go func() { _, _ = io.Copy(&limitedWriter{w: &errBuf, remaining: 8 << 10}, stream.Stderr) }()
+	errBuf := &safeBuffer{remaining: 8 << 10}
+	go func() { _, _ = io.Copy(errBuf, stream.Stderr) }()
 
 	p := &handlerOps{
-		stream: stream,
-		base:   base,
-		tier:   tier,
-		label:  label,
-		in:     bufio.NewReaderSize(stream.Stdout, 1<<16),
-		out:    stream.Stdin,
+		stream:       stream,
+		base:         base,
+		tier:         tier,
+		label:        label,
+		stderr:       errBuf,
+		startTimeout: handlerStartTimeout,
+		first:        true,
+		in:           bufio.NewReaderSize(stream.Stdout, 1<<16),
+		out:          stream.Stdin,
 	}
 
 	if preamble != "" {
@@ -127,31 +156,38 @@ func startHandler(ctx context.Context, t transport.Transport, base *POSIX, tier 
 			return nil, fmt.Errorf("send %s: %w", label, err)
 		}
 	}
+	return p, nil
+}
 
-	type result struct{ err error }
-	ch := make(chan result, 1)
-	go func() {
-		// A fresh context: the handshake has its own timeout below, and the
-		// caller's may already be close to expiring.
-		_, _, err := p.roundTrip(context.WithoutCancel(ctx), map[string]any{
-			"op": "ping", "version": waldo.Version}, nil)
-		ch <- result{err}
-	}()
+// safeBuffer is a bounded buffer written by one goroutine and read by another.
+//
+// The bound stops a chatty or hostile program from growing waldo's memory
+// through a diagnostic buffer; the mutex is because the writer is an io.Copy in
+// its own goroutine and the reader is whichever request fails first.
+type safeBuffer struct {
+	mu        sync.Mutex
+	b         strings.Builder
+	remaining int
+}
 
-	select {
-	case r := <-ch:
-		if r.err != nil {
-			_ = stream.Close()
-			if msg := strings.TrimSpace(errBuf.String()); msg != "" {
-				return nil, fmt.Errorf("%s did not start: %w (%s)", label, r.err, firstLine(msg))
-			}
-			return nil, fmt.Errorf("%s did not start: %w", label, r.err)
-		}
-		return p, nil
-	case <-time.After(pipeStartTimeout):
-		_ = stream.Close()
-		return nil, fmt.Errorf("%s did not answer within %s", label, pipeStartTimeout)
+func (s *safeBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.remaining <= 0 {
+		return len(p), nil
 	}
+	if len(p) > s.remaining {
+		p = p[:s.remaining]
+	}
+	n, err := s.b.Write(p)
+	s.remaining -= n
+	return len(p), err
+}
+
+func (s *safeBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
 }
 
 func firstLine(s string) string {
@@ -188,6 +224,14 @@ func (p *handlerOps) roundTrip(ctx context.Context, req map[string]any, payload 
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
+	}
+	// The first request is also the handshake, so it gets at least the time a
+	// program needs to start — a caller's tight deadline should not be read as
+	// "python3 is missing".
+	if p.first {
+		var cancel context.CancelFunc
+		ctx, cancel = contextWithAtLeast(ctx, p.startTimeout)
+		defer cancel()
 	}
 
 	p.id++
@@ -229,8 +273,9 @@ func (p *handlerOps) roundTrip(ctx context.Context, req map[string]any, payload 
 	case r := <-done:
 		if r.err != nil {
 			p.broken = r.err
-			return nil, nil, r.err
+			return nil, nil, p.startupError(r.err)
 		}
+		p.first = false
 		if ok, _ := r.hdr["ok"].(bool); !ok {
 			return nil, nil, pipeError(r.hdr, req)
 		}
@@ -239,8 +284,24 @@ func (p *handlerOps) roundTrip(ctx context.Context, req map[string]any, payload 
 		p.broken = fmt.Errorf("the %s was abandoned mid-operation (%w); this session's file access must be restarted",
 			p.label, ctx.Err())
 		_ = p.stream.Close()
-		return nil, nil, ctx.Err()
+		return nil, nil, p.startupError(ctx.Err())
 	}
+}
+
+// startupError explains a failure that happened before the program ever
+// answered, which is a different problem from one that happened later.
+//
+// Before: "the python handler exited". After: the same, plus whatever it wrote
+// to stderr on the way out, which is usually the whole answer — no python3, a
+// read-only cache directory, a binary for the wrong architecture.
+func (p *handlerOps) startupError(cause error) error {
+	if !p.first {
+		return cause
+	}
+	if msg := strings.TrimSpace(p.stderr.String()); msg != "" {
+		return fmt.Errorf("%s did not start: %w (%s)", p.label, cause, firstLine(msg))
+	}
+	return fmt.Errorf("%s did not start: %w", p.label, cause)
 }
 
 func (p *handlerOps) readFrame() (map[string]any, []byte, error) {
@@ -455,23 +516,3 @@ func infoFromMap(m map[string]any) waldo.FileInfo {
 }
 
 var _ FileOps = (*handlerOps)(nil)
-
-// limitedWriter keeps at most a bounded prefix of what is written to it, so a
-// chatty or hostile server cannot grow waldo's memory through a diagnostic
-// buffer.
-type limitedWriter struct {
-	w         io.Writer
-	remaining int
-}
-
-func (l *limitedWriter) Write(p []byte) (int, error) {
-	if l.remaining <= 0 {
-		return len(p), nil
-	}
-	if len(p) > l.remaining {
-		p = p[:l.remaining]
-	}
-	n, err := l.w.Write(p)
-	l.remaining -= n
-	return len(p), err
-}

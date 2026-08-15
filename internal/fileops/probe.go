@@ -48,6 +48,14 @@ type Capabilities struct {
 	// only GNU and BSD accept --binary-files=without-match, and busybox rejects
 	// the whole command when given it.
 	GrepSkipBinary string
+	// CacheDir is where the target keeps per-user caches, resolved once so the
+	// helper tier does not spend a round trip asking on every tool call.
+	CacheDir string
+	// HelperPath and HelperDigest record a helper binary this session has
+	// already verified, so the verification costs one round trip per session
+	// rather than one per tool call.
+	HelperPath   string
+	HelperDigest string
 	// RawStdin and RawStdout report that binary content survives the transport
 	// unencoded, in each direction, proven by a round trip rather than assumed.
 	// When they hold, file content skips base64 and costs a third less to move.
@@ -85,6 +93,8 @@ w_has xargs && printf 'XARGS=1\n' || printf 'XARGS=0\n'
 w_has python3 && printf 'PY3=1\n' || printf 'PY3=0\n'
 
 if w_has rg; then printf 'RG=rg\n'; else printf 'RG=\n'; fi
+
+printf 'CACHE=%s\n' "${XDG_CACHE_HOME:-$HOME/.cache}"
 
 # Which flag suppresses binary files? busybox grep accepts -I but rejects
 # --binary-files=..., and rejects the *entire command* when it sees it — which
@@ -168,6 +178,8 @@ func Probe(ctx context.Context, t transport.Transport) (*Capabilities, error) {
 			c.Ripgrep = v
 		case "GREPI":
 			c.GrepSkipBinary = v
+		case "CACHE":
+			c.CacheDir = v
 		case "SHA":
 			c.SHA256 = v
 		}

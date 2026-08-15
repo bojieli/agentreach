@@ -44,9 +44,27 @@ func NewHelper(ctx context.Context, t transport.Transport, base *POSIX, caps *Ca
 	sum := sha256.Sum256(payload)
 	digest := hex.EncodeToString(sum[:])
 
-	remote, err := HelperPath(ctx, t, goos, goarch)
+	remote, err := HelperPath(ctx, t, caps, goos, goarch)
 	if err != nil {
 		return nil, err
+	}
+
+	// Verification is a per-session fact, not a per-tool-call one.
+	//
+	// Asking the installed binary to identify itself costs a round trip, and
+	// waldo runs one process per tool call, so doing it every time tripled this
+	// tier's cost: three round trips to read one small file, on a tier whose
+	// whole argument is that it needs one. It happens when the session is
+	// created — where an operator is present to see a mismatch — and is
+	// recorded.
+	//
+	// The trade is explicit: a binary swapped underneath a live session is not
+	// noticed until the next `waldo up`. Catching that would mean re-verifying
+	// before every operation, which is the cost this avoids, and a target able
+	// to swap the binary can equally lie about its digest.
+	if caps.HelperPath == remote && caps.HelperDigest == digest {
+		return startHandler(ctx, t, base, waldo.TierHelper, "helper",
+			fmt.Sprintf("exec %s serve", transport.ShellQuote(remote)), "")
 	}
 
 	if !helperMatches(ctx, t, remote, digest, goos, goarch) {
@@ -60,6 +78,9 @@ func NewHelper(ctx context.Context, t transport.Transport, base *POSIX, caps *Ca
 					"--fileops to negotiate a tier that installs nothing", remote)
 		}
 	}
+
+	// Record what was verified so the rest of the session can skip it.
+	caps.HelperPath, caps.HelperDigest = remote, digest
 
 	return startHandler(ctx, t, base, waldo.TierHelper, "helper",
 		fmt.Sprintf("exec %s serve", transport.ShellQuote(remote)), "")
@@ -103,18 +124,26 @@ func installHelper(ctx context.Context, base *POSIX, remote string, payload []by
 // The version is part of the filename so that an upgraded waldo installs a new
 // helper rather than silently reusing an old one, and so that `waldo doctor` can
 // list exactly what waldo has left on a host.
-func HelperPath(ctx context.Context, t transport.Transport, goos, goarch string) (string, error) {
-	res, err := t.Run(ctx, waldo.ExecRequest{
-		Command:   `printf %s "${XDG_CACHE_HOME:-$HOME/.cache}"`,
-		MaxOutput: 4 << 10,
-	})
-	if err != nil {
-		return "", fmt.Errorf("resolve the target's cache directory: %w", err)
+func HelperPath(ctx context.Context, t transport.Transport, caps *Capabilities, goos, goarch string) (string, error) {
+	cache := ""
+	if caps != nil {
+		cache = strings.TrimSpace(caps.CacheDir)
 	}
-	cache := strings.TrimSpace(string(res.Stdout))
+	if cache == "" {
+		// A session created before the probe reported this, or a caller with no
+		// capabilities to hand. Costs the round trip this field exists to save.
+		res, err := t.Run(ctx, waldo.ExecRequest{
+			Command:   `printf %s "${XDG_CACHE_HOME:-$HOME/.cache}"`,
+			MaxOutput: 4 << 10,
+		})
+		if err != nil {
+			return "", fmt.Errorf("resolve the target's cache directory: %w", err)
+		}
+		cache = strings.TrimSpace(string(res.Stdout))
+	}
 	if cache == "" || !strings.HasPrefix(cache, "/") {
 		return "", fmt.Errorf("the target reported no usable cache directory (%q); "+
-			"tier 3 needs somewhere it may write", cache)
+			"the helper tier needs somewhere it may write", cache)
 	}
 	return path.Join(cache, "waldo", fmt.Sprintf("helper-%s-%s-%s", waldo.Version, goos, goarch)), nil
 }
@@ -122,7 +151,7 @@ func HelperPath(ctx context.Context, t transport.Transport, goos, goarch string)
 // HelperCacheDir is the directory waldo creates on a target for the helper
 // tier, and the only directory it ever removes there.
 func HelperCacheDir(ctx context.Context, t transport.Transport) (string, error) {
-	p, err := HelperPath(ctx, t, "x", "y")
+	p, err := HelperPath(ctx, t, nil, "x", "y")
 	if err != nil {
 		return "", err
 	}
