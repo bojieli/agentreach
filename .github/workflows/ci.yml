@@ -179,7 +179,7 @@ jobs:
         with:
           name: fuzz-corpus
           path: |
-            cmd/waldo-agent/testdata/fuzz/**
+            cmd/waldo-helper/testdata/fuzz/**
             internal/envelope/testdata/fuzz/**
 
   vuln:
@@ -212,6 +212,56 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with: { go-version: '1.23', cache: true }
-      # The agent is built for every platform a *target* might run, which is a
+      # The helper is built for every platform a *target* might run, which is a
       # wider set than the platforms waldo itself is released for.
       - run: GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} CGO_ENABLED=0 go build ./cmd/...
+
+  release-dryrun:
+    # The release config was broken and nothing noticed, because a tag was the
+    # only thing that had ever run it: the before-hooks built into dist/, which
+    # goreleaser then refuses to find non-empty, so `git tag` would have been
+    # the first indication. Building a snapshot on every push makes the release
+    # path as tested as everything else.
+    name: release dry run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.23', cache: true }
+      - uses: anchore/sbom-action/download-syft@v0
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: '~> v2'
+          # Signing needs an OIDC token that only a tagged release run has.
+          args: release --snapshot --clean --skip=sign
+      # A build that succeeds while producing the wrong archive is the failure
+      # worth guarding against. goreleaser will happily ship an archive whose
+      # `files` globs matched nothing, which is how the helper binaries and half
+      # the docs went missing with no error anywhere.
+      - name: archives contain what they promise
+        run: |
+          set -euo pipefail
+          for archive in dist/*.tar.gz; do
+            echo "checking $archive"
+            contents=$(tar tzf "$archive")
+            for want in waldo waldo-helper-linux-amd64 waldo-helper-linux-arm64 \
+                        waldo-helper-darwin-amd64 waldo-helper-darwin-arm64 \
+                        docs/ARCHITECTURE.md docs/TRANSPORTS.md docs/SECURITY.md \
+                        README.md LICENSE; do
+              grep -qx "$want" <<<"$contents" || {
+                echo "::error::$archive is missing $want"; exit 1; }
+            done
+          done
+          # Every archive gets an SBOM, and it has to be the SPDX the release
+          # notes tell people to expect.
+          for archive in dist/*.tar.gz dist/*.zip; do
+            sbom="$archive.sbom.json"
+            [ -f "$sbom" ] || { echo "::error::no SBOM for $archive"; exit 1; }
+            grep -q '"spdxVersion"' "$sbom" || {
+              echo "::error::$sbom is not SPDX"; exit 1; }
+          done
+          # The Windows archive carries POSIX helpers on purpose: a Windows
+          # operator's target is a POSIX host.
+          unzip -l dist/waldo_*_windows_amd64.zip | grep -q waldo-helper-linux-amd64 || {
+            echo "::error::the windows archive has no helper for a POSIX target"; exit 1; }

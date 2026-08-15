@@ -1,5 +1,6 @@
 /waldo
 /dist/
+/.helpers/
 *.test
 *.out
 .DS_Store

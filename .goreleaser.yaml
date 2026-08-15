@@ -10,23 +10,28 @@ before:
     # so an operator on macOS can use the helper tier against a Linux target
     # without a Go toolchain — and waldo never has to download an executable at
     # run time to put on someone else's machine.
-    - mkdir -p dist/helpers
+    #
+    # Built into .helpers/ rather than dist/. before-hooks run *before*
+    # goreleaser prepares its distribution directory, and that step refuses a
+    # dist/ that is not empty — so building here failed the release outright,
+    # and the failure was in the one step nobody runs locally.
+    - mkdir -p .helpers
     - >-
       env GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath
       -ldflags "-s -w -X main.version={{.Version}}"
-      -o dist/helpers/waldo-helper-linux-amd64 ./cmd/waldo-helper
+      -o .helpers/waldo-helper-linux-amd64 ./cmd/waldo-helper
     - >-
       env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath
       -ldflags "-s -w -X main.version={{.Version}}"
-      -o dist/helpers/waldo-helper-linux-arm64 ./cmd/waldo-helper
+      -o .helpers/waldo-helper-linux-arm64 ./cmd/waldo-helper
     - >-
       env GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -trimpath
       -ldflags "-s -w -X main.version={{.Version}}"
-      -o dist/helpers/waldo-helper-darwin-amd64 ./cmd/waldo-helper
+      -o .helpers/waldo-helper-darwin-amd64 ./cmd/waldo-helper
     - >-
       env GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -trimpath
       -ldflags "-s -w -X main.version={{.Version}}"
-      -o dist/helpers/waldo-helper-darwin-arm64 ./cmd/waldo-helper
+      -o .helpers/waldo-helper-darwin-arm64 ./cmd/waldo-helper
 
 builds:
   - id: waldo
@@ -60,8 +65,8 @@ archives:
       - README.md
       - LICENSE
       - CHANGELOG.md
-      - docs/**/*
-      - src: dist/helpers/*
+      - docs/**
+      - src: .helpers/*
         dst: .
         info: { mode: 0755 }
 
