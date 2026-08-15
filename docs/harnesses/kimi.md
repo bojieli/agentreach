@@ -1,6 +1,6 @@
 # Kimi Code
 
-Probed against **0.31.1**. MIT-licensed, Bun-compiled TypeScript.
+Probed against **0.34.0**. MIT-licensed, Bun-compiled TypeScript.
 
 ## Seam
 

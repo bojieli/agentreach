@@ -53,6 +53,43 @@ else
   info "Claude Code not installed — skipping"
 fi
 
+  # The claim this seam rests on: Claude Code cannot be monkey-patched from
+  # inside, so its native file tools cannot be re-pointed and waldo must either
+  # deny them or materialise real files. It ships as a Node SEA, and the macOS
+  # build is stripped, so the V8 symbol check that settles it on Linux proves
+  # nothing there. Run the experiment instead — and run a control, because a
+  # preload that silently fails to fire would "confirm" this for the wrong
+  # reason.
+  preload="$PROBE/preload.js"
+  marker="$PROBE/preload-fired"
+  cat > "$preload" <<'JS'
+require("fs").writeFileSync(process.env.WALDO_PRELOAD_MARKER, "fired");
+JS
+  rm -f "$marker"
+
+  control="skipped"
+  if command -v node >/dev/null 2>&1; then
+    WALDO_PRELOAD_MARKER="$marker" NODE_OPTIONS="--require $preload" \
+      node -e '' >/dev/null 2>&1
+    if [[ -f "$marker" ]]; then control="works"; else control="broken"; fi
+    rm -f "$marker"
+  fi
+
+  if [[ "$control" == "broken" ]]; then
+    bad "NODE_OPTIONS preload control failed" \
+        "the probe cannot detect a preload even under plain node, so its result about claude would be meaningless"
+  else
+    clean_agent_env WALDO_PRELOAD_MARKER="$marker" NODE_OPTIONS="--require $preload" \
+      timeout 60 claude --version >/dev/null 2>&1
+    if [[ -f "$marker" ]]; then
+      bad "NODE_OPTIONS=--require is now honoured by Claude Code" \
+          "in-process patching may be possible again; waldo's denial of the native file tools should be revisited"
+    else
+      ok "NODE_OPTIONS=--require is still ignored (control: node preload $control)"
+    fi
+  fi
+  rm -f "$marker"
+
 # ------------------------------------------------------------------------ Codex
 if command -v codex >/dev/null 2>&1; then
   ver="$(codex --version 2>/dev/null | head -1)"

@@ -11,7 +11,7 @@ Coding agents assume their tools act on the machine they run on. Three
 constraints break that assumption simultaneously:
 
 1. **The agent cannot be installed on the target.** Many servers cannot run a
-   310 MB Node SEA or a Bun runtime.
+   ~300 MB Node SEA or a Bun runtime.
 2. **Credentials must not reach the target.** A client's server is untrusted;
    an API key or OAuth token placed there is disclosed.
 3. **The target must stay unmodified.** No daemon, no binary, no footprint.

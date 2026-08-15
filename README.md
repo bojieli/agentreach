@@ -54,7 +54,7 @@ WHEN      ACTION  STATUS  DETAIL
 
 | | the catch |
 |---|---|
-| **Run the agent on the server** | It's a 310 MB Node binary, and your API key is now on someone else's machine |
+| **Run the agent on the server** | It's a ~300 MB Node binary, and your API key is now on someone else's machine |
 | **MCP file server** | The model sees `mcp__remote__read` instead of `Read`. You didn't move the agent, you retrained it |
 | **SSHFS / FUSE mount** | Needs a kernel extension and a reboot on macOS. On a flaky link it hangs in uninterruptible sleep — the agent freezes mid-call with no error to reason about |
 | **`ssh` in the agent's terminal** | Now `cd` doesn't persist, paths are wrong, and the agent's file tools still edit your laptop |

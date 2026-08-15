@@ -23,18 +23,29 @@ a conformance test that fails loudly when the shape changes.
 
 ### Distribution format
 
+    # Linux x86_64
     $ file ~/.local/share/claude/versions/2.1.233
     ELF 64-bit LSB executable, dynamically linked, not stripped  (310 MB)
     $ strings ... | grep _ZN2v8    ->  V8 symbols present
 
+    # macOS arm64, same version
+    $ file ~/.local/share/claude/versions/2.1.233
+    Mach-O 64-bit executable arm64                               (293 MB)
+    $ strings ... | grep -c _ZN2v8 ->  0   (this build is stripped)
+
 Claude Code ships as a **Node SEA (Single Executable Application)** with V8
 statically embedded. It is not a `node script.js` invocation.
+
+Sizes differ by platform, and the macOS build is stripped, so the V8 symbol
+check that settles the question on Linux says nothing there. The consequence
+below was therefore re-run as an experiment on macOS rather than inferred from
+the Linux result.
 
 Consequences, both verified:
 
 | Technique | Works? | Evidence |
 |---|---|---|
-| `NODE_OPTIONS=--require preload.js` | **No** | preload's `console.error` never fired; `claude --version` ran clean |
+| `NODE_OPTIONS=--require preload.js` | **No** | Verified twice, on Linux x86_64 and macOS arm64: the preload's `console.error` never fired and it never wrote its marker file, while `claude --version` ran clean. Control: the identical preload *does* fire under a real `node`, so the test itself works |
 | `LD_PRELOAD` fs interposition | Not viable as a general strategy | Works for Claude (dynamically linked) but *not* for Codex, which is `static-pie` — no dynamic symbol interposition possible |
 
 This kills in-process monkey-patching of `node:fs`. Native `Read`/`Edit`/`Write`/
@@ -160,7 +171,8 @@ to place real files at the paths they read. See "Materialisation" in
 
 ## Codex CLI 0.147.0
 
-Distribution: `ELF 64-bit LSB pie executable, static-pie linked, stripped` (247 MB), Rust.
+Distribution, Linux x86_64: `ELF 64-bit LSB pie executable, static-pie linked,
+stripped` (247 MB), Rust. On macOS arm64 the same version is a 210 MB Mach-O.
 
 `static-pie` means **no dynamic linking**, so `LD_PRELOAD`/`DYLD_INSERT_LIBRARIES`
 interposition is impossible by construction.
@@ -174,13 +186,19 @@ rewrite a command, and the adapter uses shell-level substitution instead.
 
 See `docs/harnesses/codex.md`.
 
-## Kimi Code CLI 0.31.1
+## Kimi Code CLI 0.34.0
 
-Distribution: dynamically linked ELF, 164 MB (Bun-compiled TypeScript), MIT.
+Distribution: 169 MB Mach-O on macOS arm64 (Bun-compiled TypeScript), MIT;
+164 MB dynamically linked ELF on Linux x86_64 at 0.31.1.
 
 Confirmed present in the binary: `PreToolUse`, `PostToolUse`, `plugin`.
 Supports `-p/--prompt` and `--output-format stream-json`, which makes it
 scriptable for E2E testing.
+
+Re-checked against 0.34.0 after the version this was first written for (0.31.1)
+went stale: all four still hold. That re-check is the reason this document
+carries versions at all — a claim about a closed binary is a claim about one
+build of it.
 
 See `docs/harnesses/kimi.md`.
 
