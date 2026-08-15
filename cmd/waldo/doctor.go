@@ -160,21 +160,19 @@ func orNone(s string) string {
 }
 
 func reportHarness(bin, label, seam string) {
-	if p, err := lookPath(bin); err == nil {
+	if p, err := exeLook(bin); err == nil {
 		fmt.Printf("  %-12s found (%s) — seam: %s\n", label, filepath.Base(p), seam)
 	} else {
 		fmt.Printf("  %-12s not installed\n", label)
 	}
 }
 
-func lookPath(bin string) (string, error) {
-	return execLookPath(bin)
-}
-
-var execLookPath = func(bin string) (string, error) {
-	return exeLook(bin)
-}
-
+// exeLook resolves an executable on PATH.
+//
+// exec.LookPath is not used because it consults the process's own PATH through
+// the standard library's cached view, and waldo edits PATH when it installs
+// shell shims. Reading the environment variable directly keeps lookups
+// consistent with the PATH a harness will actually be launched with.
 func exeLook(bin string) (string, error) {
 	path := os.Getenv("PATH")
 	for _, dir := range filepath.SplitList(path) {

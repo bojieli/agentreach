@@ -60,15 +60,22 @@ host supports and what silently degrades.
 Higher tiers are optimisations, never requirements. See
 [docs/TRANSPORTS.md](docs/TRANSPORTS.md).
 
-| tier | needs on target | writes to target |
-|---|---|---|
-| `posix` *(default)* | a POSIX shell | **nothing** |
-| `sftp` | SFTP subsystem (stock OpenSSH) | **nothing** |
-| `pipe` | `python3` | **nothing** |
-| `agent` | can execute an upload | one cached binary, installed automatically, opt-in only |
+| tier | needs on target | writes to target | large read |
+|---|---|---|---|
+| `posix` | a POSIX shell | **nothing** | baseline |
+| `sftp` *(negotiated when available)* | SFTP subsystem (stock OpenSSH) | **nothing** | ~7x faster |
+| `pipe` | `python3` | **nothing** | ~5x faster |
+| `agent` | can execute an upload | one cached binary, opt-in only | ~7x faster |
 
 Autonegotiation stops below `agent`. Writing to someone else's machine stays an
-explicit decision by the operator.
+explicit decision by the operator — and `waldo doctor` tells you whether waldo
+has put anything there, with `waldo agent uninstall` to take it back off.
+
+The tiers are interchangeable, and that is tested rather than asserted: all four
+run one identical conformance suite, and the integration suite additionally
+proves that a file written through any tier reads back byte-for-byte through
+every other. Pinning a tier with `--fileops` that the host cannot support is an
+error, never a silent downgrade.
 
 ## Install
 
@@ -76,6 +83,10 @@ explicit decision by the operator.
 git clone https://github.com/bojieli/waldo && cd waldo
 make install          # builds and installs to ~/.local/bin
 ```
+
+Or take a binary from [releases](https://github.com/bojieli/waldo/releases);
+each archive also carries the optional tier-3 helper for every target platform,
+so nothing is ever downloaded at run time.
 
 Requires Go 1.23+ to build, and the `ssh` client you already use. waldo shells
 out to your system `ssh` on purpose, so `~/.ssh/config` — `ProxyJump`,
@@ -99,8 +110,9 @@ waldo fs write /srv/app/note.txt < local.txt
 # launch an agent wired to it
 waldo claude
 
-# what does this host actually support?
+# what does this host actually support, and what has waldo left on it?
 waldo doctor
+waldo agent uninstall   # remove the tier-3 helper, if you opted into it
 
 # close the session and its connection
 waldo down
@@ -225,8 +237,15 @@ docs. Reproduce with `make e2e` (spends model tokens) and `make conformance`.
 - `NODE_OPTIONS=--require` does **not** work against Claude Code's SEA binary.
 - Codex 0.147.0 resolves its shell through `execvp`, so a `PATH` shim
   intercepts it.
-- Tier-0 file operations round-trip NUL bytes, invalid UTF-8, CRLF and 5 MiB
-  payloads without corruption.
+- **All four file-operation tiers** round-trip NUL bytes, invalid UTF-8, CRLF,
+  empty files, 5 MiB payloads and filenames containing quotes and spaces without
+  corruption — over the local transport and over a real sshd.
+- A file written through any tier reads back byte-for-byte, with a matching
+  digest, through every other tier.
+- `sftp` is the fastest tier in practice and `agent` the slowest to start, which
+  is the opposite of what the tier numbering suggests. waldo negotiates on those
+  measurements rather than on the numbering; the table and the reasoning are in
+  [docs/TRANSPORTS.md](docs/TRANSPORTS.md), reproducible with `make bench`.
 
 Not fully verified: a live Codex agent run (the Codex install used here points
 at a third-party provider that rejects its token); a live Kimi run (no OAuth
@@ -241,9 +260,15 @@ changes its shape, so breakage surfaces in seconds instead of mid-task.
 ## Development
 
 ```console
-make check   # vet + unit tests, no network, no API key
-make e2e     # real agents against a real sshd container (spends tokens)
+make check        # vet + unit tests. No network, no API key, no tokens.
+make integration  # every file-operation tier against a real sshd
+make bench        # what each tier actually costs
+make conformance  # do the harness seams still have the shape waldo expects?
+make e2e          # real agents against a real target (SPENDS TOKENS)
 ```
+
+`make integration` starts an sshd owned by your user on a high port, so it needs
+neither root, nor Docker, nor a network.
 
 ## License
 

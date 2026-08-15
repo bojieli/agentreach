@@ -17,18 +17,34 @@ for how to write down a partially verified adapter.
 
 ```console
 make check        # vet + unit tests. No network, no API key, no tokens.
+make integration  # every file-operation tier against a real sshd.
+make bench        # what each tier costs; the source of the table in TRANSPORTS.md.
 make mock         # verifies the mock model server. No API key.
 make conformance  # checks harness seams still have the expected shape.
-make e2e          # real agents against a real sshd container. SPENDS TOKENS.
+make e2e          # real agents against a real target. SPENDS TOKENS.
 ```
 
-`go test -tags integration ./test/integration/...` runs the SSH suite against a
-real `sshd` in Docker. Mocks are deliberately not used there: shell quoting that
-works locally but not through ssh's own re-parsing, and exit statuses lost to
-ssh's use of 255, are exactly the bugs a mock cannot catch.
+`make integration` starts an `sshd` owned by your user on a high port, so it
+needs neither root, nor Docker, nor a network. Mocks are deliberately not used
+there: shell quoting that works locally but not through ssh's own re-parsing,
+exit statuses lost to ssh's use of 255, and the SFTP subsystem are exactly the
+things a mock cannot catch. Set `WALDO_TEST_SSHD=docker` to run against a Debian
+container instead, which is how a GNU target gets exercised from a BSD host.
 
 Tests that spend model tokens are never part of `make check`, so a contributor
 without an API key can still develop and verify most of the project.
+
+### Adding or changing a file-operation tier
+
+Every tier runs one shared conformance suite, `internal/fileops/fileopstest`.
+Add cases there rather than to a single tier's tests: the four tiers share
+almost no code, a user cannot tell which is in use, and the entire design rests
+on their being interchangeable. A case that only one tier passes is a case that
+belongs in the shared suite until every tier passes it.
+
+If you change which tier waldo negotiates, re-run `make bench` and update the
+table in `docs/TRANSPORTS.md`. The obvious ordering is wrong here — see that
+document for why — so this is a decision to measure rather than reason about.
 
 ## Design rules
 

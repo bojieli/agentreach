@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -281,5 +280,3 @@ func truncateForError(s string) string {
 	}
 	return s[:max] + "..."
 }
-
-var _ = io.Discard

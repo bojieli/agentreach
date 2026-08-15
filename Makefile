@@ -11,16 +11,24 @@ LDFLAGS := -s -w \
 	-X main.buildCommit=$(COMMIT) \
 	-X main.buildDate=$(DATE)
 
-.PHONY: all build test vet lint e2e mock conformance clean install fmt check
+.PHONY: all build build-agent test vet lint e2e mock conformance integration bench clean install fmt check
 
 all: check build
 
 build: ## build the waldo binary
 	$(GO) build -ldflags '$(LDFLAGS)' -o $(BIN) ./cmd/waldo
 
-install: build ## install to ~/.local/bin
+# The tier-3 helper for this platform. waldo finds it beside its own binary, so
+# installing both means the agent tier works against a same-platform target
+# without a cross-compile. Other platforms are cross-built on demand.
+build-agent: ## build the optional tier-3 helper for this platform
+	$(GO) build -trimpath -ldflags '-s -w -X main.version=$(VERSION)' \
+		-o $(BIN)-agent ./cmd/waldo-agent
+
+install: build build-agent ## install to ~/.local/bin
 	install -d $(HOME)/.local/bin
 	install -m 0755 $(BIN) $(HOME)/.local/bin/$(BIN)
+	install -m 0755 $(BIN)-agent $(HOME)/.local/bin/$(BIN)-agent
 	@echo "installed $(HOME)/.local/bin/$(BIN)"
 
 test: ## unit and integration tests (no model tokens spent)
@@ -43,6 +51,12 @@ mock: ## verify the mock model server (no API key, no tokens)
 conformance: build ## verify harness seams still have the shape waldo expects
 	./test/e2e/conformance_test.sh
 
+integration: ## file-operation tiers against a real sshd (no network, no API key)
+	$(GO) test -race -count=1 -tags integration ./test/integration/...
+
+bench: ## measure what each file-operation tier costs (docs/TRANSPORTS.md)
+	./test/bench/tiers_bench.sh
+
 clean:
-	rm -f $(BIN)
+	rm -f $(BIN) $(BIN)-agent
 	$(GO) clean -testcache

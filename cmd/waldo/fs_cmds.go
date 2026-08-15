@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -196,5 +195,3 @@ func cmdFS(ctx context.Context, args []string) error {
 		return fmt.Errorf("unknown fs subcommand %q", sub)
 	}
 }
-
-var _ = flag.ErrHelp

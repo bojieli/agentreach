@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"github.com/bojieli/waldo/internal/session"
 )
 
 // shimName is the basename waldo answers to when acting as a harness shell
@@ -77,7 +75,3 @@ func ensureShim() (string, error) {
 	}
 	return link, nil
 }
-
-// sessionDirNote keeps the session package referenced here for clarity of
-// ownership: the shim lives alongside session state.
-var _ = session.Dir

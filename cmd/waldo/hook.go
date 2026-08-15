@@ -179,9 +179,20 @@ func runHook(args []string) int {
 	return 0
 }
 
+// underWorkspace reports whether a target path lies inside the session's
+// workspace.
+//
+// The escape check compares path *components*, not a string prefix: a file
+// legitimately named "..config" starts with ".." without being outside
+// anything, and rejecting it would send an ordinary dotfile down the
+// "leave it alone, it is local" path, where a Read would silently return the
+// operator's own file instead of the target's.
 func underWorkspace(p, workspace string) bool {
 	rel, err := filepath.Rel(workspace, p)
-	return err == nil && !strings.HasPrefix(rel, "..")
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func deny(ev hookEvent, reason string) hookReply {

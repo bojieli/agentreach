@@ -346,10 +346,16 @@ func (p *POSIX) searchRipgrep(ctx context.Context, req waldo.SearchRequest, max 
 	if req.Glob != "" {
 		args = append(args, "-g", q(req.Glob))
 	}
+	// -m caps matches *per file*, not in total, so it alone cannot bound the
+	// response: a tree with ten thousand matching files would still produce a
+	// flood. The total is bounded by piping through head — generously, since
+	// rg --json emits several lines per match — and again by the client loop
+	// below. Without that, a large search would overrun the transport's output
+	// cap and arrive truncated mid-JSON.
 	args = append(args, "-m", strconv.Itoa(max), "-e", q(req.Pattern), q(req.Root))
 	// rg exits 1 when there are no matches; that is a legitimate empty result,
 	// not a failure, so it is normalised here rather than surfaced as an error.
-	cmd := strings.Join(args, " ") + " || true"
+	cmd := fmt.Sprintf("{ %s || true; } | head -n %d", strings.Join(args, " "), max*8)
 
 	out, err := p.run(ctx, cmd, nil)
 	if err != nil {
@@ -521,21 +527,6 @@ func parseFindPrintf(out string) ([]waldo.FileInfo, error) {
 		})
 	}
 	return infos, nil
-}
-
-func asExit(err error, target **waldo.ExitError) bool {
-	for err != nil {
-		if ee, ok := err.(*waldo.ExitError); ok {
-			*target = ee
-			return true
-		}
-		u, ok := err.(interface{ Unwrap() error })
-		if !ok {
-			return false
-		}
-		err = u.Unwrap()
-	}
-	return false
 }
 
 var _ FileOps = (*POSIX)(nil)

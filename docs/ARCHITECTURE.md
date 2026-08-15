@@ -40,71 +40,129 @@ than on a filesystem mount.
 │  ┌───▼─────────────────────────────────────┐               │
 │  │ adapter (per harness, thin, no fork)    │               │
 │  └───┬─────────────────────────────────────┘               │
-│      │ unix socket, length-prefixed JSON                   │
+│      │ argv, hook JSON on stdin, or a generated tool       │
 │  ┌───▼─────────────────────────────────────┐               │
-│  │ waldo daemon                            │               │
-│  │   session registry · cwd state          │               │
-│  │   connection pool · retry policy        │               │
+│  │ session   target · cwd · capabilities   │  a file,      │
+│  │           tier decision                 │  not a daemon │
+│  ├─────────────────────────────────────────┤               │
+│  │ fileops   posix · sftp · pipe · agent   │               │
+│  ├─────────────────────────────────────────┤               │
+│  │ transport ssh · docker · podman · local │               │
 │  └───┬─────────────────────────────────────┘               │
 └──────┼─────────────────────────────────────────────────────┘
-       │  ssh  ·  docker  ·  podman  ·  kubectl  ·  local
+       │  system ssh, multiplexed over ControlMaster
 ┌──────▼─────────────────────────────────────────────────────┐
 │ target: stock sshd only. no node, no python, no waldo bits │
 └────────────────────────────────────────────────────────────┘
 ```
 
-Three layers; only the top one is harness-specific.
+Only the top layer is harness-specific.
 
-## The backend contract
+## There is no daemon
 
-Every target implements one interface. `search` and `glob` are **first-class
-operations, not derived from readdir** — they execute server-side and return
-only matches, which is precisely what a mount cannot do and why waldo is faster
-than a mount on the operation that matters most.
+Session state — which target, which directory, which tier, what the target's
+userland supports — lives in a file under `~/.waldo`. Every waldo invocation is
+a short-lived process that reads it.
+
+A daemon would buy exactly one thing: connection reuse. SSH's `ControlMaster`
+already provides that, measured at ~7 ms per command against ~130 ms for a cold
+connect. Paying for it a second time would mean a lifecycle, a socket, crash
+recovery, version skew between a running daemon and an upgraded binary, and
+orphaned processes holding connections to someone else's server — in exchange
+for nothing.
+
+One consequence is worth stating early, because it shapes the tier design more
+than anything else: **waldo runs one process per tool call.**
+
+## waldo uses the system ssh, not a Go SSH library
+
+Users reach real hosts through jump hosts, certificate authorities, hardware
+tokens, `gpg-agent`, Kerberos, 1Password, and `Match exec` blocks.
+Reimplementing that surface faithfully is not realistic, and getting it subtly
+wrong strands people on exactly the hosts they most need to reach. waldo shells
+out to the `ssh` they already have, so `~/.ssh/config` keeps working unchanged.
+
+The cost is that ssh reports its own failures as exit 255, which is
+indistinguishable from a command that genuinely exited 255. waldo therefore
+carries the real status in-band behind an unguessable marker, and its
+**absence** is the signal that the transport, rather than the command, failed.
+Getting this wrong in either direction is bad: a transport failure reported as a
+command failure sends the agent chasing a phantom bug, and a command failure
+reported as a transport failure makes waldo retry something that must not be
+retried.
+
+## The two interfaces
+
+waldo separates *reaching a target* from *performing file operations on it*.
 
 ```go
-type Backend interface {
-    Exec(ctx, ExecRequest) (ExecResult, error)
+// internal/transport — how to reach a target and run a command.
+type Transport interface {
+    Run(ctx, ExecRequest) (ExecResult, error)   // to completion, bounded output
+    Open(ctx, command string) (Stream, error)   // long-lived, piped stdio
+    Describe() string
+    Close() error
+}
+
+// Implemented only by ssh: starts a subsystem rather than a command.
+type SubsystemOpener interface {
+    OpenSubsystem(ctx, name string) (Stream, error)
+}
+```
+
+```go
+// internal/fileops — how to act on files, in four interchangeable ways.
+type FileOps interface {
     Read(ctx, path string, off, n int64) ([]byte, error)
-    Write(ctx, path string, data []byte, mode fs.FileMode, expect Precondition) (Digest, error)
-    Stat(ctx, path string) (FileInfo, error)
+    Write(ctx, path string, data []byte, mode fs.FileMode) error
+    Stat(ctx, path string) (*FileInfo, error)
     List(ctx, path string) ([]FileInfo, error)
-    Search(ctx, SearchRequest) ([]Match, error)
-    Glob(ctx, pattern, root string) ([]string, error)
-    Remove(ctx, path string) error
-    Rename(ctx, from, to string) error
     Mkdir(ctx, path string, mode fs.FileMode) error
+    Remove(ctx, path string, recursive bool) error
+    Rename(ctx, from, to string) error
+    Search(ctx, SearchRequest) ([]Match, error)
+    Glob(ctx, root, pattern string) ([]string, error)
+    Hash(ctx, path string) (string, error)
+    Tier() Tier
     Close() error
 }
 ```
 
-Implementations: `local`, `ssh`, `docker`, `podman`, `kubectl`. A session binds
-to exactly one, so nothing can cross-contaminate between targets.
+`Search` and `Glob` are first-class operations, not helpers derived from `List`.
+They execute **on the target** and return only matches, at every tier — which is
+precisely what a mount cannot do, and the main reason waldo beats one on the
+operation that matters most. Deriving them client-side would mean dragging every
+candidate file across the network to answer a question the target could have
+answered locally.
 
-### Zero remote footprint
+## Tiers
 
-File operations ride the **SFTP subsystem that stock OpenSSH already ships**,
-used as a protocol rather than as a filesystem. Search and glob are ordinary
-commands (`rg`, else `grep -r`; `find`) on an exec channel. Nothing is written
-to the remote host, so nothing needs cleaning up and nothing can be left behind
-on a client's machine.
+Four strategies implement `FileOps`. They share almost no code — a shell
+pipeline, an SFTP subsystem, a Python handler, a Go binary — and a user cannot
+tell which is in use. That interchangeability claim is only worth something
+because every tier runs one identical conformance suite
+(`internal/fileops/fileopstest`): over the local transport in unit tests, and
+over a real sshd in `test/integration`, which additionally asserts that a file
+written through any tier reads back byte-for-byte through every other. A tier
+that cannot pass it does not ship.
 
-If a hardened host has the SFTP subsystem disabled, the SSH backend degrades to
-`cat`/`base64`/`dd` over exec channels. `waldo doctor` reports which tier a
-host is on.
+Full detail, including what each tier requires and writes, is in
+[TRANSPORTS.md](TRANSPORTS.md). The architectural points:
 
-### Behaviour on a bad link
-
-- A native SSH implementation (`x/crypto/ssh` + `pkg/sftp`), not the `ssh`
-  binary — waldo owns timeouts, keepalives, and concurrency instead of
-  inheriting OpenSSH's.
-- One TCP connection, many multiplexed channels; SFTP pipelines requests.
-- Per-request deadlines and exponential-backoff reconnect.
-- Reads and stats retry silently. Writes retry only under a
-  content-hash precondition, so a replayed write can never clobber a
-  concurrent change.
-- Offset-addressed reads and writes, so a transfer resumes rather than restarts.
-- Bounded output capture, so a runaway log cannot wedge a session.
+- **Tier 0 is the floor and needs only a POSIX shell.** Everything above it is
+  an optimisation that is never required.
+- **Negotiation follows measurement, not the tier numbering.** The numbers rank
+  capability; waldo ranks tiers by what they actually cost in a
+  process-per-call design, where an interpreter or binary starting up is pure
+  overhead. That makes tier 1 the negotiated choice where available, and the
+  nominally fastest tier 3 the slowest to start.
+- **A pinned tier is an instruction.** `--fileops=X` fails rather than
+  substituting something else, because a `waldo status` reporting a tier the
+  session is not using is a lie the operator will act on. An autonegotiated tier
+  may still step down, and says so on stderr.
+- **Only tier 3 writes to the target**, only when asked, never on an
+  `--untrusted` session. Everything it installs is listed by `waldo doctor` and
+  removed by `waldo agent uninstall`.
 
 ## Two modes
 
@@ -124,42 +182,68 @@ produce, so it is made structurally impossible rather than documented as a
 caveat. The agent uses the shell for file access, which is transparently remote.
 
 For harnesses that *can* shadow tools by name (opencode), `exec` mode is full
-fidelity: `read`/`write`/`edit`/`grep`/`glob` are backed by the remote backend
-directly, and no mirroring is needed.
+fidelity: `read`/`write`/`edit`/`grep`/`glob` are backed by the target directly,
+and no mirroring is needed.
 
-### `mirror` — a real local tree, kept coherent
+### `mirror` — the file a tool is about to touch, materialised
 
-Gives Claude Code, Codex, and Kimi native-speed file tools without MCP and
-without FUSE. waldo materialises the remote workspace as **ordinary local
-files** and keeps them coherent around each command:
+Gives Claude Code native file tools without MCP and without FUSE. A `PreToolUse`
+hook rewrites the tool's `file_path` to a local copy that waldo fetches at that
+moment; a `PostToolUse` hook writes the result back.
 
-- before an exec: upload files whose local content hash changed
-- after an exec: `find <root> -newermt @<ts>` on the remote (one cheap command,
-  no remote agent) then download exactly what changed
+This is deliberately **not** a sync engine, and not a bulk copy of the
+workspace. Nothing is mirrored until a tool asks for it, and there is no
+background reconciliation. A sync engine has to answer questions waldo has no
+good answer to — both sides changed, deleted or never fetched — and getting them
+wrong loses the operator's work. Fetching exactly the file a tool is about to
+touch, at the moment it touches it, raises none of them.
 
-Reads never block on the network because the files are genuinely local, and a
-sync failure is a visible error rather than a stalled syscall. This is what
-distinguishes mirroring from a mount.
+**Writes are guarded by a digest taken at fetch time.** If the file changed on
+the target in between — a build, a deploy, another session — the write is
+refused with an error the agent can act on, rather than overwriting from a stale
+base. A refusal the agent can see is always better than a quiet loss.
 
-**Path identity.** The mirror is placed at the *same absolute path* as the
-remote workspace. `/srv/app` remotely is `/srv/app` locally. Nothing —
-commands, compiler output, stack traces, git worktree `gitdir` pointers — needs
-translating, and the entire class of bugs where an absolute path is correct on
-one side and wrong on the other cannot occur. waldo refuses to start a mirror
-session it cannot place at the identical path, rather than silently falling
-back to translation.
+**`Grep` and `Glob` stay denied in mirror mode.** The mirror holds only files
+already opened, so a search across it would report confidently incomplete
+results, and an agent told "no matches" concludes the code does not exist. The
+agent is pointed at `rg`/`find` over the shell, which run on the target and are
+faster anyway.
+
+**Where the mirror lives.** Under `~/.waldo/mirror/<session>/`, with the
+target's absolute path reproduced beneath it: `/srv/app/main.go` becomes
+`~/.waldo/mirror/default/srv/app/main.go`. Placing it at the identical absolute
+path would make compiler output and stack traces line up with no translation at
+all, which is genuinely attractive — but it would require waldo to write to
+`/srv` on the operator's own machine. That is usually impossible without root,
+and an unacceptable thing for this tool to do even where it is possible.
+
+The residual cost is that the agent sees a local path in a `Read` result and
+could try to use it in a shell command, where it does not exist. The mirror-mode
+system prompt tells it to use the target's own paths, and the hook leaves every
+path outside the workspace alone so the harness's own files keep working.
+
+Paths are cleaned before being joined to the mirror root, so a path containing
+`..` cannot escape it. File paths can originate in content read from an
+untrusted target, which makes that a real attack path rather than a theoretical
+one.
 
 ## Harness adapters
 
 | harness | seam | verified |
 |---|---|---|
 | Claude Code | `CLAUDE_CODE_SHELL_PREFIX` → whole command as one argv element | yes, 2.1.233 |
-| Codex | login-shell substitution + `apply_patch_tool=false` | see `docs/harnesses/codex.md` |
-| Kimi Code | `PreToolUse` hook / shell substitution | see `docs/harnesses/kimi.md` |
-| opencode | custom tools shadowing built-ins by name | documented API |
+| Codex | `bash` shim on `PATH` (`execvp`) + sandbox network allowance | see [harnesses/codex.md](harnesses/codex.md) |
+| Kimi Code | `PATH` shim | see [harnesses/kimi.md](harnesses/kimi.md) |
+| opencode | generated tools shadowing built-ins by name | see [harnesses/opencode.md](harnesses/opencode.md) |
 
 No harness is forked. Claude Code and Codex keep their own authentication, so
 subscription logins continue to work and no key is introduced anywhere.
+
+Harnesses want a *program path* for their shell hook, not a command line —
+Claude Code stats the value of `CLAUDE_CODE_SHELL_PREFIX` directly, so
+`waldo shell-prefix` would be looked up as a single filename and fail. waldo
+dispatches on `argv[0]` through a symlink instead, which costs nothing per tool
+call.
 
 ### The Claude Code envelope
 

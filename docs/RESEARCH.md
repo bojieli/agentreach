@@ -202,4 +202,4 @@ running a real prompt through the agent, then asserting on the captured argv.
 Note that a nested `claude` run inherits `CLAUDECODE=1`,
 `CLAUDE_CODE_CHILD_SESSION=1` and a possibly-invalid `ANTHROPIC_API_KEY` from
 its parent; all of these must be unset or the run hangs or fails
-authentication. `test/e2e/cleanenv.sh` does this.
+authentication. `clean_agent_env` in `test/e2e/lib.sh` does this.
