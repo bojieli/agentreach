@@ -302,3 +302,22 @@ waldo exists because the target is not trusted. Consequences, in full in
 - Output from the target is **untrusted input**. It flows into the context of an
   agent that holds your credentials and can write to your local disk; waldo
   frames it as untrusted data.
+
+## Environment
+
+Everything below is optional; waldo works with none of it set.
+
+| Variable | Effect |
+|---|---|
+| `WALDO_HOME` | Where sessions, mirrors and audit logs live. Default `~/.waldo`. Setting it per-shell gives you independent sets of sessions. |
+| `WALDO_SESSION` | The session commands use when `--session` is absent. `waldo claude` and the other harness launchers set it for the process they start, which is how a harness's tool calls find the right target. |
+| `WALDO_SSH_CONFIG` | An alternate `ssh_config`, passed as `ssh -F`. Lets waldo's connections be configured separately from your interactive ones without duplicating host definitions. |
+| `WALDO_NO_AUDIT` | Set to any value to stop recording what waldo did. A record of every command is occasionally the wrong thing to keep — a shared machine, a command line carrying a secret — and that judgement is the operator's. |
+| `WALDO_HELPER_BINARY` | A helper binary to install instead of the one waldo would locate or build. For the helper tier only. |
+| `WALDO_LOCAL_SHELL` | Windows only: a POSIX shell to use for `local://` targets. waldo will not guess one, because guessing wrong runs your command under a shell that quotes differently. |
+
+The session file records the target, the negotiated tier, and the capability
+probe's results. It carries a schema version, and a file from a newer waldo is
+refused rather than partly read: `encoding/json` drops fields it does not
+recognise without a word, and a session waldo has only partly understood is
+exactly the uncertainty about *which machine* this project exists to remove.

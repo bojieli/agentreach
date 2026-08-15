@@ -145,14 +145,15 @@ to be verifiable and reversible:
    platform is an error, not a guess: a wrong guess leaves an unrunnable binary
    on a host that was supposed to stay untouched.
 2. waldo looks for a build for that platform beside its own binary (release
-   archives ship them), then in `~/.waldo/agent/`, then cross-compiles one with
-   the local Go toolchain from a source checkout. Nothing is downloaded at run
-   time: a tool that exists to touch nothing should not be fetching executables
-   over the network to put on a client's server.
+   archives ship them), then in `~/.waldo/helper/`, then cross-compiles one with
+   the local Go toolchain from a source checkout. `WALDO_HELPER_BINARY`
+   overrides all of that with one you built yourself. Nothing is downloaded at
+   run time: a tool that exists to touch nothing should not be fetching
+   executables over the network to put on a client's server.
 3. The binary is uploaded **using tier 0**, to
-   `~/.cache/waldo/agent-<version>-<os>-<arch>` on the target. Bootstrapping the
-   fast tier with the universal one means installation works on exactly the
-   hosts waldo can already reach.
+   `${XDG_CACHE_HOME:-$HOME/.cache}/waldo/helper-<version>-<os>-<arch>` on the
+   target. Bootstrapping the fast tier with the universal one means installation
+   works on exactly the hosts waldo can already reach.
 4. `waldo-helper --selftest` prints its version, a digest of itself, and its
    platform. waldo compares all three against the file it just sent, and
    reinstalls rather than trusting a mismatch. Version alone would accept a
@@ -162,7 +163,7 @@ to be verifiable and reversible:
 Properties:
 
 - **Self-updating.** The version is part of the path, so an upgraded waldo
-  installs a new agent rather than reusing a stale one.
+  installs a new helper rather than reusing a stale one.
 - **Visible.** `waldo doctor` lists exactly what waldo has placed on the host,
   and says plainly when it has placed nothing.
 - **Removable.** `waldo helper uninstall` deletes the cache directory. That path
