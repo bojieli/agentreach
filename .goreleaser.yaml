@@ -5,28 +5,28 @@ before:
   hooks:
     - go mod tidy
     - go test ./...
-    # The tier-3 helper, built for every platform a target might run, and
+    # The helper binary, built for every platform a target might run, and
     # shipped inside every archive. waldo looks for these beside its own binary,
     # so an operator on macOS can use the agent tier against a Linux target
     # without a Go toolchain — and waldo never has to download an executable at
     # run time to put on someone else's machine.
-    - mkdir -p dist/agents
+    - mkdir -p dist/helpers
     - >-
       env GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath
       -ldflags "-s -w -X main.version={{.Version}}"
-      -o dist/agents/waldo-agent-linux-amd64 ./cmd/waldo-agent
+      -o dist/helpers/waldo-helper-linux-amd64 ./cmd/waldo-helper
     - >-
       env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath
       -ldflags "-s -w -X main.version={{.Version}}"
-      -o dist/agents/waldo-agent-linux-arm64 ./cmd/waldo-agent
+      -o dist/helpers/waldo-helper-linux-arm64 ./cmd/waldo-helper
     - >-
       env GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -trimpath
       -ldflags "-s -w -X main.version={{.Version}}"
-      -o dist/agents/waldo-agent-darwin-amd64 ./cmd/waldo-agent
+      -o dist/helpers/waldo-helper-darwin-amd64 ./cmd/waldo-helper
     - >-
       env GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -trimpath
       -ldflags "-s -w -X main.version={{.Version}}"
-      -o dist/agents/waldo-agent-darwin-arm64 ./cmd/waldo-agent
+      -o dist/helpers/waldo-helper-darwin-arm64 ./cmd/waldo-helper
 
 builds:
   - id: waldo
@@ -61,7 +61,7 @@ archives:
       - LICENSE
       - CHANGELOG.md
       - docs/**/*
-      - src: dist/agents/*
+      - src: dist/helpers/*
         dst: .
         info: { mode: 0755 }
 
@@ -80,7 +80,7 @@ release:
   footer: |
     ## Verifying this release
 
-    Every archive ships `waldo` plus the tier-3 helper for each target platform.
+    Every archive ships `waldo` plus the helper binary for each target platform.
     Check them against `checksums.txt`:
 
     ```console

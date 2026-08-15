@@ -87,8 +87,8 @@ func build(ctx context.Context, tier waldo.Tier, t transport.Transport, caps *Ca
 			return nil, fmt.Errorf("no python3 on the target")
 		}
 		return NewPipe(ctx, t, base)
-	case waldo.TierAgent:
-		return NewAgent(ctx, t, base, caps)
+	case waldo.TierHelper:
+		return NewHelper(ctx, t, base, caps)
 	}
 	return nil, fmt.Errorf("unknown tier %v", tier)
 }

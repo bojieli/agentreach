@@ -21,7 +21,7 @@ type Transport interface {
 	Run(ctx context.Context, req waldo.ExecRequest) (waldo.ExecResult, error)
 
 	// Open starts a long-lived command with piped stdio. It backs the pipe and
-	// agent file-operation tiers, which keep one process alive and speak a
+	// helper file-operation tiers, which keep one process alive and speak a
 	// framed protocol over it.
 	Open(ctx context.Context, command string) (Stream, error)
 

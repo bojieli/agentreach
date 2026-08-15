@@ -128,11 +128,11 @@ func useExistingHost(host string) (func(), error) {
 	}
 	return func() {
 		_ = exec.Command("ssh", host, "rm -rf "+workspace).Run()
-		removeInstalledAgent(func(command string) { _ = exec.Command("ssh", host, command).Run() })
+		removeInstalledHelper(func(command string) { _ = exec.Command("ssh", host, command).Run() })
 	}, nil
 }
 
-// removeInstalledAgent takes back the one thing waldo ever puts on a target.
+// removeInstalledHelper takes back the one thing waldo ever puts on a target.
 //
 // The suite exercises the agent tier, which *installs a binary*. A test run that
 // quietly leaves one behind breaks the promise the whole project is built on,
@@ -143,7 +143,7 @@ func useExistingHost(host string) (func(), error) {
 //
 // Only this build's own binary is removed, by exact version, so a waldo the
 // operator installed themselves is left alone.
-func removeInstalledAgent(run func(command string)) {
+func removeInstalledHelper(run func(command string)) {
 	run(fmt.Sprintf(
 		"rm -f ~/.cache/waldo/agent-%s-*; rmdir ~/.cache/waldo 2>/dev/null || true",
 		waldo.Version))
@@ -212,7 +212,7 @@ LogLevel ERROR
 	stop := func() {
 		// The local sshd's target is this machine, so the agent tier installed
 		// into this machine's cache. Same promise, same cleanup.
-		removeInstalledAgent(func(command string) {
+		removeInstalledHelper(func(command string) {
 			_ = exec.Command("sh", "-c", command).Run()
 		})
 		if cmd.Process != nil {

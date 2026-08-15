@@ -338,9 +338,9 @@ func (s *Session) checkWorkspace(ctx context.Context, t transport.Transport) err
 // stderr, because a host that stopped answering on its usual tier should keep
 // working, but not without the operator being able to see that it changed.
 func (s *Session) FileOps(ctx context.Context, t transport.Transport) (fileops.Selection, error) {
-	if s.Tier == waldo.TierAgent && s.Untrusted {
+	if s.Tier == waldo.TierHelper && s.Untrusted {
 		return fileops.Selection{}, fmt.Errorf(
-			"session %q is marked --untrusted, and the agent tier installs a binary on the target.\n"+
+			"session %q is marked --untrusted, and the helper tier installs a binary on the target.\n"+
 				"Re-create the session without --untrusted, or use a tier that installs nothing.", s.Name)
 	}
 	warn := func(msg string) { fmt.Fprintln(os.Stderr, msg) }
@@ -391,7 +391,7 @@ func (s *Session) Probe(ctx context.Context) error {
 	}
 
 	if !s.Pinned {
-		// Autonegotiation deliberately stops below TierAgent: that tier writes
+		// Autonegotiation deliberately stops below TierHelper: that tier writes
 		// a binary to the target, and waldo never makes that choice on the
 		// operator's behalf.
 		s.Tier = caps.BestTier()

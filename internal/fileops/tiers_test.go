@@ -25,7 +25,7 @@ func TestTierConformance(t *testing.T) {
 	}{
 		{"posix", waldo.TierPOSIX},
 		{"pipe", waldo.TierPipe},
-		{"agent", waldo.TierAgent},
+		{"helper", waldo.TierHelper},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -40,8 +40,8 @@ func TestTierConformance(t *testing.T) {
 				}
 				sel, err := fileops.New(context.Background(), tc.tier, tr, caps, true, nil)
 				if err != nil {
-					if tc.tier == waldo.TierAgent && os.Getenv("CI") == "" {
-						t.Skipf("agent tier unavailable here: %v", err)
+					if tc.tier == waldo.TierHelper && os.Getenv("CI") == "" {
+						t.Skipf("helper tier unavailable here: %v", err)
 					}
 					t.Fatalf("build tier %s: %v", tc.tier, err)
 				}
@@ -70,7 +70,7 @@ func TestPinnedTierIsNeverSubstituted(t *testing.T) {
 	// is exactly the case where a pin cannot be honoured.
 	impossible := *caps
 	impossible.Uname = "Plan9 unknown-arch"
-	if _, err := fileops.New(context.Background(), waldo.TierAgent, tr, &impossible, true, nil); err == nil {
+	if _, err := fileops.New(context.Background(), waldo.TierHelper, tr, &impossible, true, nil); err == nil {
 		t.Fatal("pinning an impossible tier succeeded; it must fail loudly")
 	}
 }

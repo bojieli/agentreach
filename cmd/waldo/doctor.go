@@ -75,7 +75,7 @@ func cmdDoctor(ctx context.Context, args []string) error {
 	fmt.Printf("  python3          %s\n", ok(caps.Python3))
 
 	fmt.Println("\nFILE-OPERATION TIERS")
-	for _, tier := range []waldo.Tier{waldo.TierPOSIX, waldo.TierPipe, waldo.TierAgent} {
+	for _, tier := range []waldo.Tier{waldo.TierPOSIX, waldo.TierPipe, waldo.TierHelper} {
 		qualifies, why := caps.Qualifies(tier)
 		mark := "no "
 		if qualifies {
@@ -87,12 +87,12 @@ func cmdDoctor(ctx context.Context, args []string) error {
 		}
 		fmt.Println(line)
 	}
-	fmt.Printf("\n  Negotiated tier: %s (autonegotiation stops below agent)\n", caps.BestTier())
+	fmt.Printf("\n  Negotiated tier: %s (autonegotiation stops below helper)\n", caps.BestTier())
 	reportConnectionReuse(ctx, s)
 	if s.Pinned {
 		fmt.Printf("  This session pins %s with --fileops.\n", s.Tier)
 	}
-	reportAgentFootprint(ctx, t)
+	reportHelperFootprint(ctx, t)
 
 	fmt.Println("\nWHAT THIS MEANS")
 	if caps.Ripgrep == "" {
@@ -154,14 +154,14 @@ func reportConnectionReuse(ctx context.Context, s *session.Session) {
 	fmt.Println("    batch mode, so they will fail rather than prompt.")
 }
 
-// reportAgentFootprint prints what waldo has left on this target.
+// reportHelperFootprint prints what waldo has left on this target.
 //
 // waldo's central promise is that it puts nothing on a machine you do not
 // control. The only tier that breaks that promise does so at the operator's
 // explicit request — and a promise like this one is worth nothing unless there
 // is a command that shows whether it currently holds.
-func reportAgentFootprint(ctx context.Context, t transport.Transport) {
-	dir, err := fileops.AgentCacheDir(ctx, t)
+func reportHelperFootprint(ctx context.Context, t transport.Transport) {
+	dir, err := fileops.HelperCacheDir(ctx, t)
 	if err != nil {
 		return
 	}
@@ -181,7 +181,7 @@ func reportAgentFootprint(ctx context.Context, t transport.Transport) {
 	for _, n := range names {
 		fmt.Printf("    %s\n", n)
 	}
-	fmt.Println("  Remove them with: waldo agent uninstall")
+	fmt.Println("  Remove them with: waldo helper uninstall")
 }
 
 func orNone(s string) string {

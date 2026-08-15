@@ -17,7 +17,7 @@ waldo different from running the agent remotely.
 
 **Nothing is installed by default.** Tier 0 uses only a POSIX shell and writes
 nothing to the target's disk. The one tier that does write a binary
-(`--fileops=agent`) is never selected by autonegotiation and is refused
+(`--fileops=helper`) is never selected by autonegotiation and is refused
 outright on a session marked `--untrusted`.
 
 **SSH agent forwarding is off, unconditionally.** waldo never passes

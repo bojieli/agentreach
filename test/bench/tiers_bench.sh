@@ -18,7 +18,7 @@
 #   WALDO_BENCH_SSH_HOST=my-box make bench
 #
 # It creates one directory there and removes it, along with anything the agent
-# tier installed, when it exits.
+# helper tier installed, when it exits.
 set -uo pipefail
 
 cd "$(dirname "$0")/../.." || exit 1
@@ -49,7 +49,7 @@ if [[ -n "${WALDO_BENCH_SSH_HOST:-}" ]]; then
   ssh "$HOST" "mkdir -p '$WS'" || die "cannot prepare $WS on $HOST"
   on_target() { ssh "$HOST" "$1"; }
   cleanup() {
-    "$ROOT/waldo" agent uninstall --session bench >/dev/null 2>&1
+    "$ROOT/waldo" helper uninstall --session bench >/dev/null 2>&1
     ssh "$HOST" "rm -rf '$WS'" >/dev/null 2>&1
   }
 else
@@ -94,7 +94,7 @@ EOF
   LABEL="loopback sshd"
   on_target() { bash -c "$1"; }
   cleanup() {
-    "$ROOT/waldo" agent uninstall --session bench >/dev/null 2>&1
+    "$ROOT/waldo" helper uninstall --session bench >/dev/null 2>&1
     kill "$SSHD_PID" 2>/dev/null
   }
 
@@ -113,7 +113,7 @@ on_target "head -c $((LARGE_MB * 1024 * 1024)) /dev/urandom > '$WS/large.bin'" |
 info "waldo tier benchmark against $LABEL — one process per operation"
 printf '\n%-8s %18s %14s %14s\n' tier "${SMALL_READS} x 1KiB read" "${LARGE_MB}MiB read" "${LARGE_MB}MiB write"
 
-for tier in posix pipe agent; do
+for tier in posix pipe helper; do
   if ! "$ROOT/waldo" up "ssh://$HOST$WS" --fileops="$tier" --name bench >/dev/null 2>&1; then
     printf '%-8s %18s\n' "$tier" "unavailable"
     continue

@@ -22,7 +22,7 @@ import (
 // which is what decides whether file content is base64-framed.
 func TestTierConformanceOverSSH(t *testing.T) {
 	for _, tier := range []waldo.Tier{
-		waldo.TierPOSIX, waldo.TierPipe, waldo.TierAgent,
+		waldo.TierPOSIX, waldo.TierPipe, waldo.TierHelper,
 	} {
 		t.Run(tier.String(), func(t *testing.T) {
 			tr := newTransport(t)
@@ -69,7 +69,7 @@ func TestTiersAgreeByteForByte(t *testing.T) {
 		t.Fatalf("probe: %v", err)
 	}
 
-	tiers := []waldo.Tier{waldo.TierPOSIX, waldo.TierPipe, waldo.TierAgent}
+	tiers := []waldo.Tier{waldo.TierPOSIX, waldo.TierPipe, waldo.TierHelper}
 	ops := map[waldo.Tier]fileops.FileOps{}
 	for _, tier := range tiers {
 		sel, err := fileops.New(ctx, tier, tr, caps, true, nil)

@@ -180,14 +180,14 @@ Full detail, including what each tier requires and writes, is in
   capability; waldo ranks tiers by what they actually cost in a
   process-per-call design, where an interpreter or binary starting up is pure
   overhead. That makes tier 1 the negotiated choice where available, and the
-  nominally fastest tier 3 the slowest to start.
+  nominally fastest the helper tier the slowest to start.
 - **A pinned tier is an instruction.** `--fileops=X` fails rather than
   substituting something else, because a `waldo status` reporting a tier the
   session is not using is a lie the operator will act on. An autonegotiated tier
   may still step down, and says so on stderr.
-- **Only tier 3 writes to the target**, only when asked, never on an
+- **Only the helper tier writes to the target**, only when asked, never on an
   `--untrusted` session. Everything it installs is listed by `waldo doctor` and
-  removed by `waldo agent uninstall`.
+  removed by `waldo helper uninstall`.
 
 ## Two modes
 

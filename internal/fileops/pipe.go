@@ -52,9 +52,9 @@ const pipeStartTimeout = 20 * time.Second
 // handlerOps implements FileOps by keeping one long-lived process alive on the
 // target and speaking a framed protocol to it.
 //
-// Tier 2 and tier 3 differ only in which program is on the other end — a Python
-// interpreter holding a script that was never written to disk, or a small
-// installed binary — so they share this client entirely. A protocol difference
+// The pipe and helper tiers differ only in which program is on the other end —
+// a Python interpreter holding a script that was never written to disk, or a
+// small installed binary — so they share this client entirely. A protocol difference
 // between the two would be a second implementation to keep honest, and the
 // conformance suite would have to prove the same properties twice.
 //

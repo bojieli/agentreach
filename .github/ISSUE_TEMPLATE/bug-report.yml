@@ -36,7 +36,7 @@ body:
     attributes:
       label: Which file-operation tier
       description: Shown by `waldo status`. If the bug only appears on one tier, that is a strong clue.
-      options: [posix, pipe, agent, "not sure"]
+      options: [posix, pipe, helper, "not sure"]
 
   - type: markdown
     attributes:

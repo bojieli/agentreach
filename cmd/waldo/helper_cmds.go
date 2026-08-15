@@ -11,24 +11,24 @@ import (
 	"github.com/bojieli/waldo/internal/waldo"
 )
 
-const agentUsage = `waldo agent — the optional helper binary (tier 3)
+const helperUsage = `waldo helper — the optional helper binary
 
-  waldo agent status [session]      what waldo has installed on the target
-  waldo agent uninstall [session]   remove everything waldo installed there
+  waldo helper status [session]     what waldo has installed on the target
+  waldo helper uninstall [session]  remove everything waldo installed there
 
-Tier 3 is the only tier that writes to a target. It is never selected
+The helper tier is the only tier that writes to a target. It is never selected
 automatically, is refused on a session marked --untrusted, and everything it
 installs lives in one directory that this command removes.
 `
 
-func cmdAgent(ctx context.Context, args []string) error {
+func cmdHelper(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		fmt.Fprint(os.Stderr, agentUsage)
+		fmt.Fprint(os.Stderr, helperUsage)
 		return fmt.Errorf("expected a subcommand")
 	}
 	sub, rest := args[0], args[1:]
 
-	fs := newFlagSet("agent " + sub)
+	fs := newFlagSet("helper " + sub)
 	sessName := fs.String("session", "", "session name (default $WALDO_SESSION)")
 	pos, err := parseFlags(fs, rest)
 	if err != nil {
@@ -46,7 +46,7 @@ func cmdAgent(ctx context.Context, args []string) error {
 	}
 	defer func() { _ = t.Close() }()
 
-	dir, err := fileops.AgentCacheDir(ctx, t)
+	dir, err := fileops.HelperCacheDir(ctx, t)
 	if err != nil {
 		return err
 	}
@@ -84,15 +84,15 @@ func cmdAgent(ctx context.Context, args []string) error {
 				dir, s.Target.Describe(), strings.TrimSpace(string(res.Stderr)))
 		}
 		fmt.Printf("removed %s from %s\n", dir, s.Target.Describe())
-		if s.Tier == waldo.TierAgent {
+		if s.Tier == waldo.TierHelper {
 			fmt.Println("note: this session still pins --fileops=agent, so the next command reinstalls it.")
 			fmt.Printf("      run `waldo up %s` without --fileops to stop using it.\n", s.Target.Raw)
 		}
 		return nil
 	}
 
-	fmt.Fprint(os.Stderr, agentUsage)
-	return fmt.Errorf("unknown agent subcommand %q", sub)
+	fmt.Fprint(os.Stderr, helperUsage)
+	return fmt.Errorf("unknown helper subcommand %q", sub)
 }
 
 func firstNonEmpty(vals ...string) string {

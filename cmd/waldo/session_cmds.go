@@ -98,8 +98,8 @@ func cmdUp(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		if t == waldo.TierAgent && *untrusted {
-			return fmt.Errorf("refusing --fileops=agent on an --untrusted target: that tier installs a binary on the target")
+		if t == waldo.TierHelper && *untrusted {
+			return fmt.Errorf("refusing --fileops=helper on an --untrusted target: that tier installs a binary on the target")
 		}
 		s.Tier = t
 		s.Pinned = true
@@ -135,8 +135,8 @@ func tierNote(s *session.Session) string {
 	switch {
 	case s.TierReason != "":
 		return " (" + s.TierReason + ")"
-	case s.Tier == waldo.TierAgent:
-		return " (installed a helper binary on the target; remove it with `waldo agent uninstall`)"
+	case s.Tier == waldo.TierHelper:
+		return " (installed a helper binary on the target; remove it with `waldo helper uninstall`)"
 	case s.Pinned:
 		return " (pinned)"
 	case s.Tier == waldo.TierPOSIX:
@@ -286,10 +286,10 @@ func first(v []string) string {
 // instead of re-uploading several megabytes. --clean is for when the point was
 // to leave no trace.
 func reportOrRemoveFootprint(ctx context.Context, s *session.Session, t transport.Transport, clean bool) {
-	if s.Tier != waldo.TierAgent {
+	if s.Tier != waldo.TierHelper {
 		return
 	}
-	dir, err := fileops.AgentCacheDir(ctx, t)
+	dir, err := fileops.HelperCacheDir(ctx, t)
 	if err != nil {
 		return
 	}

@@ -188,7 +188,7 @@ fourth installs a small helper, only when you ask for it by name, and
 |---|---|---|---|
 | `posix` | a POSIX shell | nothing | yes (floor) |
 | `pipe` | `python3` | nothing | yes (preferred) |
-| `agent` | can run an upload | one cached binary | **never** |
+| `helper` | can run an upload | one cached binary | **never** |
 
 Which tier is fastest is [measured, not assumed](docs/TRANSPORTS.md), on a real
 network rather than on loopback — and one tier was deleted when the measurement

@@ -23,7 +23,7 @@ SESSIONS
   status [name]     show sessions
   doctor [name]     diagnose a target: what works, what degrades, and why
   log [name]        what waldo has run and changed on the target
-  agent <op>        inspect or remove the optional helper binary (tier 3)
+  helper <op>       inspect or remove the optional helper binary
 
 RUNNING
   exec [cmd...]     run a command on the target
@@ -111,8 +111,14 @@ func main() {
 		os.Exit(cmdKimi(ctx, os.Args[2:]))
 	case "opencode":
 		err = cmdOpencode(ctx, os.Args[2:])
+	case "helper":
+		err = cmdHelper(ctx, os.Args[2:])
 	case "agent":
-		err = cmdAgent(ctx, os.Args[2:])
+		// Renamed. Anyone with this in a script or in muscle memory deserves
+		// the new name, not "unknown command".
+		err = fmt.Errorf("`waldo agent` is now `waldo helper`.\n" +
+			"It was renamed because \"agent\" already means the coding agent this tool " +
+			"drives, which made `waldo agent uninstall` read like it removed Claude Code")
 	case "log":
 		err = cmdLog(ctx, os.Args[2:])
 	case "version", "--version", "-v":

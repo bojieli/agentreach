@@ -11,24 +11,24 @@ LDFLAGS := -s -w \
 	-X main.buildCommit=$(COMMIT) \
 	-X main.buildDate=$(DATE)
 
-.PHONY: all build build-agent test vet lint e2e mock conformance integration bench clean install fmt check
+.PHONY: all build build-helper test vet lint e2e mock conformance integration bench clean install fmt check
 
 all: check build
 
 build: ## build the waldo binary
 	$(GO) build -ldflags '$(LDFLAGS)' -o $(BIN) ./cmd/waldo
 
-# The tier-3 helper for this platform. waldo finds it beside its own binary, so
+# The helper binary for this platform. waldo finds it beside its own binary, so
 # installing both means the agent tier works against a same-platform target
 # without a cross-compile. Other platforms are cross-built on demand.
-build-agent: ## build the optional tier-3 helper for this platform
+build-helper: ## build the optional helper binary for this platform
 	$(GO) build -trimpath -ldflags '-s -w -X main.version=$(VERSION)' \
-		-o $(BIN)-agent ./cmd/waldo-agent
+		-o $(BIN)-helper ./cmd/waldo-helper
 
-install: build build-agent ## install to ~/.local/bin
+install: build build-helper ## install to ~/.local/bin
 	install -d $(HOME)/.local/bin
 	install -m 0755 $(BIN) $(HOME)/.local/bin/$(BIN)
-	install -m 0755 $(BIN)-agent $(HOME)/.local/bin/$(BIN)-agent
+	install -m 0755 $(BIN)-helper $(HOME)/.local/bin/$(BIN)-helper
 	@echo "installed $(HOME)/.local/bin/$(BIN)"
 
 test: ## unit and integration tests (no model tokens spent)
@@ -65,5 +65,5 @@ bench: ## measure what each file-operation tier costs (docs/TRANSPORTS.md)
 	./test/bench/tiers_bench.sh
 
 clean:
-	rm -f $(BIN) $(BIN)-agent
+	rm -f $(BIN) $(BIN)-helper
 	$(GO) clean -testcache

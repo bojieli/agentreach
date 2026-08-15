@@ -86,9 +86,9 @@ const (
 	TierPOSIX Tier = iota
 	// TierPipe streams a stdlib-only handler over stdin. No disk footprint.
 	TierPipe
-	// TierAgent uses a waldo-installed static binary. Fastest; the only tier
-	// that writes to the target, and never chosen by autonegotiation.
-	TierAgent
+	// TierHelper uses a small binary waldo installs on the target. The only
+	// tier that writes anything there, and never chosen by autonegotiation.
+	TierHelper
 )
 
 func (t Tier) String() string {
@@ -97,8 +97,8 @@ func (t Tier) String() string {
 		return "posix"
 	case TierPipe:
 		return "pipe"
-	case TierAgent:
-		return "agent"
+	case TierHelper:
+		return "helper"
 	}
 	return fmt.Sprintf("tier(%d)", int(t))
 }
@@ -118,10 +118,16 @@ func ParseTier(s string) (Tier, error) {
 			"Use posix (installs nothing), pipe (needs python3), or agent")
 	case "pipe":
 		return TierPipe, nil
+	case "helper":
+		return TierHelper, nil
 	case "agent":
-		return TierAgent, nil
+		// Renamed, not removed. "agent" already meant the coding agent — the
+		// thing waldo exists to serve — so a tier of the same name made
+		// `waldo agent uninstall` read like it removed Claude Code.
+		return 0, fmt.Errorf("the agent tier is now called helper: use --fileops=helper. " +
+			"It was renamed because \"agent\" already means the coding agent this tool drives")
 	}
-	return 0, fmt.Errorf("unknown fileops tier %q (want posix, pipe or agent)", s)
+	return 0, fmt.Errorf("unknown fileops tier %q (want posix, pipe or helper)", s)
 }
 
 // ExitError reports a command that ran to completion with a non-zero status.

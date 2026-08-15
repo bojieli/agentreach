@@ -11,6 +11,15 @@ project makes without a version attached.
 
 ## [Unreleased]
 
+### Changed
+
+- **The `agent` tier is now called `helper`**, and `waldo agent` is now
+  `waldo helper`. "agent" already meant the coding agent — the thing waldo
+  exists to serve — so `waldo agent uninstall` read like it removed Claude Code.
+  The binary it installs is `waldo-helper`, cached as
+  `~/.cache/waldo/helper-<version>-<os>-<arch>` on the target. Both old spellings
+  now explain the rename rather than reporting an unknown tier or command.
+
 ### Removed
 
 - **The SFTP tier.** It was implemented, tested, measured, and then deleted.
@@ -59,7 +68,7 @@ project makes without a version attached.
     disk.
   - `agent`: an opt-in helper binary, digest-verified after upload, refused on
     `--untrusted` sessions, never selected automatically.
-- `waldo agent status` and `waldo agent uninstall`, so the one tier that writes
+- `waldo helper status` and `waldo helper uninstall`, so the one tier that writes
   to a target can be inspected and reversed.
 - Tier autonegotiation, chosen by measurement rather than by tier number, and
   proven by building the tier during `waldo up` instead of assuming it.
@@ -127,7 +136,7 @@ project makes without a version attached.
   argues against. It now describes the system that exists.
 - `docs/TRANSPORTS.md` carries measured numbers instead of estimates. They
   overturn the ordering it asserted: `sftp` is fastest, and the nominally
-  fastest `agent` tier is the slowest to start.
+  fastest `helper` tier is the slowest to start.
 
 ## [0.1.0]
 

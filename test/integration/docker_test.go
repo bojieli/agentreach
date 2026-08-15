@@ -102,7 +102,7 @@ func TestDockerTierConformance(t *testing.T) {
 	t.Logf("container userland: %s stat=%s python3=%v find-printf=%v",
 		caps.Uname, caps.StatFlavor, caps.Python3, caps.FindPrintf)
 
-	for _, tier := range []waldo.Tier{waldo.TierPOSIX, waldo.TierPipe, waldo.TierAgent} {
+	for _, tier := range []waldo.Tier{waldo.TierPOSIX, waldo.TierPipe, waldo.TierHelper} {
 		t.Run(tier.String(), func(t *testing.T) {
 			if ok, why := caps.Qualifies(tier); !ok {
 				t.Skipf("this image does not qualify for tier %s: %s", tier, why)
@@ -248,7 +248,7 @@ func TestTargetWithNoShellFailsClearly(t *testing.T) {
 	dir := t.TempDir()
 	arch := runtime.GOARCH // the daemon runs Linux containers of the host's arch
 	build := exec.Command("go", "build", "-trimpath", "-o", filepath.Join(dir, "agent"),
-		"./cmd/waldo-agent")
+		"./cmd/waldo-helper")
 	build.Dir = root
 	build.Env = append(os.Environ(), "GOOS=linux", "GOARCH="+arch, "CGO_ENABLED=0")
 	if out, err := build.CombinedOutput(); err != nil {

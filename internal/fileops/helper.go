@@ -16,62 +16,62 @@ import (
 	"github.com/bojieli/waldo/internal/waldo"
 )
 
-// AgentBinaryEnv names an explicit path to an agent binary for the target's
+// HelperBinaryEnv names an explicit path to an agent binary for the target's
 // platform, for operators who build or vendor their own.
-const AgentBinaryEnv = "WALDO_AGENT_BINARY"
+const HelperBinaryEnv = "WALDO_HELPER_BINARY"
 
-// NewAgent installs the helper binary if needed and starts it.
+// NewHelper installs the helper binary if needed and starts it.
 //
 // This is the only tier that writes to the target. Everything about it is
 // therefore built to be reversible and visible: the version is in the path so
 // an upgrade never reuses a stale binary, the content is verified by digest
 // after upload so a truncated transfer is caught rather than executed, `waldo
-// doctor` reports what is there, and `waldo agent uninstall` removes it.
-func NewAgent(ctx context.Context, t transport.Transport, base *POSIX, caps *Capabilities) (FileOps, error) {
+// doctor` reports what is there, and `waldo helper uninstall` removes it.
+func NewHelper(ctx context.Context, t transport.Transport, base *POSIX, caps *Capabilities) (FileOps, error) {
 	goos, goarch, err := platformOf(caps.Uname)
 	if err != nil {
 		return nil, err
 	}
 
-	local, err := LocateAgentBinary(ctx, goos, goarch)
+	local, err := LocateHelperBinary(ctx, goos, goarch)
 	if err != nil {
 		return nil, err
 	}
 	payload, err := os.ReadFile(local)
 	if err != nil {
-		return nil, fmt.Errorf("read agent binary %s: %w", local, err)
+		return nil, fmt.Errorf("read helper binary %s: %w", local, err)
 	}
 	sum := sha256.Sum256(payload)
 	digest := hex.EncodeToString(sum[:])
 
-	remote, err := AgentPath(ctx, t, goos, goarch)
+	remote, err := HelperPath(ctx, t, goos, goarch)
 	if err != nil {
 		return nil, err
 	}
 
-	if !agentMatches(ctx, t, remote, digest, goos, goarch) {
-		if err := installAgent(ctx, base, remote, payload); err != nil {
+	if !helperMatches(ctx, t, remote, digest, goos, goarch) {
+		if err := installHelper(ctx, base, remote, payload); err != nil {
 			return nil, err
 		}
-		if !agentMatches(ctx, t, remote, digest, goos, goarch) {
+		if !helperMatches(ctx, t, remote, digest, goos, goarch) {
 			return nil, fmt.Errorf(
-				"the agent at %s does not report the version and digest waldo just installed.\n"+
+				"the helper at %s does not report the version and digest waldo just installed.\n"+
 					"waldo will not run a binary it cannot identify; use --fileops=pipe or omit\n"+
 					"--fileops to negotiate a tier that installs nothing", remote)
 		}
 	}
 
-	return startHandler(ctx, t, base, waldo.TierAgent, "agent",
+	return startHandler(ctx, t, base, waldo.TierHelper, "helper",
 		fmt.Sprintf("exec %s serve", transport.ShellQuote(remote)), "")
 }
 
-// agentMatches asks an installed agent to identify itself.
+// helperMatches asks an installed helper to identify itself.
 //
 // Both the version and the content digest must match. Version alone would
 // happily accept a truncated upload, and a digest alone would accept a binary
 // from a different waldo release that happened to hash the same way it did
 // before an upgrade — neither is something to run on someone else's machine.
-func agentMatches(ctx context.Context, t transport.Transport, remote, digest, goos, goarch string) bool {
+func helperMatches(ctx context.Context, t transport.Transport, remote, digest, goos, goarch string) bool {
 	res, err := t.Run(ctx, waldo.ExecRequest{
 		Command:   fmt.Sprintf("%s --selftest 2>/dev/null", transport.ShellQuote(remote)),
 		MaxOutput: 4 << 10,
@@ -79,31 +79,31 @@ func agentMatches(ctx context.Context, t transport.Transport, remote, digest, go
 	if err != nil || res.Code != 0 {
 		return false
 	}
-	want := fmt.Sprintf("waldo-agent %s %s %s/%s", waldo.Version, digest, goos, goarch)
+	want := fmt.Sprintf("waldo-helper %s %s %s/%s", waldo.Version, digest, goos, goarch)
 	return strings.TrimSpace(string(res.Stdout)) == want
 }
 
-// installAgent uploads the binary using the tier that needs nothing installed.
+// installHelper uploads the binary using the tier that needs nothing installed.
 //
 // Tier 0 is used deliberately: bootstrapping the fast tier with the universal
 // one means installation works on exactly the hosts waldo can already reach,
 // with no separate upload path to keep correct.
-func installAgent(ctx context.Context, base *POSIX, remote string, payload []byte) error {
+func installHelper(ctx context.Context, base *POSIX, remote string, payload []byte) error {
 	if err := base.Mkdir(ctx, path.Dir(remote), 0o700); err != nil {
-		return fmt.Errorf("create the agent cache directory on the target: %w", err)
+		return fmt.Errorf("create the helper cache directory on the target: %w", err)
 	}
 	if err := base.Write(ctx, remote, payload, 0o700); err != nil {
-		return fmt.Errorf("upload the agent to %s: %w", remote, err)
+		return fmt.Errorf("upload the helper to %s: %w", remote, err)
 	}
 	return nil
 }
 
-// AgentPath resolves where the agent lives on a target.
+// HelperPath resolves where the agent lives on a target.
 //
 // The version is part of the filename so that an upgraded waldo installs a new
-// agent rather than silently reusing an old one, and so that `waldo doctor` can
+// helper rather than silently reusing an old one, and so that `waldo doctor` can
 // list exactly what waldo has left on a host.
-func AgentPath(ctx context.Context, t transport.Transport, goos, goarch string) (string, error) {
+func HelperPath(ctx context.Context, t transport.Transport, goos, goarch string) (string, error) {
 	res, err := t.Run(ctx, waldo.ExecRequest{
 		Command:   `printf %s "${XDG_CACHE_HOME:-$HOME/.cache}"`,
 		MaxOutput: 4 << 10,
@@ -116,20 +116,20 @@ func AgentPath(ctx context.Context, t transport.Transport, goos, goarch string) 
 		return "", fmt.Errorf("the target reported no usable cache directory (%q); "+
 			"tier 3 needs somewhere it may write", cache)
 	}
-	return path.Join(cache, "waldo", fmt.Sprintf("agent-%s-%s-%s", waldo.Version, goos, goarch)), nil
+	return path.Join(cache, "waldo", fmt.Sprintf("helper-%s-%s-%s", waldo.Version, goos, goarch)), nil
 }
 
-// AgentCacheDir is the directory waldo creates on a target for tier 3, and the
-// only directory it ever removes there.
-func AgentCacheDir(ctx context.Context, t transport.Transport) (string, error) {
-	p, err := AgentPath(ctx, t, "x", "y")
+// HelperCacheDir is the directory waldo creates on a target for the helper
+// tier, and the only directory it ever removes there.
+func HelperCacheDir(ctx context.Context, t transport.Transport) (string, error) {
+	p, err := HelperPath(ctx, t, "x", "y")
 	if err != nil {
 		return "", err
 	}
 	return path.Dir(p), nil
 }
 
-// LocateAgentBinary finds an agent build for a target platform.
+// LocateHelperBinary finds a helper build for a target platform.
 //
 // Release archives ship one per supported platform beside the waldo binary. A
 // source checkout has a Go toolchain by definition, so waldo cross-compiles one
@@ -137,12 +137,12 @@ func AgentCacheDir(ctx context.Context, t transport.Transport) (string, error) {
 // after upload; neither downloads anything at run time, because a tool that
 // exists to touch nothing on a target should not be fetching executables over
 // the network to put there.
-func LocateAgentBinary(ctx context.Context, goos, goarch string) (string, error) {
-	name := fmt.Sprintf("waldo-agent-%s-%s", goos, goarch)
+func LocateHelperBinary(ctx context.Context, goos, goarch string) (string, error) {
+	name := fmt.Sprintf("waldo-helper-%s-%s", goos, goarch)
 
-	if explicit := os.Getenv(AgentBinaryEnv); explicit != "" {
+	if explicit := os.Getenv(HelperBinaryEnv); explicit != "" {
 		if _, err := os.Stat(explicit); err != nil {
-			return "", fmt.Errorf("%s is set to %s, which cannot be read: %w", AgentBinaryEnv, explicit, err)
+			return "", fmt.Errorf("%s is set to %s, which cannot be read: %w", HelperBinaryEnv, explicit, err)
 		}
 		return explicit, nil
 	}
@@ -155,10 +155,10 @@ func LocateAgentBinary(ctx context.Context, goos, goarch string) (string, error)
 		dir := filepath.Dir(self)
 		candidates = append(candidates, filepath.Join(dir, name))
 		if goos == runtime.GOOS && goarch == runtime.GOARCH {
-			candidates = append(candidates, filepath.Join(dir, "waldo-agent"))
+			candidates = append(candidates, filepath.Join(dir, "waldo-helper"))
 		}
 	}
-	cacheDir, cacheErr := agentCacheDir()
+	cacheDir, cacheErr := helperCacheDir()
 	if cacheErr == nil {
 		candidates = append(candidates, filepath.Join(cacheDir, name))
 	}
@@ -171,19 +171,19 @@ func LocateAgentBinary(ctx context.Context, goos, goarch string) (string, error)
 	if cacheErr != nil {
 		return "", cacheErr
 	}
-	built, err := buildAgent(ctx, goos, goarch, filepath.Join(cacheDir, name))
+	built, err := buildHelper(ctx, goos, goarch, filepath.Join(cacheDir, name))
 	if err != nil {
 		return "", fmt.Errorf(
-			"no agent binary for %s/%s.\n"+
+			"no helper binary for %s/%s.\n"+
 				"Release archives ship one beside the waldo binary; from a source checkout waldo\n"+
 				"builds one with the local Go toolchain, which failed here: %w\n"+
 				"Set %s to a binary you built yourself, or use --fileops=pipe, which installs nothing",
-			goos, goarch, err, AgentBinaryEnv)
+			goos, goarch, err, HelperBinaryEnv)
 	}
 	return built, nil
 }
 
-func agentCacheDir() (string, error) {
+func helperCacheDir() (string, error) {
 	base := os.Getenv("WALDO_HOME")
 	if base == "" {
 		home, err := os.UserHomeDir()
@@ -192,19 +192,19 @@ func agentCacheDir() (string, error) {
 		}
 		base = filepath.Join(home, ".waldo")
 	}
-	dir := filepath.Join(base, "agent")
+	dir := filepath.Join(base, "helper")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("create %s: %w", dir, err)
 	}
 	return dir, nil
 }
 
-// buildAgent cross-compiles the helper for a target platform.
+// buildHelper cross-compiles the helper for a target platform.
 //
 // The build is deliberately hermetic: -trimpath so the binary carries no local
 // paths, CGO off so it is static and runs on a target with a different libc,
 // and the version stamped in so the installed copy can identify itself.
-func buildAgent(ctx context.Context, goos, goarch, out string) (string, error) {
+func buildHelper(ctx context.Context, goos, goarch, out string) (string, error) {
 	goBin, err := exec.LookPath("go")
 	if err != nil {
 		return "", fmt.Errorf("no Go toolchain on PATH")
@@ -217,7 +217,7 @@ func buildAgent(ctx context.Context, goos, goarch, out string) (string, error) {
 		"-trimpath",
 		"-ldflags", "-s -w -X main.version="+waldo.Version,
 		"-o", out,
-		"./cmd/waldo-agent")
+		"./cmd/waldo-helper")
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(),
 		"GOOS="+goos, "GOARCH="+goarch, "CGO_ENABLED=0")
@@ -227,7 +227,7 @@ func buildAgent(ctx context.Context, goos, goarch, out string) (string, error) {
 	return out, nil
 }
 
-// moduleRoot finds a waldo source checkout to build the agent from.
+// moduleRoot finds a waldo source checkout to build the helper from.
 //
 // It searches upward from the waldo binary and from the working directory,
 // because both are plausible: a developer running ./waldo from the checkout,
@@ -257,7 +257,7 @@ func moduleRoot() (string, error) {
 			dir = parent
 		}
 	}
-	return "", fmt.Errorf("no waldo source checkout found to build the agent from")
+	return "", fmt.Errorf("no waldo source checkout found to build the helper from")
 }
 
 // platformOf maps `uname -sm` to a Go platform pair.
@@ -284,7 +284,7 @@ func platformOf(uname string) (string, string, error) {
 	case "netbsd":
 		goos = "netbsd"
 	default:
-		return "", "", fmt.Errorf("target OS %q has no waldo agent build", fields[0])
+		return "", "", fmt.Errorf("target OS %q has no waldo helper build", fields[0])
 	}
 	var goarch string
 	switch strings.ToLower(fields[1]) {
@@ -303,7 +303,7 @@ func platformOf(uname string) (string, string, error) {
 	case "s390x":
 		goarch = "s390x"
 	default:
-		return "", "", fmt.Errorf("target architecture %q has no waldo agent build", fields[1])
+		return "", "", fmt.Errorf("target architecture %q has no waldo helper build", fields[1])
 	}
 	return goos, goarch, nil
 }

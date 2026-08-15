@@ -307,7 +307,7 @@ func (c *Capabilities) Qualifies(tier waldo.Tier) (bool, string) {
 			return false, "no python3"
 		}
 		return true, ""
-	case waldo.TierAgent:
+	case waldo.TierHelper:
 		if _, _, err := platformOf(c.Uname); err != nil {
 			return false, err.Error()
 		}
@@ -320,7 +320,7 @@ func (c *Capabilities) Qualifies(tier waldo.Tier) (bool, string) {
 // preferred first.
 //
 // Every remaining tier answers one file operation in one network round trip:
-// the shell tier sends a command and reads its output, the pipe and agent
+// the shell tier sends a command and reads its output, the pipe and helper
 // tiers send a request and read a response. That is the property that decides
 // this list, and the reason a since-removed SFTP tier is not on it: SFTP hands
 // out a handle before it will read, so its floor was two.
@@ -331,14 +331,14 @@ func (c *Capabilities) Qualifies(tier waldo.Tier) (bool, string) {
 //	                15x1KiB read   8MiB read   8MiB write
 //	posix                  5.97s       6.42s        5.73s
 //	pipe                   4.88s       5.30s        5.19s
-//	agent                 10.83s       5.60s        6.50s
+//	helper                10.83s       5.60s        6.50s
 //
 // pipe wins because it moves a whole file in one frame with no per-operation
 // process on the target. posix is close behind now that it no longer
 // base64-encodes on links proven to be 8-bit clean. agent is fastest in bulk
 // and slowest to start, which is pure binary launch cost.
 //
-// TierAgent is deliberately absent: that tier writes a binary to the target,
+// TierHelper is deliberately absent: that tier writes a binary to the target,
 // and waldo never makes that choice on the operator's behalf.
 var negotiationOrder = []waldo.Tier{waldo.TierPipe}
 

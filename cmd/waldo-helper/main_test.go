@@ -102,8 +102,8 @@ func TestPingIdentifiesTheAgent(t *testing.T) {
 	c := start(t)
 	hdr, _ := c.do(map[string]any{"id": 1, "op": "ping"}, nil)
 	mustOK(t, hdr)
-	if agent, _ := hdr["agent"].(bool); !agent {
-		t.Error("ping response does not identify itself as the agent")
+	if helper, _ := hdr["helper"].(bool); !helper {
+		t.Error("ping response does not identify itself as the helper")
 	}
 	if id, _ := hdr["id"].(float64); id != 1 {
 		t.Errorf("response id = %v, want 1", hdr["id"])

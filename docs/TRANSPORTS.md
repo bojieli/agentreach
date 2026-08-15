@@ -14,7 +14,7 @@ shell.** Higher tiers are optimisations, never requirements.
 |---|---|---|---|
 | 0 | `posix` | a POSIX shell | none |
 | 1 | `pipe` | `python3` present | none |
-| 2 | `agent` | ability to execute an uploaded binary | one cached binary |
+| 2 | `helper` | ability to execute an uploaded binary | one cached binary |
 
 **Every tier answers one file operation in one network round trip.** That is the
 rule the set is chosen by, not an accident of which protocols were available —
@@ -36,7 +36,7 @@ differs:
 |---|---|---|
 | `posix` | 1.47 s | **0.20 s** |
 | `pipe` | 1.94 s | 0.87 s |
-| `agent` | 0.95 s | 0.47 s |
+| `helper` | 0.95 s | 0.47 s |
 
 Tier 0 is 7× more expensive on the macOS target, and waldo's own startup is not
 the reason — 40 invocations of `waldo version` take 0.13 s. The cause is that
@@ -51,12 +51,12 @@ costs disproportionately more** — but not what should decide anything.
 |---|---|---|---|
 | `posix` | 5.97 s | 6.42 s | 5.73 s |
 | `pipe` | **4.88 s** | **5.30 s** | **5.19 s** |
-| `agent` | 10.83 s | 5.60 s | 6.50 s |
+| `helper` | 10.83 s | 5.60 s | 6.50 s |
 
 `pipe` wins on every axis because it moves a whole file in one frame with no
 per-operation process on the target. `posix` is close behind, and much closer
 than it used to be, because it no longer base64-encodes on links proven 8-bit
-clean. `agent` is fastest in bulk and slowest to start, which is binary launch
+clean. `helper` is fastest in bulk and slowest to start, which is binary launch
 cost and nothing else — its advantage is per-operation, and waldo runs one
 process per tool call, so batching never gets to amortise it.
 
@@ -118,7 +118,7 @@ not changed never crosses the network at all.
 `exec` replaces the shell with the interpreter, so closing the channel kills the
 handler rather than leaving an orphan on someone else's machine.
 
-## Tier 2 — `agent` (auto-installed)
+## Tier 2 — `helper` (auto-installed)
 
 A small static Go binary, installed by waldo when this tier is selected. The
 user is never asked to install anything by hand. It speaks the identical
@@ -140,7 +140,7 @@ to be verifiable and reversible:
    `~/.cache/waldo/agent-<version>-<os>-<arch>` on the target. Bootstrapping the
    fast tier with the universal one means installation works on exactly the
    hosts waldo can already reach.
-4. `waldo-agent --selftest` prints its version, a digest of itself, and its
+4. `waldo-helper --selftest` prints its version, a digest of itself, and its
    platform. waldo compares all three against the file it just sent, and
    reinstalls rather than trusting a mismatch. Version alone would accept a
    truncated upload; a digest alone would accept a binary left behind by a
@@ -152,21 +152,21 @@ Properties:
   installs a new agent rather than reusing a stale one.
 - **Visible.** `waldo doctor` lists exactly what waldo has placed on the host,
   and says plainly when it has placed nothing.
-- **Removable.** `waldo agent uninstall` deletes the cache directory. That path
+- **Removable.** `waldo helper uninstall` deletes the cache directory. That path
   is derived by waldo, never from anything the target said.
 - **Never automatic.** Autonegotiation stops below this tier. Writing to someone
   else's machine stays an explicit operator decision.
 - **Refused on untrusted targets.** A session created with `--untrusted` cannot
   use this tier at all.
 
-Set `WALDO_AGENT_BINARY` to use a build you produced yourself.
+Set `WALDO_HELPER_BINARY` to use a build you produced yourself.
 
 ## Negotiation
 
 ```console
 waldo up ssh://host/srv/app                  # negotiate the best proven tier
 waldo up ssh://host/srv/app --fileops=posix  # pin tier 0 — install nothing, touch nothing
-waldo up ssh://host/srv/app --fileops=agent  # opt in to the auto-installed helper
+waldo up ssh://host/srv/app --fileops=helper  # opt in to the auto-installed helper
 ```
 
 Negotiation order is `pipe`, then `sftp`, then `posix`, measured against a real
@@ -200,7 +200,7 @@ the handle only exists in `OPEN`'s response. That dependency is in the protocol,
 so no amount of pipelining removes it: `OPEN` and `STAT` can share a round trip
 because both take a path, but `READ` cannot join them, and version 3 has no
 composite open-and-read. Two was the floor. Every surviving tier does it in one —
-the shell tier sends a command and reads its output, the pipe and agent tiers
+the shell tier sends a command and reads its output, the pipe and helper tiers
 send a request and read a response.
 
 **Its remaining advantage was bandwidth, and that turned out to be waldo's own
@@ -219,7 +219,7 @@ makes impossible.
 
 If you need file access on a target with no `python3` and nothing installable,
 that is tier 0, and it is now as fast. If you want request/response without
-`python3`, that is `--fileops=agent`, at the cost of the one thing waldo will
+`python3`, that is `--fileops=helper`, at the cost of the one thing waldo will
 not do silently: writing a binary to the target.
 
 ## Conformance

@@ -1,4 +1,4 @@
-// Command waldo-agent is the optional helper waldo installs on a target for
+// Command waldo-helper is the optional helper waldo installs on a target for
 // tier 3.
 //
 // It is the only thing waldo ever writes to a target's disk, and only when the
@@ -47,23 +47,23 @@ func main() {
 			// target, and waldo reinstalls rather than trusting it.
 			sum, err := selfDigest()
 			if err != nil {
-				fmt.Fprintln(os.Stderr, "waldo-agent: cannot hash self:", err)
+				fmt.Fprintln(os.Stderr, "waldo-helper: cannot hash self:", err)
 				os.Exit(1)
 			}
-			fmt.Printf("waldo-agent %s %s %s/%s\n", version, sum, runtime.GOOS, runtime.GOARCH)
+			fmt.Printf("waldo-helper %s %s %s/%s\n", version, sum, runtime.GOOS, runtime.GOARCH)
 			return
 		case "--version":
-			fmt.Printf("waldo-agent %s %s/%s\n", version, runtime.GOOS, runtime.GOARCH)
+			fmt.Printf("waldo-helper %s %s/%s\n", version, runtime.GOOS, runtime.GOARCH)
 			return
 		case "serve":
 			// the default; accepted so the command line reads clearly
 		default:
-			fmt.Fprintf(os.Stderr, "waldo-agent: unknown argument %q\n", os.Args[1])
+			fmt.Fprintf(os.Stderr, "waldo-helper: unknown argument %q\n", os.Args[1])
 			os.Exit(2)
 		}
 	}
 	if err := serve(os.Stdin, os.Stdout); err != nil && !errors.Is(err, io.EOF) {
-		fmt.Fprintln(os.Stderr, "waldo-agent:", err)
+		fmt.Fprintln(os.Stderr, "waldo-helper:", err)
 		os.Exit(1)
 	}
 }
@@ -132,7 +132,7 @@ func serve(stdin io.Reader, stdout io.Writer) error {
 func dispatch(req request, payload []byte) (map[string]any, []byte, error) {
 	switch req.Op {
 	case "ping":
-		return map[string]any{"version": version, "agent": true, "os": runtime.GOOS, "arch": runtime.GOARCH}, nil, nil
+		return map[string]any{"version": version, "helper": true, "os": runtime.GOOS, "arch": runtime.GOARCH}, nil, nil
 	case "read":
 		data, err := opRead(req)
 		return nil, data, err
