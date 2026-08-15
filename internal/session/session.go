@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -39,6 +40,8 @@ const (
 // add a lifecycle, a socket, crash recovery and orphaned processes in exchange
 // for nothing.
 type Session struct {
+	// Version is the schema version of this document. See SchemaVersion.
+	Version  int        `json:"version"`
 	Name     string     `json:"name"`
 	Target   *Target    `json:"target"`
 	Mode     Mode       `json:"mode"`
@@ -67,6 +70,22 @@ type Session struct {
 	// Timeout bounds an individual command.
 	Timeout time.Duration `json:"timeout"`
 }
+
+// SchemaVersion is the version of the session document this build writes.
+//
+// A session file outlives the binary that wrote it: it sits in ~/.waldo until
+// `waldo down`, across upgrades, and more than one waldo may be on PATH at once
+// — a package-managed install and a `go install` build are the usual pair.
+// encoding/json discards fields it does not recognise without a word, so an
+// older binary reading a newer document does not fail, it succeeds with a
+// session it has partly understood. For a tool whose entire job is being
+// certain which machine a command runs on, that is the worst available
+// outcome.
+//
+// Raise this whenever the meaning of an existing field changes, and teach
+// migrate what the old meaning was. Adding a field that is correct when absent
+// does not need a bump; that is what the zero value is for.
+const SchemaVersion = 1
 
 var nameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
@@ -132,6 +151,7 @@ func (s *Session) Save() error {
 		return fmt.Errorf("invalid session name %q: use letters, digits, dot, dash or underscore", s.Name)
 	}
 	s.TierName = s.Tier.String()
+	s.Version = SchemaVersion
 	p, err := pathFor(s.Name)
 	if err != nil {
 		return err
@@ -156,7 +176,7 @@ func Load(name string) (*Session, error) {
 	data, err := os.ReadFile(p)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("no waldo session named %q. Start one with:\n  waldo up ssh://host/path --name %s", name, name)
+			return nil, &noSuchSessionError{name: name}
 		}
 		return nil, err
 	}
@@ -167,35 +187,123 @@ func Load(name string) (*Session, error) {
 	// Defence in depth: a document that parses as JSON but is not a session
 	// must not produce a Session with nil fields that callers will dereference.
 	if s.Target == nil || s.Name == "" {
-		return nil, fmt.Errorf("%s is not a waldo session file", p)
+		return nil, fmt.Errorf("%s %w", p, ErrNotSession)
 	}
-	if t, err := waldo.ParseTier(s.TierName); err == nil {
-		s.Tier = t
+	if err := migrate(&s); err != nil {
+		return nil, fmt.Errorf("session %q: %w", name, err)
 	}
 	return &s, nil
 }
 
-// List returns all known sessions.
-func List() ([]*Session, error) {
+// migrate brings a loaded document up to the current schema, or explains why it
+// cannot.
+//
+// Refusing to load is the right failure here. Every alternative — guessing at a
+// field, falling back to a default — produces a session that runs commands
+// somewhere, and the operator's only evidence about where is the file waldo has
+// just decided not to trust.
+func migrate(s *Session) error {
+	if s.Version > SchemaVersion {
+		return fmt.Errorf("this session was created by a newer waldo (schema v%d, this build understands v%d).\n"+
+			"Upgrade waldo, or run `waldo down %s` and start the session again with this build.\n"+
+			"Loading it anyway would mean ignoring settings this build cannot see, on a session whose\n"+
+			"whole purpose is being certain which machine your commands run on.",
+			s.Version, SchemaVersion, s.Name)
+	}
+	// Version 0 predates this field. Its shape is version 1's, so it loads as
+	// written; Save stamps the current version the next time anything writes.
+	if s.Version == 0 {
+		s.Version = SchemaVersion
+	}
+
+	// An absent tier is "nothing was recorded", which is different from a
+	// recorded name this build cannot honour. Nothing was pinned, so posix — the
+	// floor, which installs nothing and needs only a shell — is the honest
+	// reading rather than a guess.
+	if s.TierName == "" {
+		s.TierName, s.Tier = waldo.TierPOSIX.String(), waldo.TierPOSIX
+		return nil
+	}
+
+	// The tier name is the one field whose vocabulary has actually changed:
+	// `sftp` was removed and `agent` renamed to `helper`. Swallowing the parse
+	// error left Tier at its zero value, so a session created with
+	// `--fileops=sftp` loaded as a *pinned* posix session — waldo silently
+	// running a tier other than the one it was instructed to use, and reporting
+	// the tier it was told. ParseTier's error explains each removal; the
+	// operator should read it rather than have it discarded.
+	t, err := waldo.ParseTier(s.TierName)
+	if err != nil {
+		return fmt.Errorf("%w\nRun `waldo up %s --name %s` to recreate this session.",
+			err, s.Target.Raw, s.Name)
+	}
+	s.Tier = t
+	return nil
+}
+
+// ErrNotSession marks a file that is not waldo's to interpret.
+//
+// It separates "this is not a session" from "this is a session I cannot
+// honour". The first is an unrelated .json file sitting in the directory and
+// deserves silence; the second is the operator's session and deserves an
+// explanation.
+var ErrNotSession = errors.New("is not a waldo session file")
+
+// noSuchSessionError reports a session that is simply not there.
+//
+// It unwraps to os.ErrNotExist so a caller can tell "there is nothing here"
+// from "there is something here I cannot read". `waldo down` needs exactly that
+// distinction: it must refuse the first and proceed with the second. The
+// wrapping is done with a type rather than a %w in the message so that the
+// sentinel does not appear in text an operator reads.
+type noSuchSessionError struct{ name string }
+
+func (e *noSuchSessionError) Error() string {
+	return fmt.Sprintf("no waldo session named %q. Start one with:\n  waldo up ssh://host/path --name %s",
+		e.name, e.name)
+}
+
+func (e *noSuchSessionError) Unwrap() error { return os.ErrNotExist }
+
+// Broken describes a session file that exists but could not be loaded.
+type Broken struct {
+	Name string
+	Err  error
+}
+
+// List returns all known sessions, and separately the ones that would not load.
+//
+// The unreadable ones are returned rather than skipped. A session file that
+// cannot be loaded is still configured in somebody's harness, and dropping it
+// from the listing means `waldo ls` prints "no waldo sessions" to an operator
+// whose agent is at that moment pointed at one. The reason it will not load is
+// the single most useful thing waldo knows at that point.
+func List() ([]*Session, []Broken, error) {
 	dir, err := Dir()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var out []*Session
+	var broken []Broken
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
-		s, err := Load(strings.TrimSuffix(e.Name(), ".json"))
-		if err == nil {
-			out = append(out, s)
+		name := strings.TrimSuffix(e.Name(), ".json")
+		s, err := Load(name)
+		if err != nil {
+			if !errors.Is(err, ErrNotSession) {
+				broken = append(broken, Broken{Name: name, Err: err})
+			}
+			continue
 		}
+		out = append(out, s)
 	}
-	return out, nil
+	return out, broken, nil
 }
 
 // Remove deletes a session's state.

@@ -115,7 +115,7 @@ func ParseTier(s string) (Tier, error) {
 		return 0, fmt.Errorf("the sftp tier was removed: it could not answer a tool call in one " +
 			"round trip, because SFTP hands out a handle before it will read, and it no longer " +
 			"moved bytes faster than the shell tier once that tier stopped base64-encoding them. " +
-			"Use posix (installs nothing), pipe (needs python3), or agent")
+			"Use posix (installs nothing), pipe (needs python3), or helper (installs a binary)")
 	case "pipe":
 		return TierPipe, nil
 	case "helper":

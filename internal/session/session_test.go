@@ -112,9 +112,12 @@ func TestListReturnsAllSessions(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got, err := List()
+	got, broken, err := List()
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(broken) != 0 {
+		t.Errorf("List() reported %d broken sessions, want 0", len(broken))
 	}
 	if len(got) != 3 {
 		t.Errorf("List() returned %d sessions want 3", len(got))
@@ -148,9 +151,12 @@ func TestListIgnoresNonSessionJSON(t *testing.T) {
 		[]byte(`{"permissions":{"deny":["Read"]}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got, err := List()
+	got, broken, err := List()
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(broken) != 0 {
+		t.Errorf("a non-session document was reported as a broken session: %+v", broken)
 	}
 	if len(got) != 1 {
 		t.Fatalf("List() returned %d entries want 1", len(got))

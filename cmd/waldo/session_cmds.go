@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -180,16 +181,39 @@ func cmdDown(ctx context.Context, args []string) error {
 	}
 	name := sessionNameFromEnv(first(pos))
 
-	s, err := session.Load(name)
-	if err != nil {
-		return err
-	}
-	// Close the multiplexed connection so nothing waldo opened outlives the
-	// session. Leaving a live master on someone else's server would be a
-	// surprising residue for a tool whose premise is leaving no trace.
-	if t, err := s.Transport(); err == nil {
-		reportOrRemoveFootprint(ctx, s, t, *clean)
-		_ = t.Close()
+	// A session that will not load must still be removable.
+	//
+	// Loading used to be a precondition, which made `down` refuse exactly the
+	// sessions most in need of removing — one written by a newer waldo, one
+	// naming a tier that no longer exists — and every message that suggests
+	// `waldo down` as the way out led to a command that declined to do it. The
+	// operator's only remaining move was to delete a file out of ~/.waldo by
+	// hand, which is not something a tool should require.
+	//
+	// The session is only needed for the courtesy half of the work: closing the
+	// multiplexed connection and clearing waldo's footprint on the target.
+	// Losing that is a nuisance; being unable to remove a session is a trap.
+	s, loadErr := session.Load(name)
+	switch {
+	case loadErr == nil:
+		// Close the multiplexed connection so nothing waldo opened outlives the
+		// session. Leaving a live master on someone else's server would be a
+		// surprising residue for a tool whose premise is leaving no trace.
+		if t, err := s.Transport(); err == nil {
+			reportOrRemoveFootprint(ctx, s, t, *clean)
+			_ = t.Close()
+		}
+	case errors.Is(loadErr, os.ErrNotExist):
+		return loadErr
+	default:
+		fmt.Fprintf(os.Stderr, "waldo: %s could not be read, so nothing was cleaned up on the target:\n%s",
+			name, indented(loadErr.Error()))
+		if *clean {
+			fmt.Fprintf(os.Stderr, "  --clean needs a readable session to know which target to clean.\n"+
+				"  If waldo installed a helper there, it is the only thing it wrote:\n"+
+				"    ssh HOST 'rm -rf \"${XDG_CACHE_HOME:-$HOME/.cache}/waldo\"'\n")
+		}
+		fmt.Fprintf(os.Stderr, "  Removing the local session state anyway.\n\n")
 	}
 	if err := session.Remove(name); err != nil {
 		return err
@@ -215,28 +239,58 @@ func cmdDown(ctx context.Context, args []string) error {
 	return nil
 }
 
-func cmdStatus(_ context.Context, _ []string) error {
-	sessions, err := session.List()
+func cmdStatus(_ context.Context, args []string) error {
+	// status lists every session and takes no flags. Accepting and ignoring
+	// them would let `waldo status --name prod` print all sessions while
+	// looking like it printed one.
+	if len(args) > 0 {
+		return fmt.Errorf("status takes no arguments (got %q); it lists every session.\n"+
+			"For one session's details, run `waldo doctor --session NAME`", strings.Join(args, " "))
+	}
+	sessions, broken, err := session.List()
 	if err != nil {
 		return err
 	}
-	if len(sessions) == 0 {
+	if len(sessions) == 0 && len(broken) == 0 {
 		fmt.Println("no waldo sessions.\n\nStart one with:\n  waldo up ssh://host/srv/app")
 		return nil
 	}
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	// Writes to a tabwriter are buffered; the only error that matters surfaces
-	// from Flush below.
-	_, _ = fmt.Fprintln(w, "NAME\tTARGET\tMODE\tFILEOPS\tCWD\tPOLICY")
-	for _, s := range sessions {
-		policy := "-"
-		if s.Untrusted {
-			policy = "untrusted"
+	if len(sessions) > 0 {
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		// Writes to a tabwriter are buffered; the only error that matters surfaces
+		// from Flush below.
+		_, _ = fmt.Fprintln(w, "NAME\tTARGET\tMODE\tFILEOPS\tCWD\tPOLICY")
+		for _, s := range sessions {
+			policy := "-"
+			if s.Untrusted {
+				policy = "untrusted"
+			}
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+				s.Name, s.Target.Describe(), s.Mode, s.Tier, s.Cwd(), policy)
 		}
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			s.Name, s.Target.Describe(), s.Mode, s.Tier, s.Cwd(), policy)
+		if err := w.Flush(); err != nil {
+			return err
+		}
 	}
-	return w.Flush()
+	// A session that will not load is still configured in a harness somewhere.
+	// Listing it, with the reason, is the difference between "waldo forgot my
+	// session" and a sentence saying what to do about it.
+	for _, b := range broken {
+		fmt.Fprintf(os.Stderr, "\n%s: cannot be loaded\n%s", b.Name, indented(b.Err.Error()))
+	}
+	return nil
+}
+
+// indented lays a multi-line explanation under the line that introduces it.
+// These messages are several sentences long by design — an operator whose
+// session will not load needs the reason and the way out — and unindented
+// continuations read as if a new, unrelated error had begun.
+func indented(msg string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(strings.TrimRight(msg, "\n"), "\n") {
+		b.WriteString("  " + line + "\n")
+	}
+	return b.String()
 }
 
 func cmdEnv(_ context.Context, args []string) error {

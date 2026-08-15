@@ -11,6 +11,42 @@ project makes without a version attached.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A session naming a removed tier loaded as a *pinned* posix session.**
+  `Load` discarded `ParseTier`'s error, leaving the tier at its zero value, so a
+  session created with `--fileops=sftp` came back reporting the tier it was told
+  while running a different one — waldo doing the thing it exists to prevent.
+  Such a session is now refused, with the explanation of what happened to the
+  tier and the command to recreate it.
+
+- **`waldo down` could not remove a session it could not load.** It loaded the
+  session first and returned the error, so it refused exactly the sessions most
+  in need of removing — and since those failures suggest `waldo down` as the way
+  out, the advice was a loop whose only exit was deleting a file from `~/.waldo`
+  by hand. It now removes the local state either way, and says that nothing was
+  cleaned up on the target because the session could not be read. A session that
+  does not exist is still an error.
+
+- **`waldo status` listed only the sessions it could load.** A session file that
+  will not load is still configured in somebody's harness; dropping it printed
+  "no waldo sessions" to an operator whose agent was pointed at one. Unloadable
+  sessions are now listed with the reason. Files in the directory that are not
+  sessions at all remain silent.
+
+- **`waldo status` accepted and ignored arguments**, so `waldo status --name
+  prod` printed every session while looking like it printed one.
+
+### Added
+
+- **Session documents carry a schema version.** A session file outlives the
+  binary that wrote it, and more than one waldo is often on PATH — a
+  package-managed install and a `go install` build are the usual pair.
+  `encoding/json` drops unknown fields without a word, so an older binary
+  reading a newer document did not fail, it succeeded with a session it had only
+  partly understood. Documents from a newer schema are now refused rather than
+  half-read; documents written before the field existed still load.
+
 ### Changed
 
 - **The `agent` tier is now called `helper`**, and `waldo agent` is now
