@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -129,7 +130,12 @@ func TestWriteThenReadRoundTripsBinary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fi.Mode().Perm() != 0o600 {
+	// Asserted only where it means something. Windows has no POSIX permission
+	// bits, so Go reports 0666 for any writable file — and the helper never runs
+	// there: it exists to be copied onto a target, and every release archive
+	// carries linux and darwin helpers only, including the one a Windows
+	// operator downloads.
+	if runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Errorf("mode = %v, want 0600", fi.Mode().Perm())
 	}
 }

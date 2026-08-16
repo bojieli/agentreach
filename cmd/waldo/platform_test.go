@@ -14,12 +14,31 @@ import (
 // ends with an agent running the model's commands on the operator's own machine
 // while believing it is working on the target.
 
+// shimHome sets WALDO_HOME to a directory removed on a best-effort basis.
+//
+// t.TempDir fails a test whose cleanup cannot remove everything, and on Windows
+// it cannot: installProgramAlias hard-links waldo's own binary to make the
+// shim, the binary running these tests *is* that binary, and Windows locks a
+// running image against deletion under any of its names. That is a fact about
+// Windows and about a test executing the thing it is testing, not about waldo,
+// and it was failing four tests whose assertions had all passed. The directory
+// still lives under the OS temp directory either way.
+func shimHome(t *testing.T) string {
+	t.Helper()
+	home, err := os.MkdirTemp("", "waldo-home-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(home) })
+	t.Setenv("WALDO_HOME", home)
+	return home
+}
+
 // TestShimAliasIsInstalledAndRecognised covers the whole shim round trip: waldo
 // installs an alias of itself, and a process started through that alias must
 // recognise the name it was invoked as.
 func TestShimAliasIsInstalledAndRecognised(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("WALDO_HOME", home)
+	shimHome(t)
 
 	alias, err := ensureShim()
 	if err != nil {
@@ -56,8 +75,7 @@ func TestShimAliasIsInstalledAndRecognised(t *testing.T) {
 // upgrade. A stale shim is an old waldo running inside a tool call, which
 // surfaces as the harness misbehaving rather than as a waldo problem.
 func TestShimAliasIsRefreshedWhenStale(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("WALDO_HOME", home)
+	shimHome(t)
 
 	alias, err := ensureShim()
 	if err != nil {
@@ -91,8 +109,7 @@ func TestShimAliasIsRefreshedWhenStale(t *testing.T) {
 
 // TestPathShimsInstallEveryShellName covers the Codex/Kimi seam.
 func TestPathShimsInstallEveryShellName(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("WALDO_HOME", home)
+	shimHome(t)
 
 	dir, err := ensurePathShim()
 	if err != nil {

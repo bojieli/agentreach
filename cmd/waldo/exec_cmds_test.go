@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -22,6 +23,16 @@ import (
 // localSession starts a session against a directory on this machine.
 func localSession(t *testing.T, workspace string) *session.Session {
 	t.Helper()
+	// A local:// target says "this machine is the target", and Windows is
+	// deliberately not one: localShell refuses it rather than pick up a stray
+	// Git-for-Windows bash, under which MSYS path translation changes what every
+	// absolute path means. The target cannot even be spelled here — a Windows
+	// temp directory is C:\..., which is not a URL — so these tests have nothing
+	// to assert on this platform. What waldo does *on* Windows, driving a remote
+	// POSIX host, is covered by platform_test.go and the windows-cli CI job.
+	if runtime.GOOS == "windows" {
+		t.Skip("a local:// target is unsupported on Windows by design")
+	}
 	t.Setenv("WALDO_HOME", t.TempDir())
 
 	target, err := session.ParseTarget("local://" + workspace)

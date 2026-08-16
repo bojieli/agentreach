@@ -156,10 +156,17 @@ func TestPrepareRefusesWhenFileAppearsUnderneath(t *testing.T) {
 }
 
 func TestPathMappingIsReversible(t *testing.T) {
-	m := New("/mirror/root", nil)
+	// The mirror root is a path on the operator's own machine, so it is spelled
+	// in that machine's convention: on Windows filepath.Join yields
+	// \mirror\root\..., which no forward-slash prefix can match. The property
+	// under test is that the mapping stays inside the root and reverses exactly,
+	// not how a separator is spelled — and the round trip below already passed
+	// on Windows while this prefix check did not.
+	root := filepath.FromSlash("/mirror/root")
+	m := New(root, nil)
 	for _, p := range []string{"/srv/app/main.go", "/a", "/deep/nested/path/file.txt"} {
 		local := m.Local(p)
-		if !strings.HasPrefix(local, "/mirror/root") {
+		if !strings.HasPrefix(local, root) {
 			t.Errorf("Local(%q) = %q escaped the mirror root", p, local)
 		}
 		back, ok := m.Target(local)
@@ -167,7 +174,7 @@ func TestPathMappingIsReversible(t *testing.T) {
 			t.Errorf("round trip %q -> %q -> %q (ok=%v)", p, local, back, ok)
 		}
 	}
-	if _, ok := m.Target("/somewhere/else/file"); ok {
+	if _, ok := m.Target(filepath.FromSlash("/somewhere/else/file")); ok {
 		t.Error("a path outside the mirror was accepted as mirrored")
 	}
 }

@@ -14,8 +14,7 @@ import (
 
 func tempHome(t *testing.T) string {
 	t.Helper()
-	home := t.TempDir()
-	t.Setenv("WALDO_HOME", home)
+	shimHome(t)
 	dir, err := session.Dir()
 	if err != nil {
 		t.Fatal(err)

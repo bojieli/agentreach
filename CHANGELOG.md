@@ -13,6 +13,22 @@ project makes without a version attached.
 
 ### Fixed
 
+- **Nine Windows tests failed the first time the Windows suite ever ran.**
+  Repairing the line-ending failure below let that job reach its tests at last,
+  and none of the nine turned out to be a defect in waldo — but each was a test
+  that could not have passed on Windows and had never been asked to. Four build
+  a `local://` target out of `t.TempDir()`, which on Windows is `C:\...` and not
+  a URL; a `local://` target is refused there by design, so they now skip and
+  say why. Four failed only in cleanup, with every assertion already passed:
+  `t.TempDir` fails a test whose directory it cannot fully remove, and the shim
+  is a hard link to the running test binary, which Windows locks. One asserted a
+  0600 file mode on a platform with no POSIX mode bits, for a binary that is
+  only ever copied onto a POSIX target. The last reported that the mirror had
+  "escaped the mirror root" — alarming in the one place it should be, and
+  untrue: it compared a `\mirror\root\...` path against a hardcoded
+  forward-slash prefix, while the round-trip assertion beside it passed and the
+  real containment guard uses `filepath.Rel`.
+
 - **A target that could not run the handler said so only about two thirds of
   the time.** The pipe and helper tiers both diagnose "this machine has no
   python3" from the first request, which doubles as the handshake — but only the
