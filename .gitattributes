@@ -1,0 +1,13 @@
+# Every file in this repository is checked out with LF endings, on every
+# platform, because two things here break on CRLF and only one of them is
+# cosmetic.
+#
+# `gofmt -l .` reports a CRLF Go file as unformatted, so a Git-for-Windows
+# checkout — which converts to CRLF by default — failed the entire Windows test
+# job on line endings alone, before it ran a single test.
+#
+# The one that matters: handler.py is embedded into the binary and executed by
+# python3 on a target, and the shell fragments beside it are sent to a POSIX
+# shell. A Windows operator building from source would otherwise ship CRLF onto
+# somebody else's machine, which is a footprint waldo promises not to leave.
+* text=auto eol=lf

@@ -35,6 +35,23 @@ project makes without a version attached.
   write was followed by a request that could be answered with confident
   nonsense. It now takes the stream out of service like everything else.
 
+- **Three CI jobs had never verified anything.** `lint` failed while installing,
+  because golangci-lint-action v6 rejects a v2 version string outright — so no
+  linter had ever run against this repository (it is clean, now that it does).
+  `fuzz parsers` pointed at `./cmd/waldo-agent/`, which the tier rename had
+  moved, so the frame parser — one of the two parsers that reads input waldo
+  does not control — was never fuzzed. And the Windows CLI check wrote `set -uo
+  pipefail` to turn off `-e`, which does not turn off `-e`; the runner had
+  already enabled it, so the expected non-zero exit ended the step before a
+  single assertion ran.
+
+- **The Windows test job failed on line endings.** Git for Windows checks out
+  CRLF by default, and `gofmt -l .` calls a CRLF file unformatted, so the job
+  died listing every Go file in the repository before running a test. A
+  `.gitattributes` now pins LF everywhere — which also stops a Windows build
+  from embedding a CRLF `handler.py` and sending it to somebody else's POSIX
+  machine.
+
 - **The release pipeline could not have produced a release.** The build hooks
   wrote the helper binaries into `dist/`, which goreleaser then refuses to find
   non-empty, so a tag would have failed in the one step nobody runs locally. Two

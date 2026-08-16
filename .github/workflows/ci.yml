@@ -67,7 +67,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-      - uses: golangci/golangci-lint-action@v6
+      - uses: golangci/golangci-lint-action@v7
         with:
           version: v2.12.2
 
@@ -124,8 +124,15 @@ jobs:
           export WALDO_HOME="$RUNNER_TEMP/waldo-home"
           # BatchMode plus a host that does not exist: this must be a clear
           # error, not a hang and not a panic.
+          #
+          # `set +e` here is not redundant with the line above. The runner
+          # invokes this shell with -e already, which `set -uo pipefail` does
+          # not undo, so the non-zero exit being asserted ended the step at this
+          # command and none of the assertions below it had ever run.
+          set +e
           ./waldo.exe up ssh://waldo-nonexistent.invalid/tmp/x --name smoke > out.txt 2>&1
           status=$?
+          set -e
           cat out.txt
           test $status -ne 0
           grep -qi 'cannot use' out.txt
@@ -171,7 +178,7 @@ jobs:
       - name: fuzz
         run: |
           set -euo pipefail
-          go test -run xxx -fuzz FuzzReadFrame       -fuzztime=60s ./cmd/waldo-agent/
+          go test -run xxx -fuzz FuzzReadFrame       -fuzztime=60s ./cmd/waldo-helper/
           go test -run xxx -fuzz FuzzParseClaudeCode -fuzztime=60s ./internal/envelope/
       - name: keep any crasher found
         if: failure()
