@@ -237,7 +237,7 @@ jobs:
       - uses: actions/setup-go@v7
         with: { go-version: '1.25', cache: true }
       - uses: anchore/sbom-action/download-syft@v0
-      - uses: goreleaser/goreleaser-action@v6
+      - uses: goreleaser/goreleaser-action@v7
         with:
           version: '~> v2'
           # Signing needs an OIDC token that only a tagged release run has.
