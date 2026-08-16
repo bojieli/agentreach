@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 env:
-  GO_VERSION: '1.23'
+  GO_VERSION: '1.25'
 
 jobs:
   test:
@@ -218,7 +218,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-        with: { go-version: '1.23', cache: true }
+        with: { go-version: '1.25', cache: true }
       # The helper is built for every platform a *target* might run, which is a
       # wider set than the platforms waldo itself is released for.
       - run: GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} CGO_ENABLED=0 go build ./cmd/...
@@ -235,7 +235,7 @@ jobs:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
       - uses: actions/setup-go@v5
-        with: { go-version: '1.23', cache: true }
+        with: { go-version: '1.25', cache: true }
       - uses: anchore/sbom-action/download-syft@v0
       - uses: goreleaser/goreleaser-action@v6
         with:

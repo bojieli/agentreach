@@ -1,3 +1,3 @@
 module github.com/bojieli/waldo
 
-go 1.23
+go 1.25.8

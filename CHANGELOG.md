@@ -125,6 +125,13 @@ project makes without a version attached.
 
 ### Changed
 
+- **Go 1.25.8 is now the minimum**, up from 1.23. govulncheck had been failing
+  against three reachable standard-library vulnerabilities, and two of them are
+  in `net/url` — reached from `session.ParseTarget`, which is the function that
+  decides which host waldo connects to. Bumping only CI would have left the
+  documented install path (`make install` from a clone) building a binary with
+  the vulnerable parser in it, so the floor in `go.mod` moved with it.
+
 - **The `agent` tier is now called `helper`**, and `waldo agent` is now
   `waldo helper`. "agent" already meant the coding agent — the thing waldo
   exists to serve — so `waldo agent uninstall` read like it removed Claude Code.

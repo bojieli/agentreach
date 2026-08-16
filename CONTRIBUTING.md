@@ -81,7 +81,7 @@ reasoning attached. See [docs/WINDOWS.md](docs/WINDOWS.md).
 
 ## Code
 
-- Go 1.23+, `gofmt`, `go vet` clean.
+- Go 1.25.8+, `gofmt`, `go vet` clean.
 - Comments explain *why*, especially where the code looks odd. Most of the
   strange-looking code in waldo is strange because a harness or a shell made it
   necessary, and the next reader needs to know which.

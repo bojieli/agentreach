@@ -3,7 +3,7 @@
 **Your coding agent stays on your laptop. Its hands work on the server.**
 
 [![CI](https://github.com/bojieli/waldo/actions/workflows/ci.yml/badge.svg)](https://github.com/bojieli/waldo/actions/workflows/ci.yml)
-[![Go 1.23+](https://img.shields.io/badge/go-1.23%2B-00ADD8)](https://go.dev)
+[![Go 1.25.8+](https://img.shields.io/badge/go-1.25.8%2B-00ADD8)](https://go.dev)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)](go.mod)
 
