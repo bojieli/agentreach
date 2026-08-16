@@ -13,6 +13,28 @@ project makes without a version attached.
 
 ### Fixed
 
+- **A target that could not run the handler said so only about two thirds of
+  the time.** The pipe and helper tiers both diagnose "this machine has no
+  python3" from the first request, which doubles as the handshake — but only the
+  *read* half of that request carried the diagnosis. Which half fails is a race:
+  if the program is already gone the write gets EPIPE, and if it dies a moment
+  later the write lands in the pipe buffer and the read gets EOF. So the same
+  broken target reported either `python handler did not start: ... (/bin/sh:
+  exec: /nonexistent: not found)` or the bare `write request: write |1: broken
+  pipe`, which names neither the program nor the reason. The program's own
+  complaint arrives on a third pipe, and the error now waits for it rather than
+  racing it, so the explanation is part of the message instead of a coin toss.
+  This was failing CI as a flake roughly one run in fifteen.
+
+- **A request that could not be written left the stream in service.** Every
+  other failure in the handler protocol marks the stream unusable, because a
+  frame that was half accepted leaves the far end waiting for the rest of it —
+  and the next request would then be read as this one's tail and answered
+  against the wrong header, which for a file read means returning one file's
+  bytes as another's. The write path was the one path that did not, so a failed
+  write was followed by a request that could be answered with confident
+  nonsense. It now takes the stream out of service like everything else.
+
 - **The release pipeline could not have produced a release.** The build hooks
   wrote the helper binaries into `dist/`, which goreleaser then refuses to find
   non-empty, so a tag would have failed in the one step nobody runs locally. Two

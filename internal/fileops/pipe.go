@@ -50,6 +50,11 @@ const readChunkPipe = 8 << 20
 // instead of hanging.
 const handlerStartTimeout = 20 * time.Second
 
+// stderrGrace bounds how long a failure waits for the far end's own complaint
+// before reporting without it. The failure and the explanation for it arrive on
+// two different pipes, and the explanation is usually a moment behind.
+const stderrGrace = 500 * time.Millisecond
+
 // contextWithAtLeast returns a context with at least d remaining.
 func contextWithAtLeast(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
 	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) >= d {
@@ -87,6 +92,9 @@ type handlerOps struct {
 	// stderr collects whatever the program on the far end complains about, for
 	// the error message produced if it turns out never to have started.
 	stderr *safeBuffer
+	// stderrDone is closed once that program's stderr reaches EOF, which is how
+	// a failure knows whether the complaint explaining it has arrived yet.
+	stderrDone <-chan struct{}
 	// startTimeout bounds the first request, which doubles as the handshake.
 	startTimeout time.Duration
 
@@ -136,7 +144,11 @@ func startHandler(ctx context.Context, t transport.Transport, base *POSIX, tier 
 	}
 
 	errBuf := &safeBuffer{remaining: 8 << 10}
-	go func() { _, _ = io.Copy(errBuf, stream.Stderr) }()
+	errDone := make(chan struct{})
+	go func() {
+		defer close(errDone)
+		_, _ = io.Copy(errBuf, stream.Stderr)
+	}()
 
 	p := &handlerOps{
 		stream:       stream,
@@ -144,6 +156,7 @@ func startHandler(ctx context.Context, t transport.Transport, base *POSIX, tier 
 		tier:         tier,
 		label:        label,
 		stderr:       errBuf,
+		stderrDone:   errDone,
 		startTimeout: handlerStartTimeout,
 		first:        true,
 		in:           bufio.NewReaderSize(stream.Stdout, 1<<16),
@@ -250,11 +263,11 @@ func (p *handlerOps) roundTrip(ctx context.Context, req map[string]any, payload 
 	frame = append(frame, hdr...)
 	frame = binary.BigEndian.AppendUint32(frame, uint32(len(payload)))
 	if _, err := p.out.Write(frame); err != nil {
-		return nil, nil, fmt.Errorf("write request: %w", err)
+		return nil, nil, p.writeFailed(fmt.Errorf("write request: %w", err))
 	}
 	if len(payload) > 0 {
 		if _, err := p.out.Write(payload); err != nil {
-			return nil, nil, fmt.Errorf("write payload: %w", err)
+			return nil, nil, p.writeFailed(fmt.Errorf("write payload: %w", err))
 		}
 	}
 
@@ -298,10 +311,45 @@ func (p *handlerOps) startupError(cause error) error {
 	if !p.first {
 		return cause
 	}
+	// That complaint is usually the entire answer — no python3, a helper built
+	// for the wrong architecture, a cache directory that is not writable — and
+	// it arrives on a different pipe from the failure being reported here.
+	// Waiting for that pipe to close makes the explanation part of the error
+	// instead of a race against it. The wait is bounded because a program that
+	// started perfectly well and merely stopped answering never closes it.
+	select {
+	case <-p.stderrDone:
+	case <-time.After(stderrGrace):
+	}
 	if msg := strings.TrimSpace(p.stderr.String()); msg != "" {
 		return fmt.Errorf("%s did not start: %w (%s)", p.label, cause, firstLine(msg))
 	}
 	return fmt.Errorf("%s did not start: %w", p.label, cause)
+}
+
+// writeFailed reports a request that could not be handed to the program on the
+// other end, and takes the stream out of service.
+//
+// A program that never started fails its first request at whichever end of that
+// request runs first, and which one that is comes down to scheduling: if it is
+// already gone the write gets EPIPE, and if it dies a moment later the write
+// lands in the pipe buffer and the read gets EOF. Only the read path carried
+// the startup diagnosis, so the same broken target explained itself either as
+// "python handler did not start (python3: not found)" or as "write request:
+// write |1: broken pipe" — the second of which names neither the program nor
+// the reason, and is what an operator saw about a third of the time.
+//
+// The failure also leaves the stream unusable, which the old code did not
+// record. A frame that was partly written leaves the far end waiting for the
+// rest of it, so the next request would be read as this one's tail and answered
+// against the wrong header — a read returning another file's bytes, which is
+// the failure this type is arranged throughout to prevent. Later calls now fail
+// fast instead.
+func (p *handlerOps) writeFailed(cause error) error {
+	err := p.startupError(cause)
+	p.broken = fmt.Errorf("the %s stream was left mid-request (%w); this session's file access must be restarted",
+		p.label, cause)
+	return err
 }
 
 func (p *handlerOps) readFrame() (map[string]any, []byte, error) {
