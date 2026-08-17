@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/bojieli/waldo/actions/workflows/ci.yml/badge.svg)](https://github.com/bojieli/waldo/actions/workflows/ci.yml)
 [![Go 1.25.8+](https://img.shields.io/badge/go-1.25.8%2B-00ADD8)](https://go.dev)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)](go.mod)
 
 A *waldo* is a teleoperated manipulator — the arms used to handle hazardous
@@ -258,4 +258,4 @@ no Docker, no network. Point either at a host you already have with
 
 ## License
 
-Apache 2.0 — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).
