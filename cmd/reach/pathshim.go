@@ -17,6 +17,12 @@ import (
 // are intercepted by placing an executable called `bash` earlier on PATH. This
 // requires no fork, no chsh, and no configuration file the harness has to
 // support.
+//
+// It is coarser than a dedicated hook: every `bash -c` the harness runs is
+// redirected, including the ones it runs for its own internal purposes. That is
+// usually what is wanted — the harness's own file reads go through the same
+// path — but it is why a shim invocation with no session bound falls back to a
+// local shell rather than failing.
 const bashShimName = "bash"
 
 // shimGuardEnv stops a shim from invoking itself.
@@ -110,16 +116,29 @@ func mapEmbeddedCwd(sess *session.Session, command string) string {
 	}
 	// macOS canonicalises /tmp to /private/tmp and the harness may report
 	// either spelling, so compare both forms of the workspace.
-	candidates := []string{filepath.Clean(workspace)}
+	//
+	// Everything below is compared with forward slashes. The workspace is a
+	// path on the operator's own filesystem, so on Windows filepath.Clean
+	// spells it with backslashes, while the directory the harness embedded in
+	// the command is spelled however the harness spells it. Comparing the two
+	// raw made a Windows operator's `cd /etc && …` come out as
+	// `cd /srv/app/../../../etc`, because filepath.Rel returned `..\..\..\etc`
+	// and the guard below only recognised `../`.
+	candidates := []string{filepath.ToSlash(filepath.Clean(workspace))}
 	if resolved, err := filepath.EvalSymlinks(workspace); err == nil {
-		candidates = append(candidates, filepath.Clean(resolved))
+		candidates = append(candidates, filepath.ToSlash(filepath.Clean(resolved)))
 	}
+	from := filepath.ToSlash(filepath.Clean(dir))
 	for _, ws := range candidates {
-		if dir == ws {
+		if from == ws {
 			return "cd " + shellQuote(sess.Target.Workspace) + " && " + rest
 		}
-		if rel, err := filepath.Rel(ws, dir); err == nil && rel != ".." && !strings.HasPrefix(rel, "../") {
-			mapped := sess.Target.Workspace + "/" + filepath.ToSlash(rel)
+		// A plain prefix test rather than filepath.Rel: the only thing worth
+		// answering is whether the directory is *inside* the workspace, and a
+		// relative path that has to be inspected for `..` afterwards is a way
+		// to get that wrong on one platform and not the other.
+		if ws != "" && strings.HasPrefix(from, ws+"/") {
+			mapped := sess.Target.Workspace + "/" + from[len(ws)+1:]
 			return "cd " + shellQuote(mapped) + " && " + rest
 		}
 	}

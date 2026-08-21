@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/bojieli/agentreach/internal/audit"
-	"github.com/bojieli/agentreach/internal/transport"
 	"github.com/bojieli/agentreach/internal/reach"
+	"github.com/bojieli/agentreach/internal/transport"
 )
 
 // maxRememberedWrites is how many process/write ids one process remembers for
@@ -81,7 +81,7 @@ type execParams struct {
 	PipeStdin bool              `json:"pipeStdin"`
 }
 
-func (s *Server) handleProcessStart(ctx context.Context, raw json.RawMessage) (any, *rpcError) {
+func (s *Server) handleProcessStart(_ context.Context, raw json.RawMessage) (any, *rpcError) {
 	var p execParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, invalidParams("process/start: %v", err)

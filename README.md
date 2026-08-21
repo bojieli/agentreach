@@ -105,6 +105,17 @@ cd agentreach
 make install
 ```
 
+There is also a container image on GitHub Packages, for when the machine you
+drive agents from is itself disposable — a CI job, a devcontainer, a jump box:
+
+```console
+docker run --rm -v "$HOME/.ssh:/root/.ssh:ro" ghcr.io/bojieli/agentreach version
+```
+
+It carries an `ssh` client and the helper binaries for every target platform.
+Your keys and `known_hosts` have to be mounted in; there is nothing useful to
+bake into an image, and reach will not invent credentials it was not given.
+
 The only thing reach needs is the `ssh` binary you already have. It shells out
 to that rather than speaking SSH itself, so `ProxyJump`, `IdentityFile`, `Match`
 blocks, hardware tokens and 2FA all keep working the way you've configured them.

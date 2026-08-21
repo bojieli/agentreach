@@ -15,8 +15,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/bojieli/agentreach/internal/transport"
 	"github.com/bojieli/agentreach/internal/reach"
+	"github.com/bojieli/agentreach/internal/transport"
 )
 
 //go:embed handler.py
@@ -241,7 +241,7 @@ func (p *handlerOps) reopen(ctx context.Context) error {
 	broken := p.broken
 	if err := p.open(ctx); err != nil {
 		p.broken = broken
-		return fmt.Errorf("%w; starting it again failed too: %v", broken, err)
+		return fmt.Errorf("%w; starting it again failed too: %w", broken, err)
 	}
 	return nil
 }

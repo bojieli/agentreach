@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/bojieli/agentreach/internal/transport"
 	"github.com/bojieli/agentreach/internal/reach"
+	"github.com/bojieli/agentreach/internal/transport"
 )
 
 // Warner receives a human-readable note about a degradation that happened.

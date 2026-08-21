@@ -101,7 +101,7 @@ func writeManagedGeminiSettings(geminiDir string) error {
 			// File-system tools (call Node's fs module directly — bypass the shim)
 			"read_file",
 			"write_file",
-			"replace",        // EDIT_TOOL_NAME — was wrongly listed as "edit"
+			"replace", // EDIT_TOOL_NAME — was wrongly listed as "edit"
 			"glob",
 			"grep_search",    // GREP_TOOL_NAME — was wrongly listed as "grep"
 			"list_directory", // LS_TOOL_NAME   — was wrongly listed as "ls"

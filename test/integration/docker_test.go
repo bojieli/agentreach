@@ -16,8 +16,8 @@ import (
 
 	"github.com/bojieli/agentreach/internal/fileops"
 	"github.com/bojieli/agentreach/internal/fileops/fileopstest"
-	"github.com/bojieli/agentreach/internal/transport"
 	"github.com/bojieli/agentreach/internal/reach"
+	"github.com/bojieli/agentreach/internal/transport"
 )
 
 // The container transport is a documented target kind — `docker://container/path`

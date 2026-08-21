@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bojieli/agentreach/internal/transport"
 	"github.com/bojieli/agentreach/internal/reach"
+	"github.com/bojieli/agentreach/internal/transport"
 )
 
 // Capabilities records what a target's userland actually provides.

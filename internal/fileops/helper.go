@@ -12,8 +12,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/bojieli/agentreach/internal/transport"
 	"github.com/bojieli/agentreach/internal/reach"
+	"github.com/bojieli/agentreach/internal/transport"
 )
 
 // HelperBinaryEnv names an explicit path to a helper binary for the target's

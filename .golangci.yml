@@ -78,6 +78,16 @@ linters:
 
     misspell:
       locale: UK
+      # Words reach does not get to spell. `initialize`/`initialized` are the
+      # JSON-RPC method and notification names in codex's exec-server protocol,
+      # and `visualize` is the literal name of a Gemini CLI tool in the
+      # deny-list. These appear in wire strings and in the prose that explains
+      # them; respelling either to UK English would rename a protocol message
+      # and break the seam it describes.
+      ignore-rules:
+        - initialize
+        - initialized
+        - visualize
 
     staticcheck:
       checks:

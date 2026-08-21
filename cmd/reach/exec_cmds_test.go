@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bojieli/agentreach/internal/session"
 	"github.com/bojieli/agentreach/internal/reach"
+	"github.com/bojieli/agentreach/internal/session"
 )
 
 // runOnTarget is what every tool call goes through, and its cwd bookkeeping is

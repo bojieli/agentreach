@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/bojieli/agentreach/internal/execserver"
-	"github.com/bojieli/agentreach/internal/session"
 	"github.com/bojieli/agentreach/internal/reach"
+	"github.com/bojieli/agentreach/internal/session"
 )
 
 // DefaultTimeout bounds one probe run. A healthy turn against the mock takes

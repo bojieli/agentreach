@@ -70,6 +70,73 @@ archives:
         dst: .
         info: { mode: 0755 }
 
+# The container image is published to GitHub Packages (ghcr.io). It is the same
+# binary as the archives, with an ssh client and the helper builds beside it —
+# see Dockerfile for why those two things have to be in the image.
+#
+# One image per architecture, then a manifest that joins them, because a
+# manifest list is what makes `docker pull` do the right thing on an arm64
+# machine. `skip_push: auto` keeps snapshots and pre-releases local: CI builds
+# these on every push to prove the Dockerfile still works, and that run must not
+# publish anything.
+dockers:
+  - id: reach-linux-amd64
+    ids: [reach]
+    goos: linux
+    goarch: amd64
+    dockerfile: Dockerfile
+    use: buildx
+    skip_push: auto
+    image_templates:
+      - 'ghcr.io/bojieli/agentreach:{{ .Version }}-amd64'
+      - 'ghcr.io/bojieli/agentreach:latest-amd64'
+    extra_files: ['.helpers']
+    build_flag_templates:
+      - '--platform=linux/amd64'
+      - '--label=org.opencontainers.image.title={{ .ProjectName }}'
+      - '--label=org.opencontainers.image.description=Teleoperation for coding agents: the agent runs locally, its tool calls act on a remote target.'
+      - '--label=org.opencontainers.image.url=https://github.com/bojieli/agentreach'
+      - '--label=org.opencontainers.image.source=https://github.com/bojieli/agentreach'
+      - '--label=org.opencontainers.image.version={{ .Version }}'
+      - '--label=org.opencontainers.image.revision={{ .FullCommit }}'
+      - '--label=org.opencontainers.image.created={{ .Date }}'
+      - '--label=org.opencontainers.image.licenses=MIT'
+
+  - id: reach-linux-arm64
+    ids: [reach]
+    goos: linux
+    goarch: arm64
+    dockerfile: Dockerfile
+    use: buildx
+    skip_push: auto
+    image_templates:
+      - 'ghcr.io/bojieli/agentreach:{{ .Version }}-arm64'
+      - 'ghcr.io/bojieli/agentreach:latest-arm64'
+    extra_files: ['.helpers']
+    build_flag_templates:
+      - '--platform=linux/arm64'
+      - '--label=org.opencontainers.image.title={{ .ProjectName }}'
+      - '--label=org.opencontainers.image.description=Teleoperation for coding agents: the agent runs locally, its tool calls act on a remote target.'
+      - '--label=org.opencontainers.image.url=https://github.com/bojieli/agentreach'
+      - '--label=org.opencontainers.image.source=https://github.com/bojieli/agentreach'
+      - '--label=org.opencontainers.image.version={{ .Version }}'
+      - '--label=org.opencontainers.image.revision={{ .FullCommit }}'
+      - '--label=org.opencontainers.image.created={{ .Date }}'
+      - '--label=org.opencontainers.image.licenses=MIT'
+
+docker_manifests:
+  - name_template: 'ghcr.io/bojieli/agentreach:{{ .Version }}'
+    skip_push: auto
+    image_templates:
+      - 'ghcr.io/bojieli/agentreach:{{ .Version }}-amd64'
+      - 'ghcr.io/bojieli/agentreach:{{ .Version }}-arm64'
+  # `latest` only ever moves on a real, non-prerelease tag.
+  - name_template: 'ghcr.io/bojieli/agentreach:latest'
+    skip_push: auto
+    image_templates:
+      - 'ghcr.io/bojieli/agentreach:latest-amd64'
+      - 'ghcr.io/bojieli/agentreach:latest-arm64'
+
 checksum:
   name_template: checksums.txt
 
@@ -105,6 +172,14 @@ changelog:
     exclude: ['^docs:', '^test:', '^chore:', Merge pull request]
 
 release:
+  # The generated list below is every commit in the range, which for a first
+  # release is 77 of them. CHANGELOG.md is the version written for someone
+  # deciding whether to upgrade, so point at it before the wall of subjects.
+  header: |
+    [CHANGELOG.md](https://github.com/bojieli/agentreach/blob/{{ .Tag }}/CHANGELOG.md)
+    is the readable account of what changed and why. The commit list below is
+    the complete one.
+
   footer: |
     ## Verifying this release
 
@@ -133,3 +208,16 @@ release:
 
     Each archive also ships with an SBOM (`.sbom.json`, SPDX) listing everything
     compiled into it.
+
+    ## Container image
+
+    The same build is on GitHub Packages for amd64 and arm64:
+
+    ```console
+    docker run --rm -v "$HOME/.ssh:/root/.ssh:ro" \
+      ghcr.io/bojieli/agentreach:{{ .Version }} version
+    ```
+
+    Nothing was published here until CI was green on this tag — every test on
+    every platform, the linters, the fuzz runs, govulncheck, the cross-compiles
+    and a full release dry run.

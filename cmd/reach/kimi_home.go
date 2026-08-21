@@ -15,8 +15,9 @@ import (
 // agent reaches files through its shell tool (Bash), which runs on the target.
 //
 // Names are the readonly `name` constants from both kimi engines:
-//   packages/agent-core/src/tools/builtin/file/*.ts   (v1)
-//   packages/agent-core-v2/src/agent/tools/os/*.ts    (v2)
+//
+//	packages/agent-core/src/tools/builtin/file/*.ts   (v1)
+//	packages/agent-core-v2/src/agent/tools/os/*.ts    (v2)
 //
 // Bash is deliberately absent — it is the intercept point.
 //
@@ -76,18 +77,18 @@ func managedKimiHome(sessName string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	real := os.Getenv("KIMI_CODE_HOME")
-	if real == "" {
+	realHome := os.Getenv("KIMI_CODE_HOME")
+	if realHome == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return "", err
 		}
-		real = filepath.Join(home, ".kimi-code")
+		realHome = filepath.Join(home, ".kimi-code")
 	}
 	// Auth and identity entries are linked, not copied: OAuth tokens are
 	// refreshed in place, and a copied token would silently expire.
 	for _, entry := range []string{"credentials", "oauth", "region", "device_id", "tui.toml"} {
-		src := filepath.Join(real, entry)
+		src := filepath.Join(realHome, entry)
 		dst := filepath.Join(dir, entry)
 		if _, err := os.Lstat(dst); err == nil {
 			continue
@@ -101,7 +102,7 @@ func managedKimiHome(sessName string) (string, error) {
 	}
 	// config.toml is copied, not linked: reach's tool policy is appended to
 	// the copy and must never leak into the operator's interactive config.
-	srcConf := filepath.Join(real, "config.toml")
+	srcConf := filepath.Join(realHome, "config.toml")
 	data, err := os.ReadFile(srcConf)
 	if err != nil {
 		data = nil
