@@ -180,7 +180,15 @@ func newTestEnv(t *testing.T) *testEnv {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	t.Cleanup(func() { _ = srv.Close() })
+	// Order matters: the pumps write the command's audit record last, and
+	// REACH_HOME — where that record goes — is a t.TempDir() this cleanup runs
+	// ahead of. Without the wait, a process still exiting writes into a
+	// directory being deleted and the test fails in teardown.
+	t.Cleanup(func() {
+		srv.terminateAll()
+		srv.waitForProcesses()
+		_ = srv.Close()
+	})
 	env := &testEnv{srv: srv, root: root, workspace: workspace}
 	env.client = newTestClient(t, srv)
 	return env
@@ -292,59 +300,113 @@ func (e *testEnv) startProcess(t *testing.T, id, script string, extra map[string
 	}
 }
 
+// readRound issues one process/read and returns what it yielded. It is the
+// shared half of readAll and awaitStdout: the difference between them is only
+// when they stop asking.
+func (e *testEnv) readRound(t *testing.T, id string, afterSeq uint64) (stdout, stderr string, next uint64, exited bool, exitCode int) {
+	t.Helper()
+	f := e.client.call(t, "process/read", map[string]any{
+		"processId": id,
+		"afterSeq":  afterSeq,
+		"waitMs":    10000,
+	})
+	if f.Error != nil {
+		t.Fatalf("process/read %s: %s", id, f.Error.Message)
+	}
+	var resp struct {
+		Chunks []struct {
+			Seq    uint64 `json:"seq"`
+			Stream string `json:"stream"`
+			Chunk  string `json:"chunk"`
+		} `json:"chunks"`
+		NextSeq  uint64  `json:"nextSeq"`
+		Exited   bool    `json:"exited"`
+		ExitCode *int    `json:"exitCode"`
+		Failure  *string `json:"failure"`
+	}
+	if err := json.Unmarshal(f.Result, &resp); err != nil {
+		t.Fatalf("process/read result: %v: %s", err, f.Result)
+	}
+	for _, c := range resp.Chunks {
+		data, err := base64.StdEncoding.DecodeString(c.Chunk)
+		if err != nil {
+			t.Fatalf("chunk %d is not base64: %v", c.Seq, err)
+		}
+		if c.Stream == "stdout" {
+			stdout += string(data)
+		} else {
+			stderr += string(data)
+		}
+	}
+	// nextSeq is the seq the *next* chunk will get, so "everything after
+	// the last chunk I have" is nextSeq-1 — the same arithmetic codex's
+	// own client does (remote_process.rs).
+	next = afterSeq
+	if resp.NextSeq > 0 {
+		next = resp.NextSeq - 1
+	}
+	if resp.Exited {
+		if resp.Failure != nil && *resp.Failure != "" {
+			t.Fatalf("process %s failed at the transport: %s", id, *resp.Failure)
+		}
+		if resp.ExitCode == nil {
+			t.Fatalf("exited but no exitCode: %s", f.Result)
+		}
+		return stdout, stderr, next, true, *resp.ExitCode
+	}
+	return stdout, stderr, next, false, 0
+}
+
 // readAll polls process/read until the process exits and returns the
 // aggregated stdout, stderr and exit code.
 func (e *testEnv) readAll(t *testing.T, id string) (stdout, stderr string, exitCode int) {
 	t.Helper()
 	var afterSeq uint64
 	for {
-		f := e.client.call(t, "process/read", map[string]any{
-			"processId": id,
-			"afterSeq":  afterSeq,
-			"waitMs":    10000,
-		})
-		if f.Error != nil {
-			t.Fatalf("process/read %s: %s", id, f.Error.Message)
+		out, errOut, next, exited, code := e.readRound(t, id, afterSeq)
+		stdout += out
+		stderr += errOut
+		afterSeq = next
+		if exited {
+			return stdout, stderr, code
 		}
-		var resp struct {
-			Chunks []struct {
-				Seq    uint64 `json:"seq"`
-				Stream string `json:"stream"`
-				Chunk  string `json:"chunk"`
-			} `json:"chunks"`
-			NextSeq  uint64  `json:"nextSeq"`
-			Exited   bool    `json:"exited"`
-			ExitCode *int    `json:"exitCode"`
-			Failure  *string `json:"failure"`
+	}
+}
+
+// awaitStdout reads until a still-running process has written something, and
+// returns it with the sequence to carry on from. It exists so a test can
+// establish that a process consumed its input before doing anything else to
+// that process.
+func (e *testEnv) awaitStdout(t *testing.T, id string) (string, uint64) {
+	t.Helper()
+	var afterSeq uint64
+	var stdout string
+	for range 10 {
+		out, _, next, exited, _ := e.readRound(t, id, afterSeq)
+		stdout += out
+		afterSeq = next
+		if stdout != "" {
+			return stdout, afterSeq
 		}
-		if err := json.Unmarshal(f.Result, &resp); err != nil {
-			t.Fatalf("process/read result: %v: %s", err, f.Result)
+		if exited {
+			t.Fatalf("%s exited without writing anything", id)
 		}
-		for _, c := range resp.Chunks {
-			data, err := base64.StdEncoding.DecodeString(c.Chunk)
-			if err != nil {
-				t.Fatalf("chunk %d is not base64: %v", c.Seq, err)
-			}
-			if c.Stream == "stdout" {
-				stdout += string(data)
-			} else {
-				stderr += string(data)
-			}
-		}
-		// nextSeq is the seq the *next* chunk will get, so "everything after
-		// the last chunk I have" is nextSeq-1 — the same arithmetic codex's
-		// own client does (remote_process.rs).
-		if resp.NextSeq > 0 {
-			afterSeq = resp.NextSeq - 1
-		}
-		if resp.Exited {
-			if resp.Failure != nil && *resp.Failure != "" {
-				t.Fatalf("process %s failed at the transport: %s", id, *resp.Failure)
-			}
-			if resp.ExitCode == nil {
-				t.Fatalf("exited but no exitCode: %s", f.Result)
-			}
-			return stdout, stderr, *resp.ExitCode
+	}
+	t.Fatalf("%s wrote nothing", id)
+	return "", 0
+}
+
+// drainFrom reads a process to exit, continuing after a sequence some earlier
+// read already consumed.
+func (e *testEnv) drainFrom(t *testing.T, id string, afterSeq uint64) string {
+	t.Helper()
+	var stdout string
+	for {
+		out, _, next, exited, _ := e.readRound(t, id, afterSeq)
+		stdout += out
+		afterSeq = next
+		if exited {
+			return stdout
 		}
 	}
 }
@@ -408,10 +470,17 @@ func TestProcessWriteAndTerminate(t *testing.T) {
 	env := newTestEnv(t)
 	env.initialize(t)
 
+	// Deliberately larger than the tail the sentinel filter withholds. That
+	// filter passes bytes through only once enough have arrived to rule out a
+	// partial exit marker, so a one-line echo reaches no client until the
+	// stream ends — and this test would then be asserting on which of cat's
+	// echo and the kill below got there first. Under CI load the kill won.
+	typed := strings.Repeat("typed-by-the-agent ", 256) + "\n"
+
 	env.startProcess(t, "p1", "cat", map[string]any{"pipeStdin": true})
 	f := env.client.call(t, "process/write", map[string]any{
 		"processId": "p1",
-		"chunk":     base64.StdEncoding.EncodeToString([]byte("typed-by-the-agent\n")),
+		"chunk":     base64.StdEncoding.EncodeToString([]byte(typed)),
 		"writeId":   "w1",
 	})
 	if f.Error != nil {
@@ -423,20 +492,26 @@ func TestProcessWriteAndTerminate(t *testing.T) {
 	// A retried write is acknowledged, not duplicated.
 	f = env.client.call(t, "process/write", map[string]any{
 		"processId": "p1",
-		"chunk":     base64.StdEncoding.EncodeToString([]byte("typed-by-the-agent\n")),
+		"chunk":     base64.StdEncoding.EncodeToString([]byte(typed)),
 		"writeId":   "w1",
 	})
 	if !strings.Contains(string(f.Result), "accepted") {
 		t.Fatalf("retried write: %s", f.Result)
 	}
 
+	// cat has echoed, so terminating now cannot be what decides the assertion
+	// at the end.
+	echoed, afterSeq := env.awaitStdout(t, "p1")
+
 	f = env.client.call(t, "process/terminate", map[string]any{"processId": "p1"})
 	if !strings.Contains(string(f.Result), `"running":true`) {
 		t.Fatalf("process/terminate: %s", f.Result)
 	}
-	stdout, _, _ := env.readAll(t, "p1")
-	if stdout != "typed-by-the-agent\n" {
-		t.Errorf("cat echoed %q", stdout)
+	// The rest is the tail the filter was holding. The total is what decides
+	// whether the retried write was applied a second time.
+	echoed += env.drainFrom(t, "p1", afterSeq)
+	if echoed != typed {
+		t.Errorf("cat echoed %d bytes, want the %d typed, exactly once", len(echoed), len(typed))
 	}
 }
 
