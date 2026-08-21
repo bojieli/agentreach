@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Release calls this workflow as its gate. Defining "builds clean" once, here,
+  # is the point: a second copy of these checks in release.yml would drift, and
+  # the copy that drifts is the one guarding the artefacts people download.
+  workflow_call:
 
 permissions:
   contents: read
@@ -237,6 +241,12 @@ jobs:
       - uses: actions/setup-go@v7
         with: { go-version: '1.25', cache: true }
       - uses: anchore/sbom-action/download-syft@v0
+      # The image is built here but never pushed (`skip_push: auto` plus
+      # --snapshot), so a broken Dockerfile fails on the push that broke it
+      # rather than on the tag. arm64 is emulated; the image only COPYs an
+      # already-cross-compiled binary, so the emulation costs almost nothing.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
       - uses: goreleaser/goreleaser-action@v7
         with:
           version: '~> v2'
@@ -272,3 +282,20 @@ jobs:
           # operator's target is a POSIX host.
           unzip -l dist/reach_*_windows_amd64.zip | grep -q reach-helper-linux-amd64 || {
             echo "::error::the windows archive has no helper for a POSIX target"; exit 1; }
+      # An image that builds is not an image that works. `reach version` covers
+      # the binary; `command -v ssh` covers the reason this image is not FROM
+      # scratch, since without an ssh client every transport fails at the first
+      # command — on the operator's machine rather than here.
+      - name: the container image runs
+        run: |
+          set -euo pipefail
+          image=$(docker image ls --format '{{ .Repository }}:{{ .Tag }}' \
+                  | grep '^ghcr\.io/bojieli/agentreach:' | grep -- '-amd64$' | head -1)
+          [ -n "$image" ] || { echo "::error::goreleaser built no amd64 image"; exit 1; }
+          echo "checking $image"
+          docker run --rm --entrypoint sh "$image" -c 'command -v ssh' >/dev/null || {
+            echo "::error::$image has no ssh client"; exit 1; }
+          docker run --rm "$image" version | grep -qi 'linux/'
+          docker run --rm --entrypoint sh "$image" -c \
+            'test -x /usr/local/bin/reach-helper-linux-amd64' || {
+            echo "::error::$image does not carry the helper binaries"; exit 1; }

@@ -11,6 +11,27 @@ project makes without a version attached.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-08-21
+
+The first tagged release, and the first artefacts anyone can download. A
+changelog this long under a first version is not an accident: reach started as
+tier-0 file operations over SSH with adapters for a handful of harnesses (see
+"Where this started" at the end), and everything below was built on that before
+any of it was published.
+
+### Added
+
+- **A container image on GitHub Packages**, `ghcr.io/bojieli/agentreach`, for
+  amd64 and arm64. It carries an `ssh` client and the helper binary for every
+  target platform beside `reach` itself, so the helper tier works in it without
+  a Go toolchain. Keys are mounted in, never baked in.
+
+- **Releases are gated on CI.** A tag is a claim that a commit is releasable,
+  not evidence of it. The release workflow now calls CI as a reusable workflow
+  and publishes nothing — no archives, no image, no signature — until every
+  test on every platform, the linters, the fuzz runs, govulncheck, the
+  cross-compiles and the release dry run are green on the tagged tree.
+
 ### Fixed
 
 - **The tier reach negotiates by default wrote temporaries under reach's former
@@ -437,11 +458,11 @@ project makes without a version attached.
   overturn the ordering it asserted: `sftp` is fastest, and the nominally
   fastest `helper` tier is the slowest to start.
 
-## [0.1.0]
+### Where this started
 
-Initial development release: tier-0 file operations, the SSH, container and
-local transports, session state, `exec` and `mirror` modes, and adapters for
-Claude Code, Codex, Kimi Code and opencode.
+The initial development state, never tagged: tier-0 file operations, the SSH,
+container and local transports, session state, `exec` and `mirror` modes, and
+adapters for Claude Code, Codex, Kimi Code and opencode.
 
 Verified against Claude Code 2.1.233 and Codex CLI 0.147.0. See
 `docs/RESEARCH.md` for what was checked and how.

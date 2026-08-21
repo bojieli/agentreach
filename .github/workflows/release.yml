@@ -5,15 +5,39 @@ on:
     tags: ['v*']
 
 permissions:
-  contents: write
-  # Keyless signing: cosign trades this workflow's OIDC token for a short-lived
-  # certificate, so a signature is bound to this repository, this tag and this
-  # workflow file. There is no private key to keep secret, leak or rotate.
-  id-token: write
+  contents: read
 
 jobs:
+  # A tag is a claim that a commit is releasable, not evidence of it. Nothing
+  # stops `git tag` from landing on a tree that does not compile on Windows or
+  # that a linter would have caught, and the release job would happily publish
+  # archives and a container image from it — signed, so they would look
+  # trustworthy while being broken.
+  #
+  # So the gate is CI itself, called as a reusable workflow rather than
+  # reimplemented here: every test on every platform, the linters, the fuzz
+  # runs, govulncheck, the cross-compiles, and the release dry run that builds
+  # the archives and the image without publishing them. Nothing is published
+  # until all of it is green.
+  ci:
+    name: ci must be green
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   release:
+    needs: ci
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      # ghcr.io is GitHub Packages: the container image is pushed with this
+      # workflow's own token, so there is no registry credential to store.
+      packages: write
+      # Keyless signing: cosign trades this workflow's OIDC token for a
+      # short-lived certificate, so a signature is bound to this repository,
+      # this tag and this workflow file. There is no private key to keep
+      # secret, leak or rotate.
+      id-token: write
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0 }
@@ -21,6 +45,15 @@ jobs:
         with: { go-version: '1.25', cache: true }
       - uses: sigstore/cosign-installer@v3
       - uses: anchore/sbom-action/download-syft@v0
+      # The image is multi-arch, and the arm64 half is built on an amd64
+      # runner.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - uses: goreleaser/goreleaser-action@v7
         with:
           version: '~> v2'
