@@ -22,8 +22,8 @@ func TestManagedGooseConfig_EmptyBase(t *testing.T) {
 }
 
 func TestManagedGooseConfig_PreservesProviderKeys(t *testing.T) {
-	real := "GOOSE_PROVIDER: anthropic\nGOOSE_MODEL: claude-opus\n"
-	cfg := managedGooseConfig(real)
+	realCfg := "GOOSE_PROVIDER: anthropic\nGOOSE_MODEL: claude-opus\n"
+	cfg := managedGooseConfig(realCfg)
 	if !strings.Contains(cfg, "GOOSE_PROVIDER: anthropic") {
 		t.Error("expected GOOSE_PROVIDER to be copied from real config")
 	}
@@ -36,7 +36,7 @@ func TestManagedGooseConfig_PreservesProviderKeys(t *testing.T) {
 }
 
 func TestManagedGooseConfig_StripsExtensionsBlock(t *testing.T) {
-	real := `GOOSE_PROVIDER: openai
+	realCfg := `GOOSE_PROVIDER: openai
 GOOSE_MODEL: gpt-4o
 extensions:
   developer:
@@ -45,7 +45,7 @@ extensions:
     type: builtin
 GOOSE_SOMETHING: other
 `
-	cfg := managedGooseConfig(real)
+	cfg := managedGooseConfig(realCfg)
 	// The original extensions block is gone; reach's replacement is there.
 	if strings.Contains(cfg, "type: builtin") {
 		t.Error("old extensions block should be stripped")

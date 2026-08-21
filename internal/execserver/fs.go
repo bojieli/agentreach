@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/bojieli/agentreach/internal/audit"
-	"github.com/bojieli/agentreach/internal/transport"
 	"github.com/bojieli/agentreach/internal/reach"
+	"github.com/bojieli/agentreach/internal/transport"
 )
 
 // Every fs/* method maps the PathUri codex sent onto a target path and runs
@@ -230,12 +230,12 @@ func (s *Server) handleFsWalk(ctx context.Context, raw json.RawMessage) (any, *r
 	defer cancel()
 
 	w := &walker{
-		s:         s,
-		ctx:       opCtx,
-		opts:      p.Options,
-		entries:   []map[string]any{},
-		errs:      []map[string]any{},
-		dirCount:  1, // the root itself counts, as in codex's walker
+		s:        s,
+		ctx:      opCtx,
+		opts:     p.Options,
+		entries:  []map[string]any{},
+		errs:     []map[string]any{},
+		dirCount: 1, // the root itself counts, as in codex's walker
 	}
 	w.walk(root, 0)
 	return map[string]any{

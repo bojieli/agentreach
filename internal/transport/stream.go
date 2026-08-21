@@ -48,7 +48,7 @@ func RunStream(ctx context.Context, t Transport, req reach.ExecRequest, stdout, 
 		// ssh has already printed its own refusal to the caller's stderr, and
 		// on its own that reads like the command failed. Say what reach did
 		// about it.
-		fmt.Fprintf(stderr, "reach: %s had no room for another channel on this connection; "+
+		_, _ = fmt.Fprintf(stderr, "reach: %s had no room for another channel on this connection; "+
 			"opened another one and ran the command there\n", t.Describe())
 	}
 }

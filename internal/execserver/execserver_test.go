@@ -228,7 +228,7 @@ func TestInitializeAndEnvironmentInfo(t *testing.T) {
 		} `json:"shell"`
 		Cwd          string `json:"cwd"`
 		Capabilities struct {
-			NetworkProxyLaunch       bool `json:"networkProxyLaunch"`
+			NetworkProxyLaunch         bool `json:"networkProxyLaunch"`
 			CapabilityDiscoverySandbox bool `json:"capabilityDiscoverySandbox"`
 			EnvironmentConfigRead      bool `json:"environmentConfigRead"`
 			SandboxedFileStreaming     bool `json:"sandboxedFileStreaming"`
@@ -312,9 +312,9 @@ func (e *testEnv) readAll(t *testing.T, id string) (stdout, stderr string, exitC
 				Stream string `json:"stream"`
 				Chunk  string `json:"chunk"`
 			} `json:"chunks"`
-			NextSeq  uint64 `json:"nextSeq"`
-			Exited   bool   `json:"exited"`
-			ExitCode *int   `json:"exitCode"`
+			NextSeq  uint64  `json:"nextSeq"`
+			Exited   bool    `json:"exited"`
+			ExitCode *int    `json:"exitCode"`
 			Failure  *string `json:"failure"`
 		}
 		if err := json.Unmarshal(f.Result, &resp); err != nil {
@@ -496,7 +496,7 @@ func TestFsRoundTripThroughTheMapping(t *testing.T) {
 		t.Fatalf("fs/writeFile direct: %s", f.Error.Message)
 	}
 	if _, err := os.Stat(filepath.Join(env.root, "direct.txt")); err != nil {
-		t.Errorf("verbatim target path was not honored: %v", err)
+		t.Errorf("verbatim target path was not honoured: %v", err)
 	}
 
 	// Metadata.
@@ -572,7 +572,7 @@ func TestFsOpenReadBlockClose(t *testing.T) {
 	f = env.client.call(t, "fs/readBlock", map[string]any{"handleId": "h1", "offset": 4, "len": 6})
 	var block struct {
 		Chunk string `json:"chunk"`
-		Eof   bool   `json:"eof"`
+		EOF   bool   `json:"eof"`
 	}
 	if err := json.Unmarshal(f.Result, &block); err != nil {
 		t.Fatalf("fs/readBlock: %v: %s", err, f.Result)
@@ -581,13 +581,13 @@ func TestFsOpenReadBlockClose(t *testing.T) {
 	if string(data) != "456789" {
 		t.Errorf("block = %q", data)
 	}
-	if block.Eof {
+	if block.EOF {
 		t.Errorf("eof must be false when a full block was returned")
 	}
 
 	// Reading past the end reports eof.
 	f = env.client.call(t, "fs/readBlock", map[string]any{"handleId": "h1", "offset": 14, "len": 8})
-	if err := json.Unmarshal(f.Result, &block); err != nil || !block.Eof {
+	if err := json.Unmarshal(f.Result, &block); err != nil || !block.EOF {
 		t.Errorf("tail read: %s", f.Result)
 	}
 

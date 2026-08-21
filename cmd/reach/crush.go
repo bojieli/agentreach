@@ -87,7 +87,7 @@ func cmdCrush(ctx context.Context, args []string) int {
 	// the forward spec is trivially symmetric (localPort:127.0.0.1:localPort).
 	// If that port happens to be in use on the target, the server start will
 	// fail visibly; the operator can re-run to get a different port.
-	port, err := pickFreePort()
+	port, err := pickFreePort(ctx)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "reach: cannot find a free local port:", err)
 		return 1
@@ -141,13 +141,18 @@ func cmdCrush(ctx context.Context, args []string) int {
 // There is a small race between close and subsequent use, but that is
 // acceptable here: the port space is not heavily contested and the window is
 // measured in microseconds.
-func pickFreePort() (int, error) {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+func pickFreePort(ctx context.Context) (int, error) {
+	var lc net.ListenConfig
+	l, err := lc.Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
 		return 0, err
 	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port, nil
+	defer func() { _ = l.Close() }()
+	addr, ok := l.Addr().(*net.TCPAddr)
+	if !ok {
+		return 0, fmt.Errorf("listener bound to %T, not TCP", l.Addr())
+	}
+	return addr.Port, nil
 }
 
 // waitForCrushPort polls 127.0.0.1:port until a TCP connection succeeds or
@@ -160,8 +165,8 @@ func waitForCrushPort(ctx context.Context, port int) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if conn, err := net.DialTimeout("tcp", addr, 200*time.Millisecond); err == nil {
-			conn.Close()
+		if conn, err := dialOnce(ctx, addr, 200*time.Millisecond); err == nil {
+			_ = conn.Close()
 			return nil
 		}
 		select {
@@ -171,4 +176,14 @@ func waitForCrushPort(ctx context.Context, port int) error {
 		}
 	}
 	return fmt.Errorf("no response on %s after 30 seconds", addr)
+}
+
+// dialOnce is one bounded connection attempt. The timeout is expressed as a
+// context deadline derived from the caller's context so that cancelling the
+// launch cancels the dial in progress rather than waiting it out.
+func dialOnce(ctx context.Context, addr string, timeout time.Duration) (net.Conn, error) {
+	dialCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	var d net.Dialer
+	return d.DialContext(dialCtx, "tcp", addr)
 }

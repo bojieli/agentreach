@@ -11,8 +11,8 @@ import (
 	"strings"
 
 	"github.com/bojieli/agentreach/internal/fileops"
-	"github.com/bojieli/agentreach/internal/session"
 	"github.com/bojieli/agentreach/internal/reach"
+	"github.com/bojieli/agentreach/internal/session"
 )
 
 const fsUsage = `reach fs — file operations on the session's target

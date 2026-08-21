@@ -19,44 +19,6 @@ func loadSessionQuiet() (*session.Session, error) {
 	return session.Load(sessionNameFromEnv(""))
 }
 
-// launchWithPathShim starts a harness whose shell is intercepted by placing a
-// `bash` shim earlier on PATH.
-//
-// This is the seam for harnesses that resolve their shell with execvp rather
-// than reading it from a configuration value. It needs no fork and no support
-// from the harness, but it is coarser than a dedicated hook: every `bash -c`
-// the harness runs is redirected, including any it runs for its own internal
-// purposes. That is usually what is wanted — the harness's own file reads go
-// through the same path — but it is the reason reach falls back to a local
-// shell rather than failing when no session is bound.
-func launchWithPathShim(ctx context.Context, binary, label, sessName string, extraEnv []string, args []string) int {
-	s, err := session.Load(sessName)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "reach:", err)
-		return 1
-	}
-	binPath, err := exec.LookPath(binary)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "reach: %s is not installed or not in PATH\n", label)
-		return 1
-	}
-	shimDir, err := ensurePathShim()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "reach:", err)
-		return 1
-	}
-
-	env := os.Environ()
-	env = append(env, "REACH_SESSION="+sessName)
-	env = append(env, extraEnv...)
-	env = prependPath(env, shimDir)
-
-	fmt.Fprintf(os.Stderr, "reach: %s -> %s (shell runs on the target)\n", label, s.Target.Describe())
-
-	argv := append([]string{binPath}, args...)
-	return replaceProcess(ctx, binPath, argv, env)
-}
-
 // cmdCodex launches Codex against the session's target.
 //
 // Codex 0.148 resolves its shell by absolute path, which no PATH shim can
@@ -155,25 +117,25 @@ func managedCodexHome(sessName string) (string, error) {
 		return "", fmt.Errorf("create %s: %w", dir, err)
 	}
 
-	real := os.Getenv("CODEX_HOME")
-	if real == "" {
+	realHome := os.Getenv("CODEX_HOME")
+	if realHome == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return "", fmt.Errorf("locate home directory: %w", err)
 		}
-		real = filepath.Join(home, ".codex")
+		realHome = filepath.Join(home, ".codex")
 	}
 	// Copies, not symlinks: codex resolves its home and a symlink that later
 	// points somewhere else would be a silent change of credentials. Files
 	// that are absent are simply skipped — OPENAI_API_KEY may be the whole
 	// login.
 	for _, f := range []string{"auth.json", "config.toml"} {
-		data, err := os.ReadFile(filepath.Join(real, f))
+		data, err := os.ReadFile(filepath.Join(realHome, f))
 		if err != nil {
 			continue
 		}
 		if err := os.WriteFile(filepath.Join(dir, f), data, 0o600); err != nil {
-			return "", fmt.Errorf("copy %s from %s: %w", f, real, err)
+			return "", fmt.Errorf("copy %s from %s: %w", f, realHome, err)
 		}
 	}
 
@@ -420,7 +382,7 @@ func cmdKimi(ctx context.Context, args []string) int {
 				"reach: If this kimi binary was not patched for KIMI_SHELL_PATH, every\n"+
 				"reach: command the agent runs will execute on the LOCAL machine while the\n"+
 				"reach: agent believes it is acting on the target.")
-	} else if rc := guardKimiSeam(ctx, sessName, binPath, shimDir); rc != 0 {
+	} else if rc := guardKimiSeam(ctx, sessName, binPath); rc != 0 {
 		return rc
 	}
 

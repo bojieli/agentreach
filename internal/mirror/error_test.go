@@ -61,7 +61,7 @@ func TestPushWithoutPriorFetchWritesThrough(t *testing.T) {
 	remote := fmt.Sprintf("%s/fresh.txt", target)
 
 	local := m.Local(remote)
-	if err := os.MkdirAll(fmt.Sprintf("%s", local[:len(local)-len("/fresh.txt")]), 0o700); err != nil {
+	if err := os.MkdirAll(local[:len(local)-len("/fresh.txt")], 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(local, []byte("from scratch\n"), 0o600); err != nil {
@@ -105,7 +105,7 @@ func TestPushVerificationReadErrorIsRefused(t *testing.T) {
 
 	// Write a local file so Push has something to send.
 	local := bad.Local(path)
-	if err := os.MkdirAll(fmt.Sprintf("%s", local[:strings.LastIndex(local, "/")]), 0o700); err != nil {
+	if err := os.MkdirAll(local[:strings.LastIndex(local, "/")], 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(local, []byte("edit\n"), 0o600); err != nil {

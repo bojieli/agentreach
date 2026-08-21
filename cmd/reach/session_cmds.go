@@ -15,9 +15,9 @@ import (
 
 	"github.com/bojieli/agentreach/internal/audit"
 	"github.com/bojieli/agentreach/internal/fileops"
+	"github.com/bojieli/agentreach/internal/reach"
 	"github.com/bojieli/agentreach/internal/session"
 	"github.com/bojieli/agentreach/internal/transport"
-	"github.com/bojieli/agentreach/internal/reach"
 )
 
 // Build metadata injected at link time by the Makefile and by goreleaser.

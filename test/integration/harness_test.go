@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bojieli/agentreach/internal/transport"
 	"github.com/bojieli/agentreach/internal/reach"
+	"github.com/bojieli/agentreach/internal/transport"
 )
 
 // The integration suite needs a real OpenSSH server, because the bugs it exists

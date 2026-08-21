@@ -30,11 +30,11 @@ import (
 //
 // Members are created only under contention, so a session that never overlaps
 // two file operations never starts a second handler.
-func NewPool(first FileOps, max int, open func(context.Context) (FileOps, error)) FileOps {
-	if max < 1 {
-		max = 1
+func NewPool(first FileOps, limit int, open func(context.Context) (FileOps, error)) FileOps {
+	if limit < 1 {
+		limit = 1
 	}
-	p := &poolOps{max: max, open: open, tier: first.Tier(), idle: []FileOps{first}, live: 1}
+	p := &poolOps{max: limit, open: open, tier: first.Tier(), idle: []FileOps{first}, live: 1}
 	p.free = sync.NewCond(&p.mu)
 	return p
 }

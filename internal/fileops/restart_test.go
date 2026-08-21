@@ -7,8 +7,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/bojieli/agentreach/internal/transport"
 	"github.com/bojieli/agentreach/internal/reach"
+	"github.com/bojieli/agentreach/internal/transport"
 )
 
 // countingTransport records how many channels were opened through it, so a test

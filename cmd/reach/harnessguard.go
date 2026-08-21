@@ -87,7 +87,7 @@ func guardHarnessSeam(ctx context.Context, harness, sessName string) int {
 // It is separate from guardHarnessSeam because kimi's binary is not always
 // the one exec.LookPath("kimi") returns — the patched npm bundle lives under
 // ~/.reach/ and has to be found by resolveKimiBinary before the guard runs.
-func guardKimiSeam(ctx context.Context, sessName, binPath, shimDir string) int {
+func guardKimiSeam(ctx context.Context, sessName, binPath string) int {
 	version, err := harnessprobe.HarnessVersionFromBinary(ctx, binPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr,

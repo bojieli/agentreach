@@ -17,6 +17,12 @@ import (
 // are intercepted by placing an executable called `bash` earlier on PATH. This
 // requires no fork, no chsh, and no configuration file the harness has to
 // support.
+//
+// It is coarser than a dedicated hook: every `bash -c` the harness runs is
+// redirected, including the ones it runs for its own internal purposes. That is
+// usually what is wanted — the harness's own file reads go through the same
+// path — but it is why a shim invocation with no session bound falls back to a
+// local shell rather than failing.
 const bashShimName = "bash"
 
 // shimGuardEnv stops a shim from invoking itself.

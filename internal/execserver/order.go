@@ -100,7 +100,7 @@ func (s *slot) done() {
 // traversal is not something a client can expect to be atomic in the first
 // place.
 func orderKey(method string, params json.RawMessage) string {
-	field, prefix := "", ""
+	var field, prefix string
 	switch method {
 	case "fs/readFile", "fs/writeFile", "fs/createDirectory", "fs/getMetadata",
 		"fs/canonicalize", "fs/readDirectory", "fs/remove":

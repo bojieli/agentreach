@@ -8,8 +8,8 @@ import (
 
 	"github.com/bojieli/agentreach/internal/fileops"
 	"github.com/bojieli/agentreach/internal/fileops/fileopstest"
-	"github.com/bojieli/agentreach/internal/transport"
 	"github.com/bojieli/agentreach/internal/reach"
+	"github.com/bojieli/agentreach/internal/transport"
 )
 
 // TestTierConformance runs the shared suite against every tier reachable

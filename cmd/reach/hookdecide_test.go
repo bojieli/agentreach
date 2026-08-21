@@ -12,8 +12,8 @@ import (
 
 	"github.com/bojieli/agentreach/internal/fileops"
 	"github.com/bojieli/agentreach/internal/mirror"
-	"github.com/bojieli/agentreach/internal/session"
 	"github.com/bojieli/agentreach/internal/reach"
+	"github.com/bojieli/agentreach/internal/session"
 )
 
 // The hook decides, inside an agent's turn, whether a tool call reads the

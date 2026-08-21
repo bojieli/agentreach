@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bojieli/agentreach/internal/transport"
 	"github.com/bojieli/agentreach/internal/reach"
+	"github.com/bojieli/agentreach/internal/transport"
 )
 
 // POSIX implements FileOps using only a POSIX shell on the target.

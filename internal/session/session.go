@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/bojieli/agentreach/internal/fileops"
-	"github.com/bojieli/agentreach/internal/transport"
 	"github.com/bojieli/agentreach/internal/reach"
+	"github.com/bojieli/agentreach/internal/transport"
 )
 
 // Mode selects how much of the harness's tool surface reach redirects.

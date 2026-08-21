@@ -9,9 +9,9 @@ import (
 	"strings"
 
 	"github.com/bojieli/agentreach/internal/fileops"
+	"github.com/bojieli/agentreach/internal/reach"
 	"github.com/bojieli/agentreach/internal/session"
 	"github.com/bojieli/agentreach/internal/transport"
-	"github.com/bojieli/agentreach/internal/reach"
 )
 
 // cmdDoctor reports what a target supports and, more importantly, what it does

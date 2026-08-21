@@ -31,9 +31,9 @@ import (
 
 	"github.com/bojieli/agentreach/internal/audit"
 	"github.com/bojieli/agentreach/internal/fileops"
+	"github.com/bojieli/agentreach/internal/reach"
 	"github.com/bojieli/agentreach/internal/session"
 	"github.com/bojieli/agentreach/internal/transport"
-	"github.com/bojieli/agentreach/internal/reach"
 )
 
 // maxFileHandlers is how many file-operation strategies one exec-server keeps.
@@ -438,7 +438,7 @@ func (s *Server) handleEnvironmentInfo() (any, *rpcError) {
 		// streaming. Codex gates newer request fields on these; false keeps it
 		// on the protocol surface this server implements.
 		"capabilities": map[string]any{
-			"networkProxyLaunch":        false,
+			"networkProxyLaunch":         false,
 			"capabilityDiscoverySandbox": false,
 			"environmentConfigRead":      false,
 			"sandboxedFileStreaming":     false,

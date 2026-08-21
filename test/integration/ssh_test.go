@@ -17,8 +17,8 @@ import (
 	"testing"
 
 	"github.com/bojieli/agentreach/internal/fileops"
-	"github.com/bojieli/agentreach/internal/transport"
 	"github.com/bojieli/agentreach/internal/reach"
+	"github.com/bojieli/agentreach/internal/transport"
 )
 
 func TestSSHExecOverRealServer(t *testing.T) {
