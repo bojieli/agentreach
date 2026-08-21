@@ -50,13 +50,15 @@ func managedGeminiHome(sessName string) (string, error) {
 	// Symlink credential files from the real ~/.gemini so Gemini can
 	// authenticate. Missing files are silently skipped; GEMINI_API_KEY in the
 	// environment is the common case and needs no file.
-	realGeminiDir := filepath.Join(os.Getenv("HOME"), ".gemini")
-	if realGeminiDir == filepath.Join("", ".gemini") {
-		// HOME was empty; try UserHomeDir.
-		if h, err := os.UserHomeDir(); err == nil {
-			realGeminiDir = filepath.Join(h, ".gemini")
-		}
+	//
+	// Use os.UserHomeDir() as the primary source — it handles all platforms and
+	// the case where HOME is unset, relative, or garbage. Fall back to
+	// os.Getenv("HOME") only when UserHomeDir itself fails (highly unlikely).
+	realHome, err := os.UserHomeDir()
+	if err != nil {
+		realHome = os.Getenv("HOME") // last resort
 	}
+	realGeminiDir := filepath.Join(realHome, ".gemini")
 	for _, f := range []string{
 		"google-accounts.json",
 		"installation_id",

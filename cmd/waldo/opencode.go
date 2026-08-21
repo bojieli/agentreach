@@ -194,8 +194,12 @@ func cmdOpencode(_ context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if self, err = filepath.EvalSymlinks(self); err != nil {
-		return err
+	// Resolve symlinks so the tool template embeds the real binary path, not a
+	// dangling link. Ignore the error — the tool still works with the unresolved
+	// path (it's a valid executable), and EvalSymlinks can fail legitimately on
+	// some filesystems or in sandboxed environments.
+	if resolved, rerr := filepath.EvalSymlinks(self); rerr == nil {
+		self = resolved
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err

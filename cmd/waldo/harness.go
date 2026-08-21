@@ -93,7 +93,7 @@ func cmdCodex(ctx context.Context, args []string) int {
 				"waldo: If the exec-server seam fails to engage, every command the agent\n"+
 				"waldo: runs will execute on the LOCAL machine while the agent believes it\n"+
 				"waldo: is acting on the target.")
-	} else if rc := guardHarnessSeam(ctx, "codex", sessName); rc != 0 {
+	} else if rc := guardHarnessSeam(ctx, harnessprobe.HarnessCodex, sessName); rc != 0 {
 		return rc
 	}
 
@@ -198,8 +198,9 @@ func managedCodexHome(sessName string) (string, error) {
 // the PATH shim's bash, so every shell command the agent issues routes through
 // waldo and executes on the session target.
 //
-// Goose's file tools (file_read, file_write, file_edit, tree, read_image) in
-// the developer extension bypass the shell and would act on the local machine.
+// Goose's file tools (write, edit, tree, read_image — canonical names from
+// crates/goose/src/agents/platform_extensions/developer/mod.rs) in the
+// developer extension bypass the shell and would act on the local machine.
 // waldo builds a managed GOOSE_PATH_ROOT whose config.yaml restricts the
 // developer extension to the shell tool only (available_tools: [shell]),
 // removing the file tools from the model's view. The agent reads and writes
@@ -269,9 +270,11 @@ func cmdGoose(ctx context.Context, args []string) int {
 // Gemini CLI resolves its shell via getShellConfiguration(), which returns a
 // bare "bash" name and walks PATH — the PATH shim intercepts it natively.
 // waldo sets HOME to a managed directory whose .gemini/settings.json excludes
-// every file tool (read_file, write_file, edit, glob, grep, ls, read_many_files,
-// web_fetch, web_search), leaving only run_shell_command in the model's view.
-// Shell commands route through the PATH shim and execute on the session target.
+// every file tool (read_file, write_file, replace, glob, grep_search,
+// list_directory, read_many_files, web_fetch, google_web_search, and more —
+// all canonical TOOL_NAME constants from base-declarations.ts), leaving only
+// run_shell_command in the model's view. Shell commands route through the PATH
+// shim and execute on the session target.
 func cmdGemini(ctx context.Context, args []string) int {
 	fs := newFlagSet("gemini")
 	name := fs.String("session", "", "session name (default $WALDO_SESSION)")

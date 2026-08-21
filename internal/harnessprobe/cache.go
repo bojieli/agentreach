@@ -128,8 +128,27 @@ func StoreVerdict(harness, version string, r Result) error {
 	if err != nil {
 		return err
 	}
-	tmp := fmt.Sprintf("%s.%d.tmp", p, os.Getpid())
-	if err := os.WriteFile(tmp, append(data, '\n'), 0o600); err != nil {
+	// Use os.CreateTemp so concurrent StoreVerdict calls within the same process
+	// each get a unique file rather than racing on a shared PID-named path.
+	// The write is still read-modify-write (two concurrent stores can lose each
+	// other's update), but neither will corrupt the other's temp file.
+	f, err := os.CreateTemp(filepath.Dir(p), ".harness-verdicts-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	if _, err := f.Write(append(data, '\n')); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := f.Chmod(0o600); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
 		return err
 	}
 	return os.Rename(tmp, p)
