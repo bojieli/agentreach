@@ -34,6 +34,19 @@ any of it was published.
 
 ### Fixed
 
+- **Two flaky tests, one of which blocked a release.** `TestProcessWriteAndTerminate`
+  wrote a line to `cat` and killed it immediately, then asserted on the echo.
+  The sentinel filter withholds its tail until the stream ends, so a one-line
+  echo reaches no client while the process runs — the assertion was really a
+  race between `cat` and `SIGKILL`, and under CI load the kill won. It now
+  writes enough to clear the withheld tail, waits for the echo, and only then
+  terminates. Separately, `Server.Close` does not wait for the pumps started by
+  `process/start`, which write the command's audit record last; a test deleting
+  its `REACH_HOME` could race one. Production shutdown still does not wait — a
+  process the agent started may outlive the request by hours — but the tests
+  now terminate and join before tearing down.
+
+
 - **Path mapping was broken for a Windows operator, in the direction that
   matters.** Both places reach translates between the operator's filesystem and
   the target's compared paths without agreeing on a separator first. The

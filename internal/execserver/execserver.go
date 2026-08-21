@@ -125,6 +125,37 @@ type Server struct {
 	// order keeps requests about one path, handle or process in the order the
 	// client sent them, without serialising requests about different ones.
 	order *sequencer
+
+	// running counts the process pumps started by process/start. Close does
+	// not wait on it — a shutdown must not block behind a build the agent
+	// started — but a test that is about to delete the audit directory those
+	// pumps write to does. See waitForProcesses.
+	running sync.WaitGroup
+}
+
+// waitForProcesses blocks until every started process's pump has finished,
+// including the audit record it writes last. It is for tests: production
+// shutdown deliberately does not wait, because a process reach started may
+// outlive the request that started it by hours.
+func (s *Server) waitForProcesses() { s.running.Wait() }
+
+// terminateAll kills every process still running. Also for tests, as the
+// counterpart that makes waitForProcesses finish.
+func (s *Server) terminateAll() {
+	s.mu.Lock()
+	procs := make([]*process, 0, len(s.processes))
+	for _, p := range s.processes {
+		procs = append(procs, p)
+	}
+	s.mu.Unlock()
+	for _, p := range procs {
+		p.mu.Lock()
+		exited := p.exited
+		p.mu.Unlock()
+		if !exited {
+			s.killStream(p)
+		}
+	}
 }
 
 // New builds an exec-server for sess. workspace is the local directory codex

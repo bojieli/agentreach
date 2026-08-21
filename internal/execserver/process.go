@@ -155,6 +155,7 @@ func (s *Server) handleProcessStart(_ context.Context, raw json.RawMessage) (any
 		_ = st.Stdin.Close()
 	}
 
+	s.running.Add(1)
 	go s.runProcess(proc, st, sentinel)
 
 	return map[string]any{
@@ -184,6 +185,7 @@ func argvToCommand(argv []string) string {
 // runProcess pumps a started process's output to the client and settles its
 // exit status. It owns the audit record for the command.
 func (s *Server) runProcess(p *process, st transport.Stream, sentinel string) {
+	defer s.running.Done()
 	started := time.Now()
 
 	stdoutChunks := &chunkWriter{proc: p, stream: "stdout", server: s}
