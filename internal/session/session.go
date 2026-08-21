@@ -306,6 +306,45 @@ func List() ([]*Session, []Broken, error) {
 	return out, broken, nil
 }
 
+// SharesConnectionWith names the other sessions whose commands travel over the
+// same connection as this one's.
+//
+// The control socket is keyed on the destination rather than on the session, so
+// two sessions pointed at one host — a different directory, a different agent,
+// a second terminal — authenticate once and share a connection. That is worth
+// having: an extra authentication per session is exactly the cost multiplexing
+// exists to remove, and on a host with a hardware token it is a second touch.
+//
+// It does mean the connection is not any one session's to close. `reach down`
+// asks this before tearing the master down, because ending a connection another
+// session is working over turns that session's next tool call into a full
+// reconnect — and on a host that needs a password or a token, into a failure,
+// since every connection after `reach up` runs in batch mode.
+func (s *Session) SharesConnectionWith() []string {
+	if s.Target == nil || s.Target.Kind != KindSSH {
+		return nil
+	}
+	all, _, err := List()
+	if err != nil {
+		// Nothing readable to go on. Reporting no sharers would mean tearing
+		// down a connection that may well be in use; the cost of being wrong
+		// the other way is a master that expires on its own ControlPersist.
+		return []string{"(other sessions could not be read)"}
+	}
+	var names []string
+	for _, other := range all {
+		if other.Name == s.Name || other.Target == nil || other.Target.Kind != KindSSH {
+			continue
+		}
+		if other.Target.Host == s.Target.Host &&
+			other.Target.User == s.Target.User &&
+			other.Target.Port == s.Target.Port {
+			names = append(names, other.Name)
+		}
+	}
+	return names
+}
+
 // Remove deletes a session's state.
 func Remove(name string) error {
 	p, err := pathFor(name)

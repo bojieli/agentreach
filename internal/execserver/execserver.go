@@ -490,13 +490,16 @@ func (s *Server) operationContext(ctx context.Context) (context.Context, context
 	return s.sess.OperationContext(ctx)
 }
 
-// Close releases the file-operation strategy and the transport.
+// Close releases the file-operation strategies.
+//
+// The connection is deliberately left alone. This server's life is one agent
+// run — codex starts it, and it ends when codex exits — while the connection
+// belongs to the session, which outlives both. Tearing the master down here
+// meant that quitting codex silently cost the session its warm connection, so
+// the next `reach exec` paid a full reconnect for no reason the operator could
+// see. `reach down` ends the connection, because `reach down` ends the session.
 func (s *Server) Close() error {
-	err := s.ops.Close()
-	if cerr := s.t.Close(); err == nil {
-		err = cerr
-	}
-	return err
+	return s.ops.Close()
 }
 
 // EnvironmentsTOML renders the environments.toml that points codex at this

@@ -49,7 +49,11 @@ func cmdDoctor(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = t.Close() }()
+	// The connection is not closed here. A short command run alongside a live
+	// session — `reach doctor` while an agent is working, a helper install
+	// between turns — shares that session's connection, and closing it would
+	// leave the agent's next tool call reconnecting from scratch. `reach down`
+	// is what ends a connection, because it is what ends the session.
 
 	caps, err := fileops.Probe(ctx, t)
 	if err != nil {

@@ -184,3 +184,83 @@ func TestConfDirIsSeparateFromSessions(t *testing.T) {
 		t.Error("generated config shares a directory with session state; discovery will pick it up")
 	}
 }
+
+// The control socket is keyed on the destination, so sessions pointed at one
+// host share a connection. `reach down` has to know that before tearing it
+// down: ending a connection another session is working over turns its next tool
+// call into a reconnect, and in batch mode on a host that needs a password or a
+// token, into a failure.
+func TestSharesConnectionWith(t *testing.T) {
+	withTempHome(t)
+
+	save := func(name, target string) *Session {
+		t.Helper()
+		tgt, err := ParseTarget(target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := &Session{
+			Name: name, Target: tgt, Mode: ModeExec,
+			Created: time.Now(), Tier: reach.TierPOSIX, Timeout: time.Minute,
+		}
+		if err := s.Save(); err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+
+	// Same host, different directories: one connection, two sessions.
+	build := save("build", "ssh://box/srv/app")
+	docs := save("docs", "ssh://box/srv/docs")
+	// A different destination, and a kind with no connection to share.
+	save("other", "ssh://elsewhere/srv/app")
+	save("here", "local:///tmp")
+
+	if got := build.SharesConnectionWith(); len(got) != 1 || got[0] != "docs" {
+		t.Errorf("build shares with %v, want [docs]", got)
+	}
+	if got := docs.SharesConnectionWith(); len(got) != 1 || got[0] != "build" {
+		t.Errorf("docs shares with %v, want [build]", got)
+	}
+	if got := save("alone", "ssh://elsewhere/srv/other").SharesConnectionWith(); len(got) != 1 || got[0] != "other" {
+		t.Errorf("alone shares with %v, want [other]", got)
+	}
+
+	local, err := Load("here")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := local.SharesConnectionWith(); got != nil {
+		t.Errorf("a local session reported sharing a connection with %v", got)
+	}
+}
+
+// A different user or port is a different connection, because the control
+// socket is keyed on all three.
+func TestSharesConnectionDistinguishesCredentials(t *testing.T) {
+	withTempHome(t)
+	for _, tc := range []struct{ name, target string }{
+		{"alice", "ssh://alice@box/srv/app"},
+		{"bob", "ssh://bob@box/srv/app"},
+		{"alt-port", "ssh://alice@box:2222/srv/app"},
+	} {
+		tgt, err := ParseTarget(tc.target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := &Session{
+			Name: tc.name, Target: tgt, Mode: ModeExec,
+			Created: time.Now(), Tier: reach.TierPOSIX, Timeout: time.Minute,
+		}
+		if err := s.Save(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s, err := Load("alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.SharesConnectionWith(); len(got) != 0 {
+		t.Errorf("a session shares a connection with %v across a different user or port", got)
+	}
+}
