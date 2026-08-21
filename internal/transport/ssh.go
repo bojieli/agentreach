@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -255,6 +256,27 @@ func (t *SSHTransport) Describe() string {
 		return "ssh://" + t.cfg.User + "@" + t.cfg.Host
 	}
 	return "ssh://" + t.cfg.Host
+}
+
+// ForwardLocal requests the existing ControlMaster to forward localPort on
+// localhost to 127.0.0.1:remotePort on the SSH target.
+//
+// This is the standard ssh(1) "local forward" (`-L`), issued here as a
+// control-socket request (`-O forward`) so that no new TCP connection is
+// opened — the port forward is added to the already-authenticated master.
+// It requires Multiplex to be true; callers that need a forward on a
+// non-multiplexed session must spawn their own ssh -L process.
+func (t *SSHTransport) ForwardLocal(ctx context.Context, localPort, remotePort int) error {
+	if !t.cfg.Multiplex {
+		return fmt.Errorf("ForwardLocal requires a multiplexed SSH connection (Multiplex=true)")
+	}
+	spec := fmt.Sprintf("%d:127.0.0.1:%d", localPort, remotePort)
+	args := append(t.baseArgs(), "-O", "forward", "-L", spec, t.cfg.Host)
+	if out, err := exec.CommandContext(ctx, t.cfg.Binary, args...).CombinedOutput(); err != nil {
+		return fmt.Errorf("ssh -O forward -L %s: %w; ssh said: %s",
+			spec, err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 // Close tears down the multiplexed master so no connection outlives the

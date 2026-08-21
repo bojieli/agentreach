@@ -41,6 +41,17 @@ func newSentinel() string {
 	return "__waldo_" + hex.EncodeToString(b[:]) + "__"
 }
 
+// NewSentinel returns an unguessable exit-status marker for a caller that
+// drives a streamed command itself (the exec-server) and therefore cannot use
+// Run. It must be paired with WrapWithSentinel and SentinelFilter so the
+// command's real status is recoverable from its stdout, exactly as Run does.
+func NewSentinel() string { return newSentinel() }
+
+// WrapWithSentinel makes a command report its exit status on stdout, behind
+// sentinel. It is the exported form of the wrapper Run applies, for callers
+// streaming a long-lived command through Open.
+func WrapWithSentinel(cmd, sentinel string) string { return wrapWithSentinel(cmd, sentinel) }
+
 // wrapWithSentinel makes a command report its exit status on stdout.
 //
 // The leading newline is what makes the split exact regardless of whether the

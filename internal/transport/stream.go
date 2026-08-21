@@ -78,6 +78,32 @@ func RunStream(ctx context.Context, t Transport, req waldo.ExecRequest, stdout, 
 	return 0, fmt.Errorf("%s: connection closed before the command completed (status %d)", t.Describe(), waitCode)
 }
 
+// SentinelFilter passes a streamed command's stdout through while holding back
+// enough of the tail to recognise and remove the trailing status marker
+// WrapWithSentinel adds. It is the streaming form of the marker recovery Run
+// does internally, exported for the exec-server, which pumps output chunks to a
+// client while the command is still running.
+type SentinelFilter struct {
+	inner *sentinelFilter
+}
+
+// NewSentinelFilter wraps out with a filter stripping "\n"+sentinel and the
+// status digits that follow it.
+func NewSentinelFilter(out io.Writer, sentinel string) *SentinelFilter {
+	return &SentinelFilter{inner: &sentinelFilter{out: out, sentinel: []byte("\n" + sentinel)}}
+}
+
+// Write implements io.Writer.
+func (f *SentinelFilter) Write(p []byte) (int, error) { return f.inner.Write(p) }
+
+// Flush emits whatever remains, minus the status marker if it is present. It
+// must be called once the command's stdout reaches EOF.
+func (f *SentinelFilter) Flush() { f.inner.flush() }
+
+// ExitCode returns the status the marker carried, and false when the marker
+// never arrived — which means the transport, not the command, failed.
+func (f *SentinelFilter) ExitCode() (int, bool) { return f.inner.exitCode() }
+
 // sentinelFilter passes bytes through while holding back enough of the tail to
 // recognise and remove the trailing status marker.
 type sentinelFilter struct {
