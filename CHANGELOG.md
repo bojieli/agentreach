@@ -13,6 +13,38 @@ project makes without a version attached.
 
 ### Fixed
 
+- **The tier reach negotiates by default wrote temporaries under reach's former
+  name.** internal/reach/tempfile.go states the rule every tier depends on —
+  write to a same-directory `.reach.tmp.*` and rename over the destination — and
+  explains that the prefix is deliberate, because anything an interrupted write
+  leaves behind has to be identifiable as reach's. The pipe handler spelled it
+  `.waldo.tmp.`. Debris from the default tier was therefore unattributable on a
+  machine the operator may not own, and the conformance suite's own "nothing may
+  be left behind" assertion, which looks for `.reach.tmp.`, could never have
+  failed for that tier. A test now reads both implementations and fails if
+  either stops honouring the contract.
+
+- **The exec-server's memory grew for the life of an agent session.** A process
+  record is kept after its command exits so codex can still read the output, and
+  nothing removed it: a server that ran a hundred commands held a hundred
+  records, each with up to a mebibyte of retained output, until the agent quit.
+  The last thirty-two are kept. Separately, a process remembered every
+  process/write id it had ever seen, for deduplicating retries; the last 256 are
+  kept, which covers any realistic retry window.
+
+- **A working directory reach could not record was discarded silently.** Nothing
+  carries the directory between tool calls but the session file, so a full disk
+  or a bad permission in `~/.reach` meant the agent's `cd` quietly stopped
+  persisting and its next command ran somewhere else, with nothing saying why.
+
+- **A timed-out command was reported as though it had stopped.** Closing the
+  channel is the whole of reach's control over a command it started: a stock
+  sshd offers no way to signal a remote process group, and a command producing
+  no output never notices the disconnect, so `sleep 600` survives a timeout and
+  so does a quiet build. The timeout now says the command may still be running
+  and how to check. A local target does not get the warning, because that
+  process is reach's own child and really is killed.
+
 - **A broken file-operation handler ended file access for the whole session.**
   Breaking the stream when a request is abandoned or half-written is what stops
   a stale response from being read as the answer to the next one, but the
@@ -246,6 +278,17 @@ project makes without a version attached.
   half-read; documents written before the field existed still load.
 
 ### Changed
+
+- **Mirrored files are verified by digest instead of being transferred.** The
+  FileOps interface says Hash is "used by the mirror engine to decide what
+  actually changed", and the mirror never called it — so every edit in mirror
+  mode moved the file across the network three times, and an agent that read the
+  same file twice in a turn pulled the whole thing across each time to produce
+  bytes the mirror already held. Push now asks the target for a digest, and
+  Fetch skips the transfer when the mirror's copy and the target's both still
+  match the digest recorded at fetch time. A target that cannot hash falls back
+  to the read that was there before, and the guarantee that a write cannot
+  overwrite a file that changed on the target is unchanged.
 
 - **A connection is now kept for an hour when idle, up from ten minutes.** Ten
   minutes is shorter than the gaps an agent session actually has: a model
