@@ -79,6 +79,13 @@ func newTestClient(t *testing.T, srv *Server) *testClient {
 // call sends one request and waits for its response.
 func (c *testClient) call(t *testing.T, method string, params any) frame {
 	t.Helper()
+	return c.await(t, c.send(t, method, params))
+}
+
+// send writes a request without waiting for its answer, so a test can pipeline
+// the way a client is allowed to.
+func (c *testClient) send(t *testing.T, method string, params any) int {
+	t.Helper()
 	c.mu.Lock()
 	c.nextID++
 	id := c.nextID
@@ -96,7 +103,12 @@ func (c *testClient) call(t *testing.T, method string, params any) frame {
 	if _, err := c.stdin.Write(append(msg, '\n')); err != nil {
 		t.Fatalf("write request: %v", err)
 	}
+	return id
+}
 
+// await collects the answer to one request.
+func (c *testClient) await(t *testing.T, id int) frame {
+	t.Helper()
 	want := json.RawMessage(fmt.Sprintf("%d", id))
 	deadline := time.Now().Add(30 * time.Second)
 	c.mu.Lock()
@@ -109,7 +121,7 @@ func (c *testClient) call(t *testing.T, method string, params any) frame {
 			}
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("no response to %s within 30s", method)
+			t.Fatalf("no response to request %d within 30s", id)
 		}
 		// sync.Cond has no timed wait; poll at a small interval instead.
 		c.mu.Unlock()

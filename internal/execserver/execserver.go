@@ -103,6 +103,10 @@ type Server struct {
 	sawInitialize bool
 	processes    map[string]*process
 	handles      map[string]string
+
+	// order keeps requests about one path, handle or process in the order the
+	// client sent them, without serialising requests about different ones.
+	order *sequencer
 }
 
 // New builds an exec-server for sess. workspace is the local directory codex
@@ -151,6 +155,7 @@ func New(ctx context.Context, sess *session.Session, workspace string) (*Server,
 		sessionID: "reach-" + randomHex(8),
 		processes: map[string]*process{},
 		handles:   map[string]string{},
+		order:     newSequencer(),
 	}, nil
 }
 
@@ -186,6 +191,11 @@ func shellRequest(command string) reach.ExecRequest {
 // requests (process/write, fs/*) must still be answered, so a serial dispatch
 // would deadlock against unified_exec sessions. Shared state is mutex-guarded;
 // the transport multiplexes concurrent target operations on its own.
+//
+// Concurrent is not the same as unordered. A client that sends two requests
+// about one path or one process without waiting for the first response has
+// stated an order, and the sequencer preserves it — see order.go. Requests
+// about different things still overlap freely.
 func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 	s.out = out
 	sc := bufio.NewScanner(in)
@@ -217,8 +227,13 @@ func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 			continue
 		}
 		wg.Add(1)
+		// Reserved here, in the loop that reads the connection, because this is
+		// the only place the client's order is known.
+		place := s.order.enter(orderKey(req.Method, req.Params))
 		go func() {
 			defer wg.Done()
+			place.wait()
+			defer place.done()
 			s.dispatch(ctx, req)
 		}()
 	}
