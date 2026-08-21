@@ -36,6 +36,16 @@ import (
 	"github.com/bojieli/agentreach/internal/reach"
 )
 
+// maxFileHandlers is how many file-operation strategies one exec-server keeps.
+//
+// Each is one channel and one small process on the target, started only when
+// operations actually overlap — a session that never runs two file operations
+// at once never starts a second. Four is chosen against what an agent does
+// rather than what a machine could bear: harnesses fan out a handful of file
+// reads at a time, and the point is that a long one stops blocking the rest,
+// not that every possible request runs at once.
+const maxFileHandlers = 4
+
 // JSON-RPC error codes, matching codex's own exec-server (rpc.rs).
 const (
 	codeInvalidRequest = -32600
@@ -112,9 +122,19 @@ func New(ctx context.Context, sess *session.Session, workspace string) (*Server,
 	if err != nil {
 		return nil, err
 	}
+	// Requests are answered concurrently here, and one handler answers them one
+	// at a time, so a large read would hold every other file operation behind
+	// it. Further handlers are started only when operations actually overlap.
+	ops := fileops.NewPool(sel.Ops, maxFileHandlers, func(ctx context.Context) (fileops.FileOps, error) {
+		more, err := sess.FileOps(ctx, t)
+		if err != nil {
+			return nil, err
+		}
+		return more.Ops, nil
+	})
 	name, shellPath, err := probeShell(ctx, t)
 	if err != nil {
-		_ = sel.Ops.Close()
+		_ = ops.Close()
 		return nil, err
 	}
 	if workspace == "" {
@@ -123,7 +143,7 @@ func New(ctx context.Context, sess *session.Session, workspace string) (*Server,
 	return &Server{
 		sess:      sess,
 		t:         t,
-		ops:       sel.Ops,
+		ops:       ops,
 		workspace: filepath.Clean(workspace),
 		root:      sess.Target.Workspace,
 		shellName: name,
