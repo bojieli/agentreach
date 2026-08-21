@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Shared helpers for waldo end-to-end tests against real agents.
+# Shared helpers for reach end-to-end tests against real agents.
 set -uo pipefail
 
-WALDO_E2E_DIR="${WALDO_E2E_DIR:-/tmp/waldo-e2e}"
-SSH_PORT="${WALDO_E2E_SSH_PORT:-22222}"
-CONTAINER="${WALDO_E2E_CONTAINER:-waldo-sshd}"
-IMAGE="waldo-test-sshd"
+REACH_E2E_DIR="${REACH_E2E_DIR:-/tmp/reach-e2e}"
+SSH_PORT="${REACH_E2E_SSH_PORT:-22222}"
+CONTAINER="${REACH_E2E_CONTAINER:-reach-sshd}"
+IMAGE="reach-test-sshd"
 
 pass=0; fail=0
 ok()   { printf '  \033[32mPASS\033[0m %s\n' "$1"; pass=$((pass+1)); }
@@ -20,7 +20,7 @@ assert_not_contains() {
   if [[ "$1" != *"$2"* ]]; then ok "$3"; else bad "$3" "should NOT contain: $2"; fi
 }
 
-# clean_agent_env runs a coding agent without the state it inherits when waldo's
+# clean_agent_env runs a coding agent without the state it inherits when reach's
 # own tests are themselves run from inside a coding agent. A nested Claude Code
 # otherwise hangs on the parent's session variables, and an inherited
 # ANTHROPIC_API_KEY silently overrides the OAuth login and fails auth.
@@ -32,11 +32,11 @@ clean_agent_env() {
 }
 
 setup_target() {
-  mkdir -p "$WALDO_E2E_DIR"
-  cd "$WALDO_E2E_DIR" || exit 1
+  mkdir -p "$REACH_E2E_DIR"
+  cd "$REACH_E2E_DIR" || exit 1
 
   if [[ ! -f test_key ]]; then
-    ssh-keygen -q -t ed25519 -N '' -f test_key -C waldo-e2e
+    ssh-keygen -q -t ed25519 -N '' -f test_key -C reach-e2e
   fi
   cat > Dockerfile <<'DOCKER'
 FROM debian:bookworm-slim
@@ -54,21 +54,21 @@ DOCKER
   docker run -d --name "$CONTAINER" -p "${SSH_PORT}:22" "$IMAGE" >/dev/null 2>&1 || return 1
 
   cat > ssh_config <<CONF
-Host waldo-e2e
+Host reach-e2e
   HostName 127.0.0.1
   Port ${SSH_PORT}
   User root
-  IdentityFile ${WALDO_E2E_DIR}/test_key
+  IdentityFile ${REACH_E2E_DIR}/test_key
   StrictHostKeyChecking no
   UserKnownHostsFile /dev/null
   LogLevel ERROR
 CONF
-  export WALDO_SSH_CONFIG="$WALDO_E2E_DIR/ssh_config"
-  export WALDO_HOME="$WALDO_E2E_DIR/home"
-  rm -rf "$WALDO_HOME"
+  export REACH_SSH_CONFIG="$REACH_E2E_DIR/ssh_config"
+  export REACH_HOME="$REACH_E2E_DIR/home"
+  rm -rf "$REACH_HOME"
 
   for _ in $(seq 30); do
-    ssh -F ssh_config waldo-e2e true 2>/dev/null && return 0
+    ssh -F ssh_config reach-e2e true 2>/dev/null && return 0
     sleep 0.5
   done
   return 1

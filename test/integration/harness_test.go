@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bojieli/waldo/internal/transport"
-	"github.com/bojieli/waldo/internal/waldo"
+	"github.com/bojieli/agentreach/internal/transport"
+	"github.com/bojieli/agentreach/internal/reach"
 )
 
 // The integration suite needs a real OpenSSH server, because the bugs it exists
@@ -28,11 +28,11 @@ import (
 // Docker. That runs anywhere sshd is installed — both CI runners, and a
 // contributor's laptop with no container runtime and no network — and it tests
 // against the userland of whatever machine it runs on, so the GNU and BSD sides
-// of the CI matrix each exercise their own. Set WALDO_TEST_SSHD=docker to use a
+// of the CI matrix each exercise their own. Set REACH_TEST_SSHD=docker to use a
 // Debian container instead, which is how a GNU target gets covered from a BSD
 // host.
 const (
-	containerName = "waldo-integration-sshd"
+	containerName = "reach-integration-sshd"
 	dockerPort    = "22333"
 	localPort     = "22411"
 )
@@ -40,7 +40,7 @@ const (
 // sshHostAlias is the destination the suite hands to ssh. It is the alias the
 // suite defines in its own throwaway config for a target it started itself, and
 // the operator's own alias when pointed at a host they already have.
-var sshHostAlias = "waldo-it"
+var sshHostAlias = "reach-it"
 
 var (
 	testDir string
@@ -49,7 +49,7 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "waldo-integration-")
+	dir, err := os.MkdirTemp("", "reach-integration-")
 	if err != nil {
 		panic(err)
 	}
@@ -74,20 +74,20 @@ func TestMain(m *testing.M) {
 }
 
 func startTarget() (func(), error) {
-	// Point the suite at a host you already have. This is how waldo gets tested
+	// Point the suite at a host you already have. This is how reach gets tested
 	// against a target over a real network rather than loopback — different
 	// latency, a real sshd configuration, someone else's userland — and it is
 	// the only way to exercise a host whose ssh config has ProxyJump, a
 	// certificate, or a hardware token in front of it.
 	//
-	//   WALDO_TEST_SSH_HOST=my-box go test -tags integration ./test/integration/...
+	//   REACH_TEST_SSH_HOST=my-box go test -tags integration ./test/integration/...
 	//
-	// The suite creates one directory under WALDO_TEST_SSH_WORKSPACE (default
+	// The suite creates one directory under REACH_TEST_SSH_WORKSPACE (default
 	// /tmp) and removes it afterwards. It writes nothing else.
-	if host := os.Getenv("WALDO_TEST_SSH_HOST"); host != "" {
+	if host := os.Getenv("REACH_TEST_SSH_HOST"); host != "" {
 		return useExistingHost(host)
 	}
-	if os.Getenv("WALDO_TEST_SSHD") == "docker" {
+	if os.Getenv("REACH_TEST_SSHD") == "docker" {
 		return startDockerTarget()
 	}
 	return startLocalTarget()
@@ -96,7 +96,7 @@ func startTarget() (func(), error) {
 // useExistingHost prepares a scratch directory on a host the operator already
 // has access to, and takes it away again afterwards.
 func useExistingHost(host string) (func(), error) {
-	base := os.Getenv("WALDO_TEST_SSH_WORKSPACE")
+	base := os.Getenv("REACH_TEST_SSH_WORKSPACE")
 	if base == "" {
 		base = "/tmp"
 	}
@@ -106,18 +106,18 @@ func useExistingHost(host string) (func(), error) {
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return nil, err
 	}
-	workspace = path.Join(base, "waldo-integration-"+hex.EncodeToString(nonce[:]))
+	workspace = path.Join(base, "reach-integration-"+hex.EncodeToString(nonce[:]))
 
 	// Use the operator's destination verbatim, with their own ssh config and no
 	// alias of the suite's own.
 	//
-	// Defining `Host waldo-it / HostName <theirs>` looks equivalent and is not:
+	// Defining `Host reach-it / HostName <theirs>` looks equivalent and is not:
 	// ssh applies the first HostName it obtains and does not then re-match Host
 	// blocks against the result, so their `Host <theirs>` stanza — the one
 	// carrying the address, the user and the key — would never be consulted. The
 	// destination has to stay the string they wrote.
 	sshHostAlias = host
-	if err := os.Unsetenv("WALDO_SSH_CONFIG"); err != nil {
+	if err := os.Unsetenv("REACH_SSH_CONFIG"); err != nil {
 		return nil, err
 	}
 	if err := waitForSSH(); err != nil {
@@ -132,7 +132,7 @@ func useExistingHost(host string) (func(), error) {
 	}, nil
 }
 
-// removeInstalledHelper takes back the one thing waldo ever puts on a target.
+// removeInstalledHelper takes back the one thing reach ever puts on a target.
 //
 // The suite exercises the helper tier, which *installs a binary*. A test run that
 // quietly leaves one behind breaks the promise the whole project is built on,
@@ -141,12 +141,12 @@ func useExistingHost(host string) (func(), error) {
 // fixing it in one and not the other is exactly the mistake that produced this
 // function: a remote run was cleaned up while a local one kept installing.
 //
-// Only this build's own binary is removed, by exact version, so a waldo the
+// Only this build's own binary is removed, by exact version, so a reach the
 // operator installed themselves is left alone.
 func removeInstalledHelper(run func(command string)) {
 	run(fmt.Sprintf(
-		"rm -f ~/.cache/waldo/agent-%s-*; rmdir ~/.cache/waldo 2>/dev/null || true",
-		waldo.Version))
+		"rm -f ~/.cache/reach/agent-%s-*; rmdir ~/.cache/reach 2>/dev/null || true",
+		reach.Version))
 }
 
 // startLocalTarget runs an sshd owned by the current user.
@@ -240,7 +240,7 @@ LogLevel ERROR
 
 func startDockerTarget() (func(), error) {
 	if _, err := exec.LookPath("docker"); err != nil {
-		return nil, fmt.Errorf("WALDO_TEST_SSHD=docker but docker is not installed")
+		return nil, fmt.Errorf("REACH_TEST_SSHD=docker but docker is not installed")
 	}
 	key := filepath.Join(testDir, "id")
 	if out, err := exec.Command("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", key).CombinedOutput(); err != nil {
@@ -258,12 +258,12 @@ CMD ["/usr/sbin/sshd","-D","-e"]`
 	if err := os.WriteFile(filepath.Join(testDir, "Dockerfile"), []byte(dockerfile), 0o644); err != nil {
 		return nil, err
 	}
-	if out, err := exec.Command("docker", "build", "-q", "-t", "waldo-integration", testDir).CombinedOutput(); err != nil {
+	if out, err := exec.Command("docker", "build", "-q", "-t", "reach-integration", testDir).CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("docker build: %v: %s", err, out)
 	}
 	_ = exec.Command("docker", "rm", "-f", containerName).Run()
 	if out, err := exec.Command("docker", "run", "-d", "--name", containerName,
-		"-p", dockerPort+":22", "waldo-integration").CombinedOutput(); err != nil {
+		"-p", dockerPort+":22", "reach-integration").CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("docker run: %v: %s", err, out)
 	}
 	stop := func() { _ = exec.Command("docker", "rm", "-f", containerName).Run() }
@@ -295,12 +295,12 @@ func writeSSHConfig(port, user, key string) error {
 	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
 		return err
 	}
-	return os.Setenv("WALDO_SSH_CONFIG", cfgPath)
+	return os.Setenv("REACH_SSH_CONFIG", cfgPath)
 }
 
 func waitForSSH() error {
 	args := []string{sshHostAlias, "true"}
-	if cfg := os.Getenv("WALDO_SSH_CONFIG"); cfg != "" {
+	if cfg := os.Getenv("REACH_SSH_CONFIG"); cfg != "" {
 		args = append([]string{"-F", cfg}, args...)
 	}
 	for i := 0; i < 60; i++ {
@@ -321,12 +321,12 @@ func findSSHD() (string, error) {
 	if p, err := exec.LookPath("sshd"); err == nil {
 		return p, nil
 	}
-	return "", fmt.Errorf("no sshd found; install openssh-server or set WALDO_TEST_SSHD=docker")
+	return "", fmt.Errorf("no sshd found; install openssh-server or set REACH_TEST_SSHD=docker")
 }
 
 func newTransport(t *testing.T) transport.Transport {
 	t.Helper()
-	// Multiplexing on, because that is what a session does: `waldo up` probes
+	// Multiplexing on, because that is what a session does: `reach up` probes
 	// for it and records the answer, so a suite that left it off would be
 	// testing a configuration no operator runs.
 	//

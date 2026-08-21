@@ -1,11 +1,11 @@
 // Package harnessprobe verifies, offline and without an API key, that a
-// harness's shell tool calls actually travel through waldo's PATH shim to the
+// harness's shell tool calls actually travel through reach's PATH shim to the
 // session's target.
 //
 // The question matters because the failure is invisible from inside the
 // harness: Codex ≥ 0.148 resolves the login shell from the account database
 // (getpwuid_r) and spawns it by absolute path — /bin/zsh -lc, never touching
-// PATH — so the shim directory waldo prepends is decoration. Every command the
+// PATH — so the shim directory reach prepends is decoration. Every command the
 // agent runs then executes on the operator's own machine while the agent
 // believes, and reports, that it acted on the target. There is no flag,
 // config key or hook in those versions that changes where the shell comes
@@ -21,7 +21,7 @@
 // yields the verdict.
 //
 // Verdicts are cached per harness version (verdictCache) so the guard on
-// `waldo codex` pays the probe's cost once per installed codex version, and
+// `reach codex` pays the probe's cost once per installed codex version, and
 // the guard's decision is a pure function (Gate, GateFromProbe) so the whole
 // matrix — ok, bypassed, unverified, forced, probe-error — is testable without
 // a codex binary.
@@ -30,13 +30,13 @@ package harnessprobe
 // Verdicts the seam probe can reach.
 const (
 	// VerdictOK means the scripted command ran on the session's target: the
-	// harness's shell is intercepted by waldo's PATH shim.
+	// harness's shell is intercepted by reach's PATH shim.
 	VerdictOK = "ok"
 
 	// VerdictBypassed means the scripted command ran somewhere that is not
 	// the target — the local machine, in practice. The harness resolves its
 	// shell in a way the PATH shim cannot intercept, and launching it under
-	// waldo would run the model's commands on the operator's own machine.
+	// reach would run the model's commands on the operator's own machine.
 	VerdictBypassed = "bypassed"
 
 	// VerdictError means the probe could not reach a conclusion: codex never

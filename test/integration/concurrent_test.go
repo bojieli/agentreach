@@ -9,13 +9,13 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/bojieli/waldo/internal/fileops"
-	"github.com/bojieli/waldo/internal/waldo"
+	"github.com/bojieli/agentreach/internal/fileops"
+	"github.com/bojieli/agentreach/internal/reach"
 )
 
 // TestConcurrentWritesOnOneTier mimics a harness issuing parallel tool calls:
 // several writers into one directory at once, each with its own strategy, as
-// separate waldo processes would have.
+// separate reach processes would have.
 func TestConcurrentWritesOnOneTier(t *testing.T) {
 	tr := newTransport(t)
 	ctx := context.Background()
@@ -23,7 +23,7 @@ func TestConcurrentWritesOnOneTier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, tier := range []waldo.Tier{waldo.TierPipe, waldo.TierPOSIX} {
+	for _, tier := range []reach.Tier{reach.TierPipe, reach.TierPOSIX} {
 		t.Run(tier.String(), func(t *testing.T) {
 			if ok, why := caps.Qualifies(tier); !ok {
 				t.Skipf("not available: %s", why)

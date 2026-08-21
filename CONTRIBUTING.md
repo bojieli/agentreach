@@ -1,8 +1,8 @@
-# Contributing to waldo
+# Contributing to reach
 
 ## The standard of evidence
 
-waldo hooks undocumented implementation details in closed binaries. That makes
+reach hooks undocumented implementation details in closed binaries. That makes
 one rule more important than any style guideline:
 
 > **Claims about a harness must be backed by an experiment, not by its docs.**
@@ -28,7 +28,7 @@ make e2e          # real agents against a real target. SPENDS TOKENS.
 needs neither root, nor Docker, nor a network. Mocks are deliberately not used
 there: shell quoting that works locally but not through ssh's own re-parsing,
 exit statuses lost to ssh's use of 255, and whether a link is 8-bit clean are
-exactly the things a mock cannot catch. Set `WALDO_TEST_SSHD=docker` to run against a Debian
+exactly the things a mock cannot catch. Set `REACH_TEST_SSHD=docker` to run against a Debian
 container instead, which is how a GNU target gets exercised from a BSD host.
 
 Tests that spend model tokens are never part of `make check`, so a contributor
@@ -42,7 +42,7 @@ almost no code, a user cannot tell which is in use, and the entire design rests
 on their being interchangeable. A case that only one tier passes is a case that
 belongs in the shared suite until every tier passes it.
 
-If you change which tier waldo negotiates, re-run `make bench` and update the
+If you change which tier reach negotiates, re-run `make bench` and update the
 table in `docs/TRANSPORTS.md`. The obvious ordering is wrong here — see that
 document for why — so this is a decision to measure rather than reason about.
 
@@ -51,14 +51,14 @@ document for why — so this is a decision to measure rather than reason about.
 These are load-bearing. If a change violates one, it needs a very good reason.
 
 **Every failure must be a value the agent can reason about, never a process that
-stops responding.** This is why waldo is request/response over SSH rather than a
+stops responding.** This is why reach is request/response over SSH rather than a
 filesystem mount, and why timeouts and caps exist on every path.
 
 **Silent wrong-target access is the worst possible failure.** An agent that
 reads a local file believing it is remote produces confident nonsense; one that
 writes a local file believing it is remote destroys the operator's work. Where
-waldo cannot redirect a tool, it denies the tool. Where a session is engaged but
-broken, waldo fails loudly rather than falling back to local execution.
+reach cannot redirect a tool, it denies the tool. Where a session is engaged but
+broken, reach fails loudly rather than falling back to local execution.
 
 **Nothing is installed on the target by default.** Tier 0 needs only a POSIX
 shell and writes nothing to the target's disk. Autonegotiation never selects the
@@ -71,8 +71,8 @@ credentials.
 
 ### Platform differences
 
-waldo runs on Linux, macOS and Windows. Every difference between them lives in
-`cmd/waldo/platform_other.go` and `cmd/waldo/platform_windows.go`; if you find
+reach runs on Linux, macOS and Windows. Every difference between them lives in
+`cmd/reach/platform_other.go` and `cmd/reach/platform_windows.go`; if you find
 yourself adding a `runtime.GOOS` check anywhere else, add a function to those
 two files instead. The reason is not tidiness: three of the Windows differences
 fail *silently*, in the direction where an agent runs commands on the operator's
@@ -83,7 +83,7 @@ reasoning attached. See [docs/WINDOWS.md](docs/WINDOWS.md).
 
 - Go 1.25.8+, `gofmt`, `go vet` clean.
 - Comments explain *why*, especially where the code looks odd. Most of the
-  strange-looking code in waldo is strange because a harness or a shell made it
+  strange-looking code in reach is strange because a harness or a shell made it
   necessary, and the next reader needs to know which.
 - Errors should tell the operator what to do next, not just what went wrong.
 

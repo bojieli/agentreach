@@ -5,10 +5,10 @@ import (
 	"os"
 	"testing"
 
-	"github.com/bojieli/waldo/internal/fileops"
-	"github.com/bojieli/waldo/internal/fileops/fileopstest"
-	"github.com/bojieli/waldo/internal/transport"
-	"github.com/bojieli/waldo/internal/waldo"
+	"github.com/bojieli/agentreach/internal/fileops"
+	"github.com/bojieli/agentreach/internal/fileops/fileopstest"
+	"github.com/bojieli/agentreach/internal/transport"
+	"github.com/bojieli/agentreach/internal/reach"
 )
 
 // TestTierConformance runs the shared suite against every tier reachable
@@ -21,11 +21,11 @@ import (
 func TestTierConformance(t *testing.T) {
 	for _, tc := range []struct {
 		name string
-		tier waldo.Tier
+		tier reach.Tier
 	}{
-		{"posix", waldo.TierPOSIX},
-		{"pipe", waldo.TierPipe},
-		{"helper", waldo.TierHelper},
+		{"posix", reach.TierPOSIX},
+		{"pipe", reach.TierPipe},
+		{"helper", reach.TierHelper},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -40,7 +40,7 @@ func TestTierConformance(t *testing.T) {
 				}
 				sel, err := fileops.New(context.Background(), tc.tier, tr, caps, true, nil)
 				if err != nil {
-					if tc.tier == waldo.TierHelper && os.Getenv("CI") == "" {
+					if tc.tier == reach.TierHelper && os.Getenv("CI") == "" {
 						t.Skipf("helper tier unavailable here: %v", err)
 					}
 					t.Fatalf("build tier %s: %v", tc.tier, err)
@@ -58,7 +58,7 @@ func TestTierConformance(t *testing.T) {
 
 // TestPinnedTierIsNeverSubstituted is the honesty property: an operator who
 // names a tier gets that tier or an error, never a quiet downgrade that leaves
-// `waldo status` reporting something untrue.
+// `reach status` reporting something untrue.
 func TestPinnedTierIsNeverSubstituted(t *testing.T) {
 	tr := localTransport(t)
 	caps, err := fileops.Probe(context.Background(), tr)
@@ -66,16 +66,16 @@ func TestPinnedTierIsNeverSubstituted(t *testing.T) {
 		t.Fatalf("probe: %v", err)
 	}
 	// A tier the target cannot support must fail rather than hand back tier 0.
-	// The helper tier needs a platform waldo has a build for; an unknown uname
+	// The helper tier needs a platform reach has a build for; an unknown uname
 	// is exactly the case where a pin cannot be honoured.
 	impossible := *caps
 	impossible.Uname = "Plan9 unknown-arch"
-	if _, err := fileops.New(context.Background(), waldo.TierHelper, tr, &impossible, true, nil); err == nil {
+	if _, err := fileops.New(context.Background(), reach.TierHelper, tr, &impossible, true, nil); err == nil {
 		t.Fatal("pinning an impossible tier succeeded; it must fail loudly")
 	}
 }
 
-// TestAutonegotiationDegradesVisibly is the other half: when waldo chose the
+// TestAutonegotiationDegradesVisibly is the other half: when reach chose the
 // tier itself, it may step down — but never silently.
 func TestAutonegotiationDegradesVisibly(t *testing.T) {
 	tr := localTransport(t)
@@ -87,14 +87,14 @@ func TestAutonegotiationDegradesVisibly(t *testing.T) {
 	degraded := *caps
 	degraded.Python3 = false
 	var warnings []string
-	sel, err := fileops.New(context.Background(), waldo.TierPipe, tr, &degraded, false,
+	sel, err := fileops.New(context.Background(), reach.TierPipe, tr, &degraded, false,
 		func(msg string) { warnings = append(warnings, msg) })
 	if err != nil {
 		t.Fatalf("autonegotiation should have fallen back, not failed: %v", err)
 	}
 	defer func() { _ = sel.Ops.Close() }()
 
-	if sel.Effective >= waldo.TierPipe {
+	if sel.Effective >= reach.TierPipe {
 		t.Fatalf("effective tier = %s, expected a fallback below pipe", sel.Effective)
 	}
 	if !sel.Degraded() {

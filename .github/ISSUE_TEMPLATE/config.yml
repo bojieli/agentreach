@@ -1,12 +1,12 @@
 blank_issues_enabled: true
 contact_links:
   - name: Security vulnerability
-    url: https://github.com/bojieli/waldo/security/advisories/new
+    url: https://github.com/bojieli/agentreach/security/advisories/new
     about: >-
-      Report privately rather than in a public issue. waldo holds credentials
+      Report privately rather than in a public issue. reach holds credentials
       and reaches machines you do not control.
   - name: Which harnesses work, and how well
-    url: https://github.com/bojieli/waldo/tree/main/docs/harnesses
+    url: https://github.com/bojieli/agentreach/tree/main/docs/harnesses
     about: >-
       Each adapter's notes say exactly what has been verified and what has not,
       with the version it was checked against.

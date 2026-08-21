@@ -14,13 +14,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bojieli/waldo/internal/waldo"
+	"github.com/bojieli/agentreach/internal/reach"
 )
 
 // SSHConfig configures the SSH transport.
 type SSHConfig struct {
 	// Host is any destination the system ssh understands, including an alias
-	// defined in ~/.ssh/config. waldo deliberately delegates destination
+	// defined in ~/.ssh/config. reach deliberately delegates destination
 	// parsing to ssh so that Host, ProxyJump, IdentityFile, Match blocks and
 	// hardware-token setups all keep working untouched.
 	Host string
@@ -37,7 +37,7 @@ type SSHConfig struct {
 	// ForwardAgent enables SSH agent forwarding. It defaults to false and
 	// should stay false for any host you do not fully trust: a forwarded
 	// agent socket lets root on that host authenticate as you against every
-	// other system you can reach. waldo exists to work with untrusted hosts,
+	// other system you can reach. reach exists to work with untrusted hosts,
 	// so this is opt-in and loudly documented.
 	ForwardAgent bool
 
@@ -48,7 +48,7 @@ type SSHConfig struct {
 	// host by DetectMultiplexing rather than compiled in as a constant.
 	Multiplex bool
 
-	// BatchMode disables all interactive prompts. It is off during `waldo up`
+	// BatchMode disables all interactive prompts. It is off during `reach up`
 	// so first-connection password or 2FA prompts can be answered, and on
 	// afterwards so an expired credential fails fast instead of hanging a
 	// tool call on an invisible prompt.
@@ -64,7 +64,7 @@ type SSHConfig struct {
 // SSHTransport runs commands over the system ssh client with connection
 // multiplexing.
 //
-// waldo uses the ssh binary rather than a Go SSH library on purpose. Users
+// reach uses the ssh binary rather than a Go SSH library on purpose. Users
 // reach real hosts through jump hosts, certificate authorities, hardware
 // tokens, 1Password/gpg agents, Kerberos and Match blocks; reimplementing that
 // surface faithfully is not realistic, and getting it subtly wrong strands
@@ -110,7 +110,7 @@ func controlPathFor(cfg SSHConfig) (string, error) {
 	if base == "" {
 		base = os.TempDir()
 	}
-	dir := filepath.Join(base, "waldo")
+	dir := filepath.Join(base, "reach")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("create control dir: %w", err)
 	}
@@ -122,11 +122,11 @@ func controlPathFor(cfg SSHConfig) (string, error) {
 func (t *SSHTransport) baseArgs() []string {
 	c := t.cfg
 	args := []string{}
-	// WALDO_SSH_CONFIG points ssh at an alternate config file. This keeps CI
+	// REACH_SSH_CONFIG points ssh at an alternate config file. This keeps CI
 	// and test fixtures from having to write into the operator's ~/.ssh/config,
-	// and lets an operator isolate waldo's connections from their interactive
+	// and lets an operator isolate reach's connections from their interactive
 	// ones without duplicating host definitions.
-	if cfgFile := os.Getenv("WALDO_SSH_CONFIG"); cfgFile != "" {
+	if cfgFile := os.Getenv("REACH_SSH_CONFIG"); cfgFile != "" {
 		args = append(args, "-F", cfgFile)
 	}
 	if c.Multiplex {
@@ -165,11 +165,11 @@ func (t *SSHTransport) baseArgs() []string {
 }
 
 // Run implements Transport.
-func (t *SSHTransport) Run(ctx context.Context, req waldo.ExecRequest) (waldo.ExecResult, error) {
+func (t *SSHTransport) Run(ctx context.Context, req reach.ExecRequest) (reach.ExecResult, error) {
 	t.mu.Lock()
 	if t.closed {
 		t.mu.Unlock()
-		return waldo.ExecResult{}, fmt.Errorf("ssh transport to %s is closed", t.cfg.Host)
+		return reach.ExecResult{}, fmt.Errorf("ssh transport to %s is closed", t.cfg.Host)
 	}
 	t.mu.Unlock()
 

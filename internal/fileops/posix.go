@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bojieli/waldo/internal/transport"
-	"github.com/bojieli/waldo/internal/waldo"
+	"github.com/bojieli/agentreach/internal/transport"
+	"github.com/bojieli/agentreach/internal/reach"
 )
 
 // POSIX implements FileOps using only a POSIX shell on the target.
@@ -37,7 +37,7 @@ func NewPOSIX(t transport.Transport, caps *Capabilities) *POSIX {
 }
 
 // Tier implements FileOps.
-func (p *POSIX) Tier() waldo.Tier { return waldo.TierPOSIX }
+func (p *POSIX) Tier() reach.Tier { return reach.TierPOSIX }
 
 // Close implements FileOps. Tier 0 holds nothing open — that is the entire
 // point of it — so there is nothing to release.
@@ -52,16 +52,16 @@ func q(s string) string { return transport.ShellQuote(s) }
 // then invoking it without that directory on PATH would turn a working search
 // into "command not found".
 func (p *POSIX) run(ctx context.Context, cmd string, stdin []byte) ([]byte, error) {
-	res, err := p.t.Run(ctx, waldo.ExecRequest{Command: cmd, Stdin: stdin, Env: p.caps.Env()})
+	res, err := p.t.Run(ctx, reach.ExecRequest{Command: cmd, Stdin: stdin, Env: p.caps.Env()})
 	if err != nil {
 		return nil, err
 	}
 	if res.Code != 0 {
 		msg := strings.TrimSpace(string(res.Stderr))
 		if strings.Contains(msg, "No such file") || strings.Contains(msg, "not found") {
-			return nil, &waldo.NotFoundError{Path: msg}
+			return nil, &reach.NotFoundError{Path: msg}
 		}
-		return nil, &waldo.ExitError{Code: res.Code, Stderr: msg}
+		return nil, &reach.ExitError{Code: res.Code, Stderr: msg}
 	}
 	return res.Stdout, nil
 }
@@ -98,7 +98,7 @@ func (p *POSIX) Read(ctx context.Context, filePath string, off, n int64) ([]byte
 			// Confirm readability so an absent file is never reported as an
 			// empty one.
 			if _, err := p.readRange(ctx, filePath, off, 1); err != nil {
-				var nf *waldo.NotFoundError
+				var nf *reach.NotFoundError
 				if errors.As(err, &nf) {
 					return nil, err
 				}
@@ -146,7 +146,7 @@ func (p *POSIX) readRange(ctx context.Context, filePath string, off, n int64) ([
 	}
 	// Fail loudly if the path is unreadable rather than returning empty
 	// content, which an agent would misread as "the file is empty".
-	cmd := fmt.Sprintf("test -r %s || { echo 'waldo: not readable' >&2; exit 66; }; %s", q(filePath), body)
+	cmd := fmt.Sprintf("test -r %s || { echo 'reach: not readable' >&2; exit 66; }; %s", q(filePath), body)
 
 	// Size the cap to this chunk's encoded length plus slack, so an oversized
 	// response is an error rather than silent corruption.
@@ -155,7 +155,7 @@ func (p *POSIX) readRange(ctx context.Context, filePath string, off, n int64) ([
 	if p.caps.RawStdout {
 		outputCap = n + (64 << 10)
 	}
-	res, err := p.t.Run(ctx, waldo.ExecRequest{
+	res, err := p.t.Run(ctx, reach.ExecRequest{
 		Command:   cmd,
 		MaxOutput: outputCap,
 		Env:       p.caps.Env(),
@@ -164,10 +164,10 @@ func (p *POSIX) readRange(ctx context.Context, filePath string, off, n int64) ([
 		return nil, err
 	}
 	if res.Code == 66 {
-		return nil, &waldo.NotFoundError{Path: filePath}
+		return nil, &reach.NotFoundError{Path: filePath}
 	}
 	if res.Code != 0 {
-		return nil, &waldo.ExitError{Code: res.Code, Stderr: strings.TrimSpace(string(res.Stderr))}
+		return nil, &reach.ExitError{Code: res.Code, Stderr: strings.TrimSpace(string(res.Stderr))}
 	}
 	if res.Truncated {
 		return nil, fmt.Errorf("read %s: response exceeded output cap; refusing to return possibly corrupt content", filePath)
@@ -189,7 +189,7 @@ func (p *POSIX) Write(ctx context.Context, filePath string, data []byte, mode fs
 		mode = 0o644
 	}
 	dir := path.Dir(filePath)
-	tmp := waldo.TempPath(dir)
+	tmp := reach.TempPath(dir)
 
 	// Content goes over the wire unencoded when the transport has been proven
 	// 8-bit clean, and base64-framed when it has not. The encoding costs a
@@ -221,7 +221,7 @@ func (p *POSIX) Write(ctx context.Context, filePath string, data []byte, mode fs
 }
 
 // Stat implements FileOps.
-func (p *POSIX) Stat(ctx context.Context, filePath string) (*waldo.FileInfo, error) {
+func (p *POSIX) Stat(ctx context.Context, filePath string) (*reach.FileInfo, error) {
 	var cmd string
 	switch p.caps.StatFlavor {
 	case "gnu":
@@ -245,7 +245,7 @@ func (p *POSIX) Stat(ctx context.Context, filePath string) (*waldo.FileInfo, err
 }
 
 // List implements FileOps.
-func (p *POSIX) List(ctx context.Context, dir string) ([]waldo.FileInfo, error) {
+func (p *POSIX) List(ctx context.Context, dir string) ([]reach.FileInfo, error) {
 	if p.caps.FindPrintf {
 		// GNU find with a NUL record terminator is the only fully correct
 		// option: it is the sole variant that can represent a filename
@@ -261,7 +261,7 @@ func (p *POSIX) List(ctx context.Context, dir string) ([]waldo.FileInfo, error) 
 	}
 
 	// Portable fallback. Filenames containing newlines cannot be represented
-	// here; waldo reports that limitation in `waldo doctor` rather than
+	// here; reach reports that limitation in `reach doctor` rather than
 	// silently mangling such entries.
 	var cmd string
 	switch p.caps.StatFlavor {
@@ -276,7 +276,7 @@ func (p *POSIX) List(ctx context.Context, dir string) ([]waldo.FileInfo, error) 
 	if err != nil {
 		return nil, err
 	}
-	var infos []waldo.FileInfo
+	var infos []reach.FileInfo
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -346,7 +346,7 @@ func (p *POSIX) Hash(ctx context.Context, filePath string) (string, error) {
 }
 
 // Search implements FileOps, running the search on the target.
-func (p *POSIX) Search(ctx context.Context, req waldo.SearchRequest) ([]waldo.Match, error) {
+func (p *POSIX) Search(ctx context.Context, req reach.SearchRequest) ([]reach.Match, error) {
 	if req.Root == "" {
 		req.Root = "."
 	}
@@ -374,13 +374,13 @@ const searchOutputCap = 8 << 20
 // search tool that answers "no matches" when it actually failed is the worst
 // shape a tool can have here, because an agent told the code is not there
 // concludes the code is not there and acts on it. That is not hypothetical: a
-// busybox target rejected the flag waldo passed, and every search on it came
+// busybox target rejected the flag reach passed, and every search on it came
 // back empty and confident.
 //
 // Search utilities agree on the convention: 0 means matches, 1 means none, and
 // anything above means the search itself failed.
 func (p *POSIX) runSearch(ctx context.Context, cmd, tool string) ([]byte, bool, error) {
-	res, err := p.t.Run(ctx, waldo.ExecRequest{Command: cmd, MaxOutput: searchOutputCap, Env: p.caps.Env()})
+	res, err := p.t.Run(ctx, reach.ExecRequest{Command: cmd, MaxOutput: searchOutputCap, Env: p.caps.Env()})
 	if err != nil {
 		return nil, false, err
 	}
@@ -409,13 +409,13 @@ func checkComplete(truncated bool, found, limit int, root string) error {
 		return nil
 	}
 	return fmt.Errorf(
-		"the search under %s produced more output than waldo will accept (%d bytes) "+
+		"the search under %s produced more output than reach will accept (%d bytes) "+
 			"before reaching the result limit, so the matches found are incomplete. "+
 			"Narrow the pattern or search a smaller directory rather than trusting this result",
 		root, searchOutputCap)
 }
 
-func (p *POSIX) searchRipgrep(ctx context.Context, req waldo.SearchRequest, limit int) ([]waldo.Match, error) {
+func (p *POSIX) searchRipgrep(ctx context.Context, req reach.SearchRequest, limit int) ([]reach.Match, error) {
 	args := []string{p.caps.Ripgrep, "--json"}
 	if req.IgnoreCase {
 		args = append(args, "-i")
@@ -434,7 +434,7 @@ func (p *POSIX) searchRipgrep(ctx context.Context, req waldo.SearchRequest, limi
 	if err != nil {
 		return nil, err
 	}
-	var matches []waldo.Match
+	var matches []reach.Match
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || !strings.HasPrefix(line, "{") {
@@ -451,7 +451,7 @@ func (p *POSIX) searchRipgrep(ctx context.Context, req waldo.SearchRequest, limi
 		if json.Unmarshal([]byte(line), &ev) != nil || ev.Type != "match" {
 			continue
 		}
-		matches = append(matches, waldo.Match{
+		matches = append(matches, reach.Match{
 			Path: ev.Data.Path.Text,
 			Line: ev.Data.LineNumber,
 			Text: strings.TrimRight(ev.Data.Lines.Text, "\r\n"),
@@ -463,7 +463,7 @@ func (p *POSIX) searchRipgrep(ctx context.Context, req waldo.SearchRequest, limi
 	return matches, checkComplete(truncated, len(matches), limit, req.Root)
 }
 
-func (p *POSIX) searchGrep(ctx context.Context, req waldo.SearchRequest, limit int) ([]waldo.Match, error) {
+func (p *POSIX) searchGrep(ctx context.Context, req reach.SearchRequest, limit int) ([]reach.Match, error) {
 	flags := []string{"-rn"}
 	if p.caps.GrepSkipBinary != "" {
 		flags = append(flags, p.caps.GrepSkipBinary)
@@ -483,7 +483,7 @@ func (p *POSIX) searchGrep(ctx context.Context, req waldo.SearchRequest, limit i
 	if err != nil {
 		return nil, err
 	}
-	var matches []waldo.Match
+	var matches []reach.Match
 	for _, line := range strings.Split(string(out), "\n") {
 		if line == "" {
 			continue
@@ -499,7 +499,7 @@ func (p *POSIX) searchGrep(ctx context.Context, req waldo.SearchRequest, limit i
 		if err != nil {
 			continue
 		}
-		matches = append(matches, waldo.Match{Path: a[0], Line: n, Text: a[2]})
+		matches = append(matches, reach.Match{Path: a[0], Line: n, Text: a[2]})
 		if len(matches) >= limit {
 			break
 		}
@@ -554,7 +554,7 @@ func decodeB64(out []byte) ([]byte, error) {
 // parseStatLine turns one "size|mode|mtime" record into a FileInfo. GNU
 // reports the mode in hex, BSD in octal; both are raw st_mode, so the file
 // type is recovered from the S_IFMT bits.
-func parseStatLine(line, flavour string) (*waldo.FileInfo, error) {
+func parseStatLine(line, flavour string) (*reach.FileInfo, error) {
 	parts := strings.Split(strings.TrimSpace(line), "|")
 	if len(parts) < 3 {
 		return nil, fmt.Errorf("unparsable stat output %q", line)
@@ -575,7 +575,7 @@ func parseStatLine(line, flavour string) (*waldo.FileInfo, error) {
 	if err != nil {
 		mtime = 0
 	}
-	return &waldo.FileInfo{
+	return &reach.FileInfo{
 		Size:    size,
 		Mode:    fs.FileMode(raw & 0o7777),
 		ModTime: time.Unix(mtime, 0),
@@ -585,8 +585,8 @@ func parseStatLine(line, flavour string) (*waldo.FileInfo, error) {
 }
 
 // parseFindPrintf reads NUL-terminated records of "size\tmode\tmtime\ttype\tpath".
-func parseFindPrintf(out string) ([]waldo.FileInfo, error) {
-	var infos []waldo.FileInfo
+func parseFindPrintf(out string) ([]reach.FileInfo, error) {
+	var infos []reach.FileInfo
 	for _, rec := range strings.Split(out, "\x00") {
 		if rec == "" {
 			continue
@@ -598,7 +598,7 @@ func parseFindPrintf(out string) ([]waldo.FileInfo, error) {
 		size, _ := strconv.ParseInt(f[0], 10, 64)
 		mode, _ := strconv.ParseUint(f[1], 8, 32)
 		mtime, _ := strconv.ParseFloat(f[2], 64)
-		infos = append(infos, waldo.FileInfo{
+		infos = append(infos, reach.FileInfo{
 			Name:    path.Base(f[4]),
 			Path:    f[4],
 			Size:    size,

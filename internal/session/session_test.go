@@ -5,13 +5,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bojieli/waldo/internal/waldo"
+	"github.com/bojieli/agentreach/internal/reach"
 )
 
 func withTempHome(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
-	t.Setenv("WALDO_HOME", dir)
+	t.Setenv("REACH_HOME", dir)
 }
 
 func newTestSession(t *testing.T, name string) *Session {
@@ -22,7 +22,7 @@ func newTestSession(t *testing.T, name string) *Session {
 	}
 	return &Session{
 		Name: name, Target: target, Mode: ModeExec,
-		Created: time.Now(), Tier: waldo.TierPOSIX, Timeout: time.Minute,
+		Created: time.Now(), Tier: reach.TierPOSIX, Timeout: time.Minute,
 	}
 }
 
@@ -36,7 +36,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Target.Host != "box" || got.Mode != ModeExec || got.Tier != waldo.TierPOSIX {
+	if got.Target.Host != "box" || got.Mode != ModeExec || got.Tier != reach.TierPOSIX {
 		t.Errorf("round trip lost data: %+v", got)
 	}
 }
@@ -49,7 +49,7 @@ func TestLoadMissingSessionExplainsHowToFixIt(t *testing.T) {
 	}
 	// An error an operator can act on directly is worth more than a correct
 	// one they have to look up.
-	if !contains(err.Error(), "waldo up") {
+	if !contains(err.Error(), "reach up") {
 		t.Errorf("error does not say how to fix it: %v", err)
 	}
 }
@@ -100,7 +100,7 @@ func TestRemoveClearsCwdToo(t *testing.T) {
 	}
 	// A stale cwd left behind would silently apply to a later session of the
 	// same name.
-	if entries, _ := os.ReadDir(os.Getenv("WALDO_HOME") + "/sessions"); len(entries) != 0 {
+	if entries, _ := os.ReadDir(os.Getenv("REACH_HOME") + "/sessions"); len(entries) != 0 {
 		t.Errorf("state left behind after Remove: %v", entries)
 	}
 }
@@ -133,10 +133,10 @@ func contains(h, n string) bool {
 	return false
 }
 
-// TestListIgnoresNonSessionJSON is the regression test for a crash: waldo
+// TestListIgnoresNonSessionJSON is the regression test for a crash: reach
 // generates settings documents for harnesses, and when those lived beside
 // session state, List() parsed them as sessions with a nil target and
-// `waldo status` panicked.
+// `reach status` panicked.
 func TestListIgnoresNonSessionJSON(t *testing.T) {
 	withTempHome(t)
 	if err := newTestSession(t, "real").Save(); err != nil {

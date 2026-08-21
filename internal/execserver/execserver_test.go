@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bojieli/waldo/internal/fileops"
-	"github.com/bojieli/waldo/internal/session"
-	"github.com/bojieli/waldo/internal/transport"
+	"github.com/bojieli/agentreach/internal/fileops"
+	"github.com/bojieli/agentreach/internal/session"
+	"github.com/bojieli/agentreach/internal/transport"
 )
 
 // frame is one decoded protocol message from the server.
@@ -147,7 +147,7 @@ type testEnv struct {
 
 func newTestEnv(t *testing.T) *testEnv {
 	t.Helper()
-	t.Setenv("WALDO_HOME", t.TempDir())
+	t.Setenv("REACH_HOME", t.TempDir())
 	root := t.TempDir()
 	workspace := t.TempDir()
 
@@ -693,15 +693,15 @@ func TestFsCopyStaysOnTheTarget(t *testing.T) {
 }
 
 func TestMapPath(t *testing.T) {
-	s := &Server{workspace: "/Users/boj/project", root: "/home/ubuntu/waldo-verify"}
+	s := &Server{workspace: "/Users/boj/project", root: "/home/ubuntu/reach-verify"}
 	for _, tc := range []struct{ in, want string }{
-		{"/Users/boj/project", "/home/ubuntu/waldo-verify"},
-		{"/Users/boj/project/src/main.go", "/home/ubuntu/waldo-verify/src/main.go"},
-		{"/home/ubuntu/waldo-verify/file.txt", "/home/ubuntu/waldo-verify/file.txt"},
+		{"/Users/boj/project", "/home/ubuntu/reach-verify"},
+		{"/Users/boj/project/src/main.go", "/home/ubuntu/reach-verify/src/main.go"},
+		{"/home/ubuntu/reach-verify/file.txt", "/home/ubuntu/reach-verify/file.txt"},
 		{"/etc/hostname", "/etc/hostname"},
 		// A sibling whose name shares a prefix is not beneath the workspace.
 		{"/Users/boj/project-other/x", "/Users/boj/project-other/x"},
-		{"relative/file.txt", "/home/ubuntu/waldo-verify/relative/file.txt"},
+		{"relative/file.txt", "/home/ubuntu/reach-verify/relative/file.txt"},
 	} {
 		if got := s.mapPath(tc.in); got != tc.want {
 			t.Errorf("mapPath(%q) = %q, want %q", tc.in, got, tc.want)
@@ -726,14 +726,14 @@ func TestUriRoundTrip(t *testing.T) {
 }
 
 func TestEnvironmentsTOMLShape(t *testing.T) {
-	toml := EnvironmentsTOML("/usr/local/bin/waldo", "rtx")
+	toml := EnvironmentsTOML("/usr/local/bin/reach", "rtx")
 	for _, want := range []string{
-		`default = "waldo"`,
+		`default = "reach"`,
 		`include_local = false`,
-		`id = "waldo"`,
-		`program = "/usr/local/bin/waldo"`,
+		`id = "reach"`,
+		`program = "/usr/local/bin/reach"`,
 		`args = ["exec-server"]`,
-		`WALDO_SESSION = "rtx"`,
+		`REACH_SESSION = "rtx"`,
 	} {
 		if !strings.Contains(toml, want) {
 			t.Errorf("environments.toml missing %q:\n%s", want, toml)

@@ -1,13 +1,13 @@
 // Package execserver speaks Codex's exec-server protocol (JSON-RPC over stdio,
-// newline-delimited) and backs every method with a waldo session's target.
+// newline-delimited) and backs every method with a reach session's target.
 //
 // Codex 0.148 resolves its shell by absolute path, which no PATH shim can
 // intercept — but it also grew a remote-environment seam: environments.toml in
 // CODEX_HOME names a program codex spawns and then treats as the machine its
-// tools act on. waldo is that program. Every shell command, file read, write,
+// tools act on. reach is that program. Every shell command, file read, write,
 // directory listing and walk the agent performs arrives here as a JSON-RPC
 // request and is executed on the session's target through the same transport
-// and file-operation tiers as `waldo exec` and `waldo fs`.
+// and file-operation tiers as `reach exec` and `reach fs`.
 //
 // The governing rule applies unchanged: a missing or broken session fails
 // loudly, and every target failure is returned as a JSON-RPC error value the
@@ -29,11 +29,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/bojieli/waldo/internal/audit"
-	"github.com/bojieli/waldo/internal/fileops"
-	"github.com/bojieli/waldo/internal/session"
-	"github.com/bojieli/waldo/internal/transport"
-	"github.com/bojieli/waldo/internal/waldo"
+	"github.com/bojieli/agentreach/internal/audit"
+	"github.com/bojieli/agentreach/internal/fileops"
+	"github.com/bojieli/agentreach/internal/session"
+	"github.com/bojieli/agentreach/internal/transport"
+	"github.com/bojieli/agentreach/internal/reach"
 )
 
 // JSON-RPC error codes, matching codex's own exec-server (rpc.rs).
@@ -74,7 +74,7 @@ type request struct {
 	Params json.RawMessage `json:"params"`
 }
 
-// Server is one exec-server connection bound to a waldo session.
+// Server is one exec-server connection bound to a reach session.
 type Server struct {
 	sess      *session.Session
 	t         transport.Transport
@@ -128,7 +128,7 @@ func New(ctx context.Context, sess *session.Session, workspace string) (*Server,
 		root:      sess.Target.Workspace,
 		shellName: name,
 		shellPath: shellPath,
-		sessionID: "waldo-" + randomHex(8),
+		sessionID: "reach-" + randomHex(8),
 		processes: map[string]*process{},
 		handles:   map[string]string{},
 	}, nil
@@ -136,7 +136,7 @@ func New(ctx context.Context, sess *session.Session, workspace string) (*Server,
 
 // probeShell asks the target which POSIX shell it has. bash is preferred —
 // codex derives its command argv from the reported shell, and bash is what its
-// Linux environments report — with sh as the floor waldo itself requires.
+// Linux environments report — with sh as the floor reach itself requires.
 func probeShell(ctx context.Context, t transport.Transport) (name, path string, err error) {
 	res, err := t.Run(ctx, shellRequest("for sh in bash sh; do p=$(command -v $sh 2>/dev/null) && { echo \"$sh $p\"; exit 0; }; done; exit 1"))
 	if err != nil {
@@ -144,7 +144,7 @@ func probeShell(ctx context.Context, t transport.Transport) (name, path string, 
 	}
 	if res.Code != 0 {
 		return "", "", fmt.Errorf(
-			"the target has neither bash nor sh on PATH. waldo's floor is a POSIX shell —\n" +
+			"the target has neither bash nor sh on PATH. reach's floor is a POSIX shell —\n" +
 				"there is no environment this exec-server can honestly report")
 	}
 	fields := strings.Fields(strings.TrimSpace(string(res.Stdout)))
@@ -154,8 +154,8 @@ func probeShell(ctx context.Context, t transport.Transport) (name, path string, 
 	return fields[0], fields[1], nil
 }
 
-func shellRequest(command string) waldo.ExecRequest {
-	return waldo.ExecRequest{Command: command, MaxOutput: 4 << 10}
+func shellRequest(command string) reach.ExecRequest {
+	return reach.ExecRequest{Command: command, MaxOutput: 4 << 10}
 }
 
 // Serve reads newline-delimited JSON-RPC messages from in until EOF and writes
@@ -182,7 +182,7 @@ func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 		if err := json.Unmarshal(line, &req); err != nil {
 			// A frame that does not parse carries no id to answer to. Codex's
 			// own server logs and drops such lines; so do we.
-			fmt.Fprintf(os.Stderr, "waldo exec-server: dropping unparseable frame: %v\n", err)
+			fmt.Fprintf(os.Stderr, "reach exec-server: dropping unparseable frame: %v\n", err)
 			continue
 		}
 		if len(req.ID) == 0 {
@@ -239,13 +239,13 @@ func (s *Server) notify0(method string, _ json.RawMessage) {
 func (s *Server) send(v any) {
 	data, err := json.Marshal(v)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "waldo exec-server: cannot encode frame: %v\n", err)
+		fmt.Fprintf(os.Stderr, "reach exec-server: cannot encode frame: %v\n", err)
 		return
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.out.Write(append(data, '\n')); err != nil {
-		fmt.Fprintf(os.Stderr, "waldo exec-server: cannot write frame: %v\n", err)
+		fmt.Fprintf(os.Stderr, "reach exec-server: cannot write frame: %v\n", err)
 	}
 }
 
@@ -333,9 +333,9 @@ func (s *Server) handle(ctx context.Context, method string, params json.RawMessa
 	case "capabilityRoots/discoverV1":
 		return s.handleCapabilityDiscover(params)
 	case "http/request":
-		// waldo does not proxy the local network on the target's behalf. The
+		// reach does not proxy the local network on the target's behalf. The
 		// error is a value codex can route around, per the governing rule.
-		return nil, internalError("http/request is not supported by the waldo exec-server")
+		return nil, internalError("http/request is not supported by the reach exec-server")
 	}
 	return nil, &rpcError{Code: codeMethodNotFound, Message: "unknown method " + method}
 }
@@ -455,7 +455,7 @@ func (s *Server) mapURI(uri string) (string, *rpcError) {
 
 // record appends one entry to the session's audit log, exactly as the exec and
 // fs paths do. The path or command recorded is the one the agent asked about,
-// not the mapping or wrapper waldo derived from it.
+// not the mapping or wrapper reach derived from it.
 func (s *Server) record(e audit.Entry) {
 	dir, err := session.Dir()
 	if err != nil {
@@ -480,17 +480,17 @@ func (s *Server) Close() error {
 }
 
 // EnvironmentsTOML renders the environments.toml that points codex at this
-// waldo binary as its exec-server. It is shared by `waldo codex` (managed
+// reach binary as its exec-server. It is shared by `reach codex` (managed
 // CODEX_HOME) and the offline harness probe (throwaway CODEX_HOME), so the two
 // can never drift into different shapes.
-func EnvironmentsTOML(waldoPath, sessName string) string {
+func EnvironmentsTOML(reachPath, sessName string) string {
 	var b strings.Builder
-	b.WriteString("default = \"waldo\"\ninclude_local = false\n\n")
+	b.WriteString("default = \"reach\"\ninclude_local = false\n\n")
 	b.WriteString("[[environments]]\n")
-	b.WriteString("id = \"waldo\"\n")
-	b.WriteString("program = " + tomlString(waldoPath) + "\n")
+	b.WriteString("id = \"reach\"\n")
+	b.WriteString("program = " + tomlString(reachPath) + "\n")
 	b.WriteString("args = [\"exec-server\"]\n")
-	b.WriteString("env = { WALDO_SESSION = " + tomlString(sessName) + " }\n")
+	b.WriteString("env = { REACH_SESSION = " + tomlString(sessName) + " }\n")
 	return b.String()
 }
 

@@ -1,6 +1,6 @@
-# waldo Architecture
+# reach Architecture
 
-> A *waldo* is a teleoperated remote manipulator: the operator stays behind the
+> A *reach* is a teleoperated remote manipulator: the operator stays behind the
 > barrier, the manipulator works inside. That is the whole design. The agent —
 > the brain, and the credentials it holds — never leaves your machine. Only the
 > observation and action space is remote.
@@ -28,7 +28,7 @@ sleep, with the agent frozen mid-call and no error to reason about.
 > that stops responding.
 
 An RPC timeout becomes a tool error the model sees, retries, or routes around.
-That single property is why waldo is built on request/response over SSH rather
+That single property is why reach is built on request/response over SSH rather
 than on a filesystem mount.
 
 ## Shape
@@ -52,7 +52,7 @@ than on a filesystem mount.
 └──────┼─────────────────────────────────────────────────────┘
        │  system ssh (multiplexed where the client supports it)
 ┌──────▼─────────────────────────────────────────────────────┐
-│ target: stock sshd only. no node, no python, no waldo bits │
+│ target: stock sshd only. no node, no python, no reach bits │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -61,7 +61,7 @@ Only the top layer is harness-specific.
 ## There is no daemon
 
 Session state — which target, which directory, which tier, what the target's
-userland supports — lives in a file under `~/.waldo`. Every waldo invocation is
+userland supports — lives in a file under `~/.reach`. Every reach invocation is
 a short-lived process that reads it.
 
 A daemon would buy exactly one thing: connection reuse. SSH's `ControlMaster`
@@ -73,11 +73,11 @@ orphaned processes holding connections to someone else's server — in exchange
 for nothing.
 
 One consequence is worth stating early, because it shapes the tier design more
-than anything else: **waldo runs one process per tool call.**
+than anything else: **reach runs one process per tool call.**
 
 ## Platforms
 
-waldo runs on Linux, macOS and Windows, and targets any POSIX host. The split
+reach runs on Linux, macOS and Windows, and targets any POSIX host. The split
 matters because the two sides need different things: the operator's machine runs
 a harness and needs to intercept its shell, while the target only ever sees
 shell commands.
@@ -94,29 +94,29 @@ The fifth difference cannot be abstracted away. Win32-OpenSSH does not implement
 rather than ~7 ms on a shared one. That is not a portability detail: the
 argument for [having no daemon](#there-is-no-daemon) is precisely that
 ControlMaster already provides connection reuse, and on Windows that premise is
-false. waldo therefore *probes* for multiplexing rather than assuming it, records
+false. reach therefore *probes* for multiplexing rather than assuming it, records
 the answer, and reports it — see [WINDOWS.md](WINDOWS.md).
 
-## waldo uses the system ssh, not a Go SSH library
+## reach uses the system ssh, not a Go SSH library
 
 Users reach real hosts through jump hosts, certificate authorities, hardware
 tokens, `gpg-agent`, Kerberos, 1Password, and `Match exec` blocks.
 Reimplementing that surface faithfully is not realistic, and getting it subtly
-wrong strands people on exactly the hosts they most need to reach. waldo shells
+wrong strands people on exactly the hosts they most need to reach. reach shells
 out to the `ssh` they already have, so `~/.ssh/config` keeps working unchanged.
 
 The cost is that ssh reports its own failures as exit 255, which is
-indistinguishable from a command that genuinely exited 255. waldo therefore
+indistinguishable from a command that genuinely exited 255. reach therefore
 carries the real status in-band behind an unguessable marker, and its
 **absence** is the signal that the transport, rather than the command, failed.
 Getting this wrong in either direction is bad: a transport failure reported as a
 command failure sends the agent chasing a phantom bug, and a command failure
-reported as a transport failure makes waldo retry something that must not be
+reported as a transport failure makes reach retry something that must not be
 retried.
 
 ## The two interfaces
 
-waldo separates *reaching a target* from *performing file operations on it*.
+reach separates *reaching a target* from *performing file operations on it*.
 
 ```go
 // internal/transport — how to reach a target and run a command.
@@ -151,7 +151,7 @@ type FileOps interface {
 and no tier has ever implemented them any other way: a search is one command on
 the target, and only matches cross the network.
 They execute **on the target** and return only matches, at every tier — which is
-precisely what a mount cannot do, and the main reason waldo beats one on the
+precisely what a mount cannot do, and the main reason reach beats one on the
 operation that matters most. Deriving them client-side would mean dragging every
 candidate file across the network to answer a question the target could have
 answered locally.
@@ -177,17 +177,17 @@ Full detail, including what each tier requires and writes, is in
 - **Tier 0 is the floor and needs only a POSIX shell.** Everything above it is
   an optimisation that is never required.
 - **Negotiation follows measurement, not the tier numbering.** The numbers rank
-  capability; waldo ranks tiers by what they actually cost in a
+  capability; reach ranks tiers by what they actually cost in a
   process-per-call design, where an interpreter or binary starting up is pure
   overhead. That makes tier 1 the negotiated choice where available, and the
   nominally fastest the helper tier the slowest to start.
 - **A pinned tier is an instruction.** `--fileops=X` fails rather than
-  substituting something else, because a `waldo status` reporting a tier the
+  substituting something else, because a `reach status` reporting a tier the
   session is not using is a lie the operator will act on. An autonegotiated tier
   may still step down, and says so on stderr.
 - **Only the helper tier writes to the target**, only when asked, never on an
-  `--untrusted` session. Everything it installs is listed by `waldo doctor` and
-  removed by `waldo helper uninstall`.
+  `--untrusted` session. Everything it installs is listed by `reach doctor` and
+  removed by `reach helper uninstall`.
 
 ## Two modes
 
@@ -201,7 +201,7 @@ Correct and zero-copy. Used when the harness's file tools cannot be redirected
 
 Because the harness's native `Read`/`Edit`/`Write` would still silently act on
 the **local** filesystem — reading the wrong file while the agent believes it is
-remote — waldo **denies those tools** in the generated harness config for this
+remote — reach **denies those tools** in the generated harness config for this
 mode. Silent wrong-target file access is the worst failure this design can
 produce, so it is made structurally impossible rather than documented as a
 caveat. The agent uses the shell for file access, which is transparently remote.
@@ -213,12 +213,12 @@ and no mirroring is needed.
 ### `mirror` — the file a tool is about to touch, materialised
 
 Gives Claude Code native file tools without MCP and without FUSE. A `PreToolUse`
-hook rewrites the tool's `file_path` to a local copy that waldo fetches at that
+hook rewrites the tool's `file_path` to a local copy that reach fetches at that
 moment; a `PostToolUse` hook writes the result back.
 
 This is deliberately **not** a sync engine, and not a bulk copy of the
 workspace. Nothing is mirrored until a tool asks for it, and there is no
-background reconciliation. A sync engine has to answer questions waldo has no
+background reconciliation. A sync engine has to answer questions reach has no
 good answer to — both sides changed, deleted or never fetched — and getting them
 wrong loses the operator's work. Fetching exactly the file a tool is about to
 touch, at the moment it touches it, raises none of them.
@@ -234,11 +234,11 @@ results, and an agent told "no matches" concludes the code does not exist. The
 agent is pointed at `rg`/`find` over the shell, which run on the target and are
 faster anyway.
 
-**Where the mirror lives.** Under `~/.waldo/mirror/<session>/`, with the
+**Where the mirror lives.** Under `~/.reach/mirror/<session>/`, with the
 target's absolute path reproduced beneath it: `/srv/app/main.go` becomes
-`~/.waldo/mirror/default/srv/app/main.go`. Placing it at the identical absolute
+`~/.reach/mirror/default/srv/app/main.go`. Placing it at the identical absolute
 path would make compiler output and stack traces line up with no translation at
-all, which is genuinely attractive — but it would require waldo to write to
+all, which is genuinely attractive — but it would require reach to write to
 `/srv` on the operator's own machine. That is usually impossible without root,
 and an unacceptable thing for this tool to do even where it is possible.
 
@@ -252,7 +252,7 @@ Paths are cleaned before being joined to the mirror root, so a path containing
 untrusted target, which makes that a real attack path rather than a theoretical
 one.
 
-**An honest assessment: mirror is the weakest of waldo's mechanisms, kept
+**An honest assessment: mirror is the weakest of reach's mechanisms, kept
 because Claude Code offers nothing stronger.** Its known costs, stated plainly
 rather than discovered by the operator:
 
@@ -289,7 +289,7 @@ be Claude Code *and* it must be native file tools.
 | Gemini CLI | PATH shim (bare `bash` name) | ✓ remote | denied via `excludeTools` | yes — see [harnesses/gemini.md](harnesses/gemini.md) |
 
 For harnesses where the seam could regress across versions (Codex, Kimi,
-Goose, Gemini), `waldo harness verify` drives the harness against an embedded
+Goose, Gemini), `reach harness verify` drives the harness against an embedded
 offline mock model and checks where a scripted command actually ran.  The launch
 guard refuses versions measured to bypass the seam.  The `--task-prefix` flag
 probes a specific operation type (file read, file write) in addition to the
@@ -300,13 +300,13 @@ subscription logins continue to work and no key is introduced anywhere.
 
 Harnesses want a *program path* for their shell hook, not a command line —
 Claude Code stats the value of `CLAUDE_CODE_SHELL_PREFIX` directly, so
-`waldo shell-prefix` would be looked up as a single filename and fail. waldo
+`reach shell-prefix` would be looked up as a single filename and fail. reach
 dispatches on `argv[0]` through a symlink instead, which costs nothing per tool
 call.
 
 ### The Claude Code envelope
 
-Claude Code wraps every Bash call. waldo parses that envelope rather than
+Claude Code wraps every Bash call. reach parses that envelope rather than
 forwarding it, because two segments are local-only. Full shape and rationale in
 [RESEARCH.md](RESEARCH.md); the operational summary:
 
@@ -314,7 +314,7 @@ forwarding it, because two segments are local-only. Full shape and rationale in
   local username and directory layout to the remote host
 - **strip** `pwd -P >| /tmp/claude-<rand>-cwd` — this is how `cd` persists
   between calls; forwarded verbatim it would be written on the *remote* while
-  Claude Code reads it *locally*, and `cd` would silently stop working. waldo
+  Claude Code reads it *locally*, and `cd` would silently stop working. reach
   tracks cwd itself and writes the local file the envelope named.
 - **forward** everything else
 
@@ -325,7 +325,7 @@ it.
 
 ## Security posture
 
-waldo exists because the target is not trusted. Consequences, in full in
+reach exists because the target is not trusted. Consequences, in full in
 [SECURITY.md](SECURITY.md):
 
 - No credential, token, or key is ever sent to the target.
@@ -334,27 +334,27 @@ waldo exists because the target is not trusted. Consequences, in full in
   you can reach.
 - The harness's shell snapshot is stripped from every forwarded command, because
   sourcing it would disclose your username and directory layout to the target
-  for no benefit. waldo does **not** inspect or rewrite arbitrary commands: a
+  for no benefit. reach does **not** inspect or rewrite arbitrary commands: a
   false positive that mangled one would be worse than the leak it prevented.
 - Output from the target is **untrusted input**. It flows into the context of an
-  agent that holds your credentials and can write to your local disk; waldo
+  agent that holds your credentials and can write to your local disk; reach
   frames it as untrusted data.
 
 ## Environment
 
-Everything below is optional; waldo works with none of it set.
+Everything below is optional; reach works with none of it set.
 
 | Variable | Effect |
 |---|---|
-| `WALDO_HOME` | Where sessions, mirrors and audit logs live. Default `~/.waldo`. Setting it per-shell gives you independent sets of sessions. |
-| `WALDO_SESSION` | The session commands use when `--session` is absent. `waldo claude` and the other harness launchers set it for the process they start, which is how a harness's tool calls find the right target. |
-| `WALDO_SSH_CONFIG` | An alternate `ssh_config`, passed as `ssh -F`. Lets waldo's connections be configured separately from your interactive ones without duplicating host definitions. |
-| `WALDO_NO_AUDIT` | Set to any value to stop recording what waldo did. A record of every command is occasionally the wrong thing to keep — a shared machine, a command line carrying a secret — and that judgement is the operator's. |
-| `WALDO_HELPER_BINARY` | A helper binary to install instead of the one waldo would locate or build. For the helper tier only. |
-| `WALDO_LOCAL_SHELL` | Windows only: a POSIX shell to use for `local://` targets. waldo will not guess one, because guessing wrong runs your command under a shell that quotes differently. |
+| `REACH_HOME` | Where sessions, mirrors and audit logs live. Default `~/.reach`. Setting it per-shell gives you independent sets of sessions. |
+| `REACH_SESSION` | The session commands use when `--session` is absent. `reach claude` and the other harness launchers set it for the process they start, which is how a harness's tool calls find the right target. |
+| `REACH_SSH_CONFIG` | An alternate `ssh_config`, passed as `ssh -F`. Lets reach's connections be configured separately from your interactive ones without duplicating host definitions. |
+| `REACH_NO_AUDIT` | Set to any value to stop recording what reach did. A record of every command is occasionally the wrong thing to keep — a shared machine, a command line carrying a secret — and that judgement is the operator's. |
+| `REACH_HELPER_BINARY` | A helper binary to install instead of the one reach would locate or build. For the helper tier only. |
+| `REACH_LOCAL_SHELL` | Windows only: a POSIX shell to use for `local://` targets. reach will not guess one, because guessing wrong runs your command under a shell that quotes differently. |
 
 The session file records the target, the negotiated tier, and the capability
-probe's results. It carries a schema version, and a file from a newer waldo is
+probe's results. It carries a schema version, and a file from a newer reach is
 refused rather than partly read: `encoding/json` drops fields it does not
-recognise without a word, and a session waldo has only partly understood is
+recognise without a word, and a session reach has only partly understood is
 exactly the uncertainty about *which machine* this project exists to remove.

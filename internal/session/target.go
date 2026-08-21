@@ -1,4 +1,4 @@
-// Package session owns waldo's per-session state: which target a shell is
+// Package session owns reach's per-session state: which target a shell is
 // bound to, where it is working, and what that target's userland supports.
 package session
 
@@ -13,7 +13,7 @@ import (
 // Kind identifies a target family.
 type Kind string
 
-// The target families waldo can reach.
+// The target families reach can reach.
 const (
 	KindSSH    Kind = "ssh"
 	KindDocker Kind = "docker"
@@ -47,7 +47,7 @@ type Target struct {
 //
 // Host is deliberately passed through to the ssh client untouched, so entries
 // in ~/.ssh/config — ProxyJump, IdentityFile, Match blocks, hardware tokens —
-// keep working exactly as they do outside waldo.
+// keep working exactly as they do outside reach.
 func ParseTarget(spec string) (*Target, error) {
 	if spec == "" {
 		return nil, fmt.Errorf("empty target")

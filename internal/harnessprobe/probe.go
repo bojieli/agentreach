@@ -12,14 +12,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bojieli/waldo/internal/execserver"
-	"github.com/bojieli/waldo/internal/session"
-	"github.com/bojieli/waldo/internal/waldo"
+	"github.com/bojieli/agentreach/internal/execserver"
+	"github.com/bojieli/agentreach/internal/session"
+	"github.com/bojieli/agentreach/internal/reach"
 )
 
 // DefaultTimeout bounds one probe run. A healthy turn against the mock takes
 // seconds; the bound exists for the harness that starts and then hangs, which
-// must not hang `waldo <harness>` with it.
+// must not hang `reach <harness>` with it.
 const DefaultTimeout = 120 * time.Second
 
 // Harnesses the probe knows how to drive.
@@ -37,7 +37,7 @@ type Options struct {
 	// HarnessKimi. It selects the mock's wire dialect, the spawn argv, the
 	// process environment and the version command.
 	Harness string
-	// SessionName is the waldo session whose target is the ground truth for
+	// SessionName is the reach session whose target is the ground truth for
 	// where the scripted command should run.
 	SessionName string
 	// EnsureShim installs the PATH shell shims and returns the directory to
@@ -49,9 +49,9 @@ type Options struct {
 	// BinaryPath is an absolute path to the harness binary to probe. When
 	// empty Verify falls back to exec.LookPath(Harness). Use this when the
 	// harness binary that will actually be launched (e.g. a patched npm
-	// bundle under ~/.waldo/) is not the one that appears first on PATH.
+	// bundle under ~/.reach/) is not the one that appears first on PATH.
 	BinaryPath string
-	// EnsureShellPrefix creates the waldo-shell-prefix alias and returns its
+	// EnsureShellPrefix creates the reach-shell-prefix alias and returns its
 	// absolute path. Required for HarnessClaudeCode; ignored by all other
 	// harnesses. Injected from the main package where alias installation lives.
 	EnsureShellPrefix func() (string, error)
@@ -103,10 +103,10 @@ var harnessSpecs = map[string]harnessSpec{
 // same transport the shell shim uses, which is the ground truth for "ran on
 // the target".
 //
-// The probe inherits waldo's own posture rather than weakening it: the same
-// session environment the shim needs (WALDO_SESSION, shim directory first on
+// The probe inherits reach's own posture rather than weakening it: the same
+// session environment the shim needs (REACH_SESSION, shim directory first on
 // PATH) and, for codex, an environments.toml routing its remote environment to
-// the waldo exec-server plus the same sandbox relaxation `waldo codex`
+// the reach exec-server plus the same sandbox relaxation `reach codex`
 // applies. Each harness gets an isolated home directory and a scrubbed
 // credential environment so it can only ever talk to the mock on
 // 127.0.0.1 — this probe must never reach a real provider.
@@ -169,14 +169,14 @@ func Verify(ctx context.Context, opts Options) Result {
 		}
 	}
 
-	marker := "WALDO_SEAM_" + randomHex(8)
+	marker := "REACH_SEAM_" + randomHex(8)
 	mock := StartMock(marker, spec.dialect)
 	defer mock.Close()
 	if opts.CommandPrefix != "" {
 		mock.SetCommand(opts.CommandPrefix + " && echo " + marker + "; hostname")
 	}
 
-	home, err := os.MkdirTemp("", "waldo-"+opts.Harness+"-home-")
+	home, err := os.MkdirTemp("", "reach-"+opts.Harness+"-home-")
 	if err != nil {
 		return Result{Verdict: VerdictError, Detail: "create a temporary home directory: " + err.Error()}
 	}
@@ -246,7 +246,7 @@ func targetHostname(ctx context.Context, sess *session.Session) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	res, err := t.Run(ctx, waldo.ExecRequest{Command: "hostname", MaxOutput: 4 << 10})
+	res, err := t.Run(ctx, reach.ExecRequest{Command: "hostname", MaxOutput: 4 << 10})
 	if err != nil {
 		return "", err
 	}
@@ -267,19 +267,19 @@ func targetHostname(ctx context.Context, sess *session.Session) (string, error) 
 // with the wire_api codex ≥ 0.148 still speaks. `-a never` forbids approval
 // prompts the probe cannot answer, `exec --ephemeral --skip-git-repo-check`
 // runs one non-interactive turn that writes no state and needs no repository.
-// The sandbox flags mirror `waldo codex`: a restricted network policy against
-// a remote environment requires an executor-local proxy the waldo exec-server
+// The sandbox flags mirror `reach codex`: a restricted network policy against
+// a remote environment requires an executor-local proxy the reach exec-server
 // does not provide, so the probe would be measuring the sandbox instead of the
 // seam.
 func codexArgs(baseURL string) []string {
 	return []string{
-		"-c", `model_providers.waldo.name="waldo"`,
-		"-c", fmt.Sprintf("model_providers.waldo.base_url=%q", baseURL),
-		"-c", `model_providers.waldo.wire_api="responses"`,
-		"-c", `model_providers.waldo.requires_openai_auth=false`,
-		"-c", `model_providers.waldo.supports_websockets=false`,
-		"-c", `model_provider="waldo"`,
-		"-c", `model="waldo-mock"`,
+		"-c", `model_providers.reach.name="reach"`,
+		"-c", fmt.Sprintf("model_providers.reach.base_url=%q", baseURL),
+		"-c", `model_providers.reach.wire_api="responses"`,
+		"-c", `model_providers.reach.requires_openai_auth=false`,
+		"-c", `model_providers.reach.supports_websockets=false`,
+		"-c", `model_provider="reach"`,
+		"-c", `model="reach-mock"`,
 		"-c", `sandbox_mode="workspace-write"`,
 		"-c", `sandbox_workspace_write.network_access=true`,
 		"-a", "never",
@@ -299,7 +299,7 @@ func kimiArgs(_ string) []string {
 }
 
 // baseProbeEnv builds the part of the probe environment every harness shares:
-// WALDO_SESSION binding the shim to the probe session exactly as `waldo
+// REACH_SESSION binding the shim to the probe session exactly as `reach
 // <harness>` does, and the shim directory leading PATH — the seam under test.
 // The strip predicate drops inherited variables the harness must not see.
 func baseProbeEnv(sessName, shimDir string, strip func(key string) bool) []string {
@@ -312,31 +312,31 @@ func baseProbeEnv(sessName, shimDir string, strip func(key string) bool) []strin
 		if strings.EqualFold(key, "PATH") {
 			// The key's original spelling is kept: on Windows a second PATH
 			// that differs only in case would leave the child's search path to
-			// chance (see cmd/waldo/env.go, where this mistake was a safety
+			// chance (see cmd/reach/env.go, where this mistake was a safety
 			// bug, not a style one).
 			env = append(env, key+"="+shimDir+string(filepath.ListSeparator)+value)
 			continue
 		}
 		env = append(env, kv)
 	}
-	return append(env, "WALDO_SESSION="+sessName)
+	return append(env, "REACH_SESSION="+sessName)
 }
 
 // codexPrepare writes the environments.toml that routes the probe's codex to
-// the waldo exec-server — the seam under test. The throwaway CODEX_HOME gets
-// exactly what `waldo codex` puts in its managed one: this waldo binary as the
+// the reach exec-server — the seam under test. The throwaway CODEX_HOME gets
+// exactly what `reach codex` puts in its managed one: this reach binary as the
 // environment's program, bound to the probe's session. The probe therefore
 // measures the exec-server seam end to end: mock model -> codex tool call ->
 // process/start on the exec-server -> the session's target.
 func codexPrepare(home, sessName string) error {
-	waldoPath, err := os.Executable()
+	reachPath, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("locate the waldo binary: %w", err)
+		return fmt.Errorf("locate the reach binary: %w", err)
 	}
-	if resolved, err := filepath.EvalSymlinks(waldoPath); err == nil {
-		waldoPath = resolved
+	if resolved, err := filepath.EvalSymlinks(reachPath); err == nil {
+		reachPath = resolved
 	}
-	toml := execserver.EnvironmentsTOML(waldoPath, sessName)
+	toml := execserver.EnvironmentsTOML(reachPath, sessName)
 	if err := os.WriteFile(filepath.Join(home, "environments.toml"), []byte(toml), 0o600); err != nil {
 		return fmt.Errorf("write environments.toml: %w", err)
 	}
@@ -350,7 +350,7 @@ func codexPrepare(home, sessName string) error {
 // cannot interfere — and so the probe writes nothing to them. OPENAI_API_KEY
 // is removed outright: the mock needs no auth, and a stray key must never let
 // a probe turn reach a real provider. The mock's URL travels through argv
-// (model_providers.waldo.base_url), not the environment.
+// (model_providers.reach.base_url), not the environment.
 func codexEnv(sessName, shimDir, home, _ string) []string {
 	env := baseProbeEnv(sessName, shimDir, func(key string) bool {
 		return key == "OPENAI_API_KEY"
@@ -379,7 +379,7 @@ func kimiEnv(sessName, shimDir, home, baseURL string) []string {
 	})
 	return append(env,
 		"KIMI_CODE_HOME="+home,
-		"KIMI_MODEL_NAME=waldo-mock",
+		"KIMI_MODEL_NAME=reach-mock",
 		"KIMI_MODEL_API_KEY=dummy",
 		"KIMI_MODEL_BASE_URL="+baseURL,
 		"KIMI_MODEL_PROVIDER_TYPE=openai",
@@ -424,7 +424,7 @@ func gooseEnv(sessName, shimDir, home, baseURL string) []string {
 	return append(env,
 		"GOOSE_PATH_ROOT="+home,
 		"GOOSE_PROVIDER=openai",
-		"GOOSE_MODEL=waldo-mock",
+		"GOOSE_MODEL=reach-mock",
 		"GOOSE_SHELL="+filepath.Join(shimDir, "bash"),
 		"OPENAI_BASE_URL="+baseURL,
 		"OPENAI_API_KEY=dummy",
@@ -467,7 +467,7 @@ func geminiEnv(sessName, shimDir, home, baseURL string) []string {
 }
 
 // geminiPrepare writes a settings.json into the probe's throwaway HOME that
-// mirrors what waldo writes for the production managed home. The key safety
+// mirrors what reach writes for the production managed home. The key safety
 // properties are:
 //   - ask_user / enter_plan_mode / exit_plan_mode are excluded so a headless
 //     probe run cannot block waiting for TTY input
@@ -475,7 +475,7 @@ func geminiEnv(sessName, shimDir, home, baseURL string) []string {
 //     constrained to run_shell_command, the seam under test
 //
 // The exclude list must be kept in sync with writeManagedGeminiSettings in
-// cmd/waldo/gemini_home.go. Both use canonical TOOL_NAME constants from
+// cmd/reach/gemini_home.go. Both use canonical TOOL_NAME constants from
 // packages/core/src/tools/definitions/base-declarations.ts.
 func geminiPrepare(home, _ string) error {
 	geminiDir := filepath.Join(home, ".gemini")
@@ -483,7 +483,7 @@ func geminiPrepare(home, _ string) error {
 		return fmt.Errorf("create .gemini dir: %w", err)
 	}
 	// Minimal JSON — same logical content as writeManagedGeminiSettings.
-	// The "_waldo" marker and indentation are omitted here; the probe's home
+	// The "_reach" marker and indentation are omitted here; the probe's home
 	// is ephemeral and doctor never inspects it.
 	const settingsJSON = `{
   "excludeTools": [
@@ -529,8 +529,8 @@ func claudeCodeArgs(_ string) []string {
 // URL, and telemetry disabled.
 //
 // The second parameter (shimDir in the shared signature) carries the
-// waldo-shell-prefix alias path for Claude Code — it is the seam under test:
-// every Bash tool call the harness makes will invoke that alias, and waldo
+// reach-shell-prefix alias path for Claude Code — it is the seam under test:
+// every Bash tool call the harness makes will invoke that alias, and reach
 // routes it to the session's target.
 func claudeCodeEnv(sessName, shellPrefixPath, home, baseURL string) []string {
 	var env []string
@@ -550,7 +550,7 @@ func claudeCodeEnv(sessName, shellPrefixPath, home, baseURL string) []string {
 		"CLAUDE_CODE_SHELL_PREFIX="+shellPrefixPath,
 		"CLAUDE_TELEMETRY_OPT_OUT=1",
 		"DO_NOT_TRACK=1",
-		"WALDO_SESSION="+sessName,
+		"REACH_SESSION="+sessName,
 	)
 }
 
@@ -604,7 +604,7 @@ func HarnessVersion(ctx context.Context, harness string) (string, error) {
 
 // HarnessVersionFromBinary reports the version of an arbitrary harness binary,
 // normalised. Use this when the binary to version-check is not on PATH — for
-// example a waldo-managed patched kimi bundle under ~/.waldo/.
+// example a reach-managed patched kimi bundle under ~/.reach/.
 func HarnessVersionFromBinary(ctx context.Context, binPath string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()

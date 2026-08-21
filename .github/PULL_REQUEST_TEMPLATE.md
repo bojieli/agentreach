@@ -28,9 +28,9 @@ If this touches a **file-operation tier**:
 - [ ] New cases went into the shared suite (`internal/fileops/fileopstest`), so
       every tier has to pass them, not just the one you changed
 - [ ] `make bench` was re-run and `docs/TRANSPORTS.md` updated, if this changes
-      what waldo negotiates
+      what reach negotiates
 
-If this changes what waldo puts on a **target**:
+If this changes what reach puts on a **target**:
 
-- [ ] It is opt-in, visible in `waldo doctor`, and removable
+- [ ] It is opt-in, visible in `reach doctor`, and removable
 - [ ] It is refused on a session marked `--untrusted`

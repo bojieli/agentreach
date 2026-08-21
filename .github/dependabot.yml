@@ -1,6 +1,6 @@
 version: 2
 
-# waldo has no third-party Go dependencies on purpose — it is a security tool
+# reach has no third-party Go dependencies on purpose — it is a security tool
 # whose premise is that it touches nothing, and every dependency is supply chain
 # an operator inherits. That is a property to keep rather than to assume, so the
 # gomod ecosystem is watched here: if a dependency ever appears, its updates

@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bojieli/waldo/internal/fileops"
-	"github.com/bojieli/waldo/internal/transport"
-	"github.com/bojieli/waldo/internal/waldo"
+	"github.com/bojieli/agentreach/internal/fileops"
+	"github.com/bojieli/agentreach/internal/transport"
+	"github.com/bojieli/agentreach/internal/reach"
 )
 
-// Mode selects how much of the harness's tool surface waldo redirects.
+// Mode selects how much of the harness's tool surface reach redirects.
 type Mode string
 
 const (
@@ -45,10 +45,10 @@ type Session struct {
 	Name     string     `json:"name"`
 	Target   *Target    `json:"target"`
 	Mode     Mode       `json:"mode"`
-	Tier     waldo.Tier `json:"-"`
+	Tier     reach.Tier `json:"-"`
 	TierName string     `json:"tier"`
 	// Pinned records that the operator named this tier with --fileops. A pinned
-	// tier is an instruction, not a preference: waldo fails rather than quietly
+	// tier is an instruction, not a preference: reach fails rather than quietly
 	// giving them a different one.
 	Pinned bool `json:"pinned,omitempty"`
 	// MultiplexNote explains why multiplexing is unavailable, and is empty when
@@ -64,7 +64,7 @@ type Session struct {
 	// ~130 ms per command, and it is recorded rather than assumed because
 	// Win32-OpenSSH does not implement the feature.
 	Multiplex bool `json:"multiplex"`
-	// Untrusted marks a target whose operator you are not. waldo will not
+	// Untrusted marks a target whose operator you are not. reach will not
 	// install anything on it and will not forward an SSH agent to it.
 	Untrusted bool `json:"untrusted"`
 	// Timeout bounds an individual command.
@@ -73,8 +73,8 @@ type Session struct {
 
 // SchemaVersion is the version of the session document this build writes.
 //
-// A session file outlives the binary that wrote it: it sits in ~/.waldo until
-// `waldo down`, across upgrades, and more than one waldo may be on PATH at once
+// A session file outlives the binary that wrote it: it sits in ~/.reach until
+// `reach down`, across upgrades, and more than one reach may be on PATH at once
 // — a package-managed install and a `go install` build are the usual pair.
 // encoding/json discards fields it does not recognise without a word, so an
 // older binary reading a newer document does not fail, it succeeds with a
@@ -89,15 +89,15 @@ const SchemaVersion = 1
 
 var nameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
-// Dir returns waldo's state directory.
+// Dir returns reach's state directory.
 func Dir() (string, error) {
-	base := os.Getenv("WALDO_HOME")
+	base := os.Getenv("REACH_HOME")
 	if base == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return "", fmt.Errorf("locate home directory: %w", err)
 		}
-		base = filepath.Join(home, ".waldo")
+		base = filepath.Join(home, ".reach")
 	}
 	dir := filepath.Join(base, "sessions")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -106,21 +106,21 @@ func Dir() (string, error) {
 	return dir, nil
 }
 
-// ConfDir holds files waldo generates for harnesses, such as settings
+// ConfDir holds files reach generates for harnesses, such as settings
 // documents.
 //
 // These are kept out of the sessions directory deliberately. Session discovery
 // enumerates that directory, and a generated file that happens to parse as
 // JSON would otherwise be loaded as a session with no target — which crashed
-// `waldo status` with a nil dereference until this separation existed.
+// `reach status` with a nil dereference until this separation existed.
 func ConfDir() (string, error) {
-	base := os.Getenv("WALDO_HOME")
+	base := os.Getenv("REACH_HOME")
 	if base == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return "", fmt.Errorf("locate home directory: %w", err)
 		}
-		base = filepath.Join(home, ".waldo")
+		base = filepath.Join(home, ".reach")
 	}
 	dir := filepath.Join(base, "conf")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -200,12 +200,12 @@ func Load(name string) (*Session, error) {
 //
 // Refusing to load is the right failure here. Every alternative — guessing at a
 // field, falling back to a default — produces a session that runs commands
-// somewhere, and the operator's only evidence about where is the file waldo has
+// somewhere, and the operator's only evidence about where is the file reach has
 // just decided not to trust.
 func migrate(s *Session) error {
 	if s.Version > SchemaVersion {
-		return fmt.Errorf("this session was created by a newer waldo (schema v%d, this build understands v%d).\n"+
-			"Upgrade waldo, or run `waldo down %s` and start the session again with this build.\n"+
+		return fmt.Errorf("this session was created by a newer reach (schema v%d, this build understands v%d).\n"+
+			"Upgrade reach, or run `reach down %s` and start the session again with this build.\n"+
 			"Loading it anyway would mean ignoring settings this build cannot see, on a session whose\n"+
 			"whole purpose is being certain which machine your commands run on.",
 			s.Version, SchemaVersion, s.Name)
@@ -221,45 +221,45 @@ func migrate(s *Session) error {
 	// floor, which installs nothing and needs only a shell — is the honest
 	// reading rather than a guess.
 	if s.TierName == "" {
-		s.TierName, s.Tier = waldo.TierPOSIX.String(), waldo.TierPOSIX
+		s.TierName, s.Tier = reach.TierPOSIX.String(), reach.TierPOSIX
 		return nil
 	}
 
 	// The tier name is the one field whose vocabulary has actually changed:
 	// `sftp` was removed and `agent` renamed to `helper`. Swallowing the parse
 	// error left Tier at its zero value, so a session created with
-	// `--fileops=sftp` loaded as a *pinned* posix session — waldo silently
+	// `--fileops=sftp` loaded as a *pinned* posix session — reach silently
 	// running a tier other than the one it was instructed to use, and reporting
 	// the tier it was told. ParseTier's error explains each removal; the
 	// operator should read it rather than have it discarded.
-	t, err := waldo.ParseTier(s.TierName)
+	t, err := reach.ParseTier(s.TierName)
 	if err != nil {
-		return fmt.Errorf("%w\nRun `waldo up %s --name %s` to recreate this session.",
+		return fmt.Errorf("%w\nRun `reach up %s --name %s` to recreate this session.",
 			err, s.Target.Raw, s.Name)
 	}
 	s.Tier = t
 	return nil
 }
 
-// ErrNotSession marks a file that is not waldo's to interpret.
+// ErrNotSession marks a file that is not reach's to interpret.
 //
 // It separates "this is not a session" from "this is a session I cannot
 // honour". The first is an unrelated .json file sitting in the directory and
 // deserves silence; the second is the operator's session and deserves an
 // explanation.
-var ErrNotSession = errors.New("is not a waldo session file")
+var ErrNotSession = errors.New("is not a reach session file")
 
 // noSuchSessionError reports a session that is simply not there.
 //
 // It unwraps to os.ErrNotExist so a caller can tell "there is nothing here"
-// from "there is something here I cannot read". `waldo down` needs exactly that
+// from "there is something here I cannot read". `reach down` needs exactly that
 // distinction: it must refuse the first and proceed with the second. The
 // wrapping is done with a type rather than a %w in the message so that the
 // sentinel does not appear in text an operator reads.
 type noSuchSessionError struct{ name string }
 
 func (e *noSuchSessionError) Error() string {
-	return fmt.Sprintf("no waldo session named %q. Start one with:\n  waldo up ssh://host/path --name %s",
+	return fmt.Sprintf("no reach session named %q. Start one with:\n  reach up ssh://host/path --name %s",
 		e.name, e.name)
 }
 
@@ -275,9 +275,9 @@ type Broken struct {
 //
 // The unreadable ones are returned rather than skipped. A session file that
 // cannot be loaded is still configured in somebody's harness, and dropping it
-// from the listing means `waldo ls` prints "no waldo sessions" to an operator
+// from the listing means `reach ls` prints "no reach sessions" to an operator
 // whose agent is at that moment pointed at one. The reason it will not load is
-// the single most useful thing waldo knows at that point.
+// the single most useful thing reach knows at that point.
 func List() ([]*Session, []Broken, error) {
 	dir, err := Dir()
 	if err != nil {
@@ -365,7 +365,7 @@ func (s *Session) Transport() (transport.Transport, error) {
 // InteractiveTransport allows ssh to prompt.
 //
 // The first connection to a host may legitimately need a passphrase, a
-// password or a 2FA touch. That has to be possible somewhere, and `waldo up`
+// password or a 2FA touch. That has to be possible somewhere, and `reach up`
 // is the one moment an operator is present to answer. Afterwards ControlMaster
 // keeps the authenticated connection alive, so later tool calls never prompt.
 func (s *Session) InteractiveTransport() (transport.Transport, error) {
@@ -380,7 +380,7 @@ func (s *Session) transport(batch bool) (transport.Transport, error) {
 			User: s.Target.User,
 			Port: s.Target.Port,
 			// Whether the local ssh client can multiplex was settled during
-			// `waldo up` by establishing one and asking the client to confirm
+			// `reach up` by establishing one and asking the client to confirm
 			// it. Assuming it here would mean sending options that a client
 			// without the feature may refuse outright.
 			Multiplex: s.Multiplex,
@@ -422,7 +422,7 @@ func (s *Session) OperationContext(ctx context.Context) (context.Context, contex
 
 // checkWorkspace verifies the session's directory exists on the target.
 func (s *Session) checkWorkspace(ctx context.Context, t transport.Transport) error {
-	res, err := t.Run(ctx, waldo.ExecRequest{
+	res, err := t.Run(ctx, reach.ExecRequest{
 		Command:   fmt.Sprintf("test -d %s", transport.ShellQuote(s.Target.Workspace)),
 		MaxOutput: 4 << 10,
 	})
@@ -434,8 +434,8 @@ func (s *Session) checkWorkspace(ctx context.Context, t transport.Transport) err
 	}
 	return fmt.Errorf(
 		"%s is not a directory on %s.\n"+
-			"waldo will not create it: making directories on a machine you pointed at is\n"+
-			"not something this tool should do uninvited. Create it there, or point waldo\n"+
+			"reach will not create it: making directories on a machine you pointed at is\n"+
+			"not something this tool should do uninvited. Create it there, or point reach\n"+
 			"at a path that exists.", s.Target.Workspace, s.Target.Describe())
 }
 
@@ -446,7 +446,7 @@ func (s *Session) checkWorkspace(ctx context.Context, t transport.Transport) err
 // stderr, because a host that stopped answering on its usual tier should keep
 // working, but not without the operator being able to see that it changed.
 func (s *Session) FileOps(ctx context.Context, t transport.Transport) (fileops.Selection, error) {
-	if s.Tier == waldo.TierHelper && s.Untrusted {
+	if s.Tier == reach.TierHelper && s.Untrusted {
 		return fileops.Selection{}, fmt.Errorf(
 			"session %q is marked --untrusted, and the helper tier installs a binary on the target.\n"+
 				"Re-create the session without --untrusted, or use a tier that installs nothing.", s.Name)
@@ -459,7 +459,7 @@ func (s *Session) FileOps(ctx context.Context, t transport.Transport) (fileops.S
 // file-operation tier this session will use.
 //
 // The chosen tier is *built* here, not merely selected. Recording a tier that
-// turns out to be unusable would move the failure from `waldo up`, where an
+// turns out to be unusable would move the failure from `reach up`, where an
 // operator is present and can act on it, into the middle of an agent's turn,
 // where it surfaces as a broken tool.
 func (s *Session) Probe(ctx context.Context) error {
@@ -489,9 +489,9 @@ func (s *Session) Probe(ctx context.Context) error {
 		s.MultiplexNote = why
 	}
 
-	// Confirm the workspace is really there. Without this, `waldo up` succeeds
+	// Confirm the workspace is really there. Without this, `reach up` succeeds
 	// against any reachable host and then *every* command fails with a `cd`
-	// error from the target — which reads as waldo being broken rather than as
+	// error from the target — which reads as reach being broken rather than as
 	// a path being wrong, and does so once per tool call rather than once, in
 	// front of the operator who typed the path.
 	if err := s.checkWorkspace(ctx, t); err != nil {
@@ -500,7 +500,7 @@ func (s *Session) Probe(ctx context.Context) error {
 
 	if !s.Pinned {
 		// Autonegotiation deliberately stops below TierHelper: that tier writes
-		// a binary to the target, and waldo never makes that choice on the
+		// a binary to the target, and reach never makes that choice on the
 		// operator's behalf.
 		s.Tier = caps.BestTier()
 	}

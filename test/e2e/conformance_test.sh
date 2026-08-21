@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Conformance tests: do the harness seams waldo depends on still have the shape
-# waldo expects?
+# Conformance tests: do the harness seams reach depends on still have the shape
+# reach expects?
 #
-# waldo hooks undocumented implementation details in closed binaries. A harness
+# reach hooks undocumented implementation details in closed binaries. A harness
 # upgrade can change them without notice. These tests exist so that breakage is
 # discovered in seconds by running a command, rather than in the middle of a
 # task by an agent quietly operating on the wrong machine.
 set -uo pipefail
 cd "$(dirname "$0")" && source ./lib.sh
 
-PROBE="${WALDO_E2E_DIR}/conformance"
+PROBE="${REACH_E2E_DIR}/conformance"
 mkdir -p "$PROBE"
 
 info "Harness seam conformance"
@@ -21,21 +21,21 @@ if command -v claude >/dev/null 2>&1; then
 
   cat > "$PROBE/prefix" <<'SH'
 #!/bin/bash
-printf '%s\n' "ARGC=$#" > /tmp/waldo-conformance-argv
-i=0; for a in "$@"; do printf 'ARGV[%d]=%s\n' "$i" "$a" >> /tmp/waldo-conformance-argv; i=$((i+1)); done
+printf '%s\n' "ARGC=$#" > /tmp/reach-conformance-argv
+i=0; for a in "$@"; do printf 'ARGV[%d]=%s\n' "$i" "$a" >> /tmp/reach-conformance-argv; i=$((i+1)); done
 # Behave like a shell so the agent's turn completes.
 exec /bin/bash -c "$1"
 SH
   chmod +x "$PROBE/prefix"
-  rm -f /tmp/waldo-conformance-argv
+  rm -f /tmp/reach-conformance-argv
 
   clean_agent_env CLAUDE_CODE_SHELL_PREFIX="$PROBE/prefix" \
     timeout 300 claude -p "Run the shell command: echo conformance_probe" \
       --allowedTools Bash --permission-mode bypassPermissions \
-      --model "${WALDO_E2E_MODEL:-haiku}" >/dev/null 2>&1
+      --model "${REACH_E2E_MODEL:-haiku}" >/dev/null 2>&1
 
-  if [[ -f /tmp/waldo-conformance-argv ]]; then
-    argv="$(cat /tmp/waldo-conformance-argv)"
+  if [[ -f /tmp/reach-conformance-argv ]]; then
+    argv="$(cat /tmp/reach-conformance-argv)"
     ok "CLAUDE_CODE_SHELL_PREFIX is still honoured"
     assert_contains "$argv" "ARGC=1" \
       "prefix still receives the command as ONE argument"
@@ -44,17 +44,17 @@ SH
     assert_contains "$argv" "pwd -P" \
       "envelope still uses the pwd -P cwd protocol"
     assert_contains "$argv" "shell-snapshots" \
-      "envelope still sources a local shell snapshot (waldo strips this)"
+      "envelope still sources a local shell snapshot (reach strips this)"
   else
     bad "CLAUDE_CODE_SHELL_PREFIX is no longer honoured" \
-        "waldo's Claude Code adapter needs updating for $ver"
+        "reach's Claude Code adapter needs updating for $ver"
   fi
 else
   info "Claude Code not installed — skipping"
 fi
 
   # The claim this seam rests on: Claude Code cannot be monkey-patched from
-  # inside, so its native file tools cannot be re-pointed and waldo must either
+  # inside, so its native file tools cannot be re-pointed and reach must either
   # deny them or materialise real files. It ships as a Node SEA, and the macOS
   # build is stripped, so the V8 symbol check that settles it on Linux proves
   # nothing there. Run the experiment instead — and run a control, because a
@@ -63,13 +63,13 @@ fi
   preload="$PROBE/preload.js"
   marker="$PROBE/preload-fired"
   cat > "$preload" <<'JS'
-require("fs").writeFileSync(process.env.WALDO_PRELOAD_MARKER, "fired");
+require("fs").writeFileSync(process.env.REACH_PRELOAD_MARKER, "fired");
 JS
   rm -f "$marker"
 
   control="skipped"
   if command -v node >/dev/null 2>&1; then
-    WALDO_PRELOAD_MARKER="$marker" NODE_OPTIONS="--require $preload" \
+    REACH_PRELOAD_MARKER="$marker" NODE_OPTIONS="--require $preload" \
       node -e '' >/dev/null 2>&1
     if [[ -f "$marker" ]]; then control="works"; else control="broken"; fi
     rm -f "$marker"
@@ -79,11 +79,11 @@ JS
     bad "NODE_OPTIONS preload control failed" \
         "the probe cannot detect a preload even under plain node, so its result about claude would be meaningless"
   else
-    clean_agent_env WALDO_PRELOAD_MARKER="$marker" NODE_OPTIONS="--require $preload" \
+    clean_agent_env REACH_PRELOAD_MARKER="$marker" NODE_OPTIONS="--require $preload" \
       timeout 60 claude --version >/dev/null 2>&1
     if [[ -f "$marker" ]]; then
       bad "NODE_OPTIONS=--require is now honoured by Claude Code" \
-          "in-process patching may be possible again; waldo's denial of the native file tools should be revisited"
+          "in-process patching may be possible again; reach's denial of the native file tools should be revisited"
     else
       ok "NODE_OPTIONS=--require is still ignored (control: node preload $control)"
     fi
@@ -131,7 +131,7 @@ else
 fi
 
 # --------------------------------------------------- behavioral seam probes
-# Static checks above only detect shape changes in what waldo hooks into; they
+# Static checks above only detect shape changes in what reach hooks into; they
 # cannot see a harness switching from execvp("bash") to an absolute shell path,
 # which is exactly the Codex 0.148 regression. The behavioral probe drives each
 # installed harness against an offline mock model and a real SSH target and

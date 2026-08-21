@@ -7,7 +7,7 @@ Open-source TypeScript agent by Google.  Installed as `gemini` CLI.
 Gemini CLI resolves its shell in `packages/core/src/tools/shell.ts` via
 `getShellConfiguration()`, which returns the bare name `"bash"`.  Node's
 `child_process.spawn` resolves that name by walking PATH — the same mechanism
-every tool that calls `execvp("bash")` relies on.  The waldo PATH shim places a
+every tool that calls `execvp("bash")` relies on.  The reach PATH shim places a
 controlled `bash` binary earlier on PATH, so the shim intercepts every
 `run_shell_command` call natively, with no patching and no env-var tricks.
 
@@ -23,7 +23,7 @@ editor), `glob`, `grep_search`, `list_directory`, `read_many_files`, `web_fetch`
 be advertised to the model, because they act on the local filesystem — not the
 session target — and have no intercept point.
 
-`waldo gemini` sets `HOME` to a managed directory whose `.gemini/settings.json`
+`reach gemini` sets `HOME` to a managed directory whose `.gemini/settings.json`
 contains an `excludeTools` array that names every built-in tool except
 `run_shell_command`:
 
@@ -61,7 +61,7 @@ Shell commands route through the PATH shim and execute on the session target.
 ## Credential forwarding
 
 Gemini CLI reads authentication from `HOME/.gemini/google-accounts.json` (OAuth
-flow) or from the `GEMINI_API_KEY` environment variable.  waldo symlinks
+flow) or from the `GEMINI_API_KEY` environment variable.  reach symlinks
 `google-accounts.json` and `installation_id` from the operator's real `~/.gemini`
 into the managed `HOME/.gemini`, so OAuth logins remain valid.  `GEMINI_API_KEY`
 passes through the environment unchanged.
@@ -95,7 +95,7 @@ passes through the environment unchanged.
 
 ## Probe
 
-The seam guard (`waldo harness verify gemini`) runs Gemini CLI against a minimal
+The seam guard (`reach harness verify gemini`) runs Gemini CLI against a minimal
 mock that speaks the Gemini API's `streamGenerateContent` format.  The mock uses
 a `DialectGemini` handler — separate from the OpenAI chat/responses dialects —
 because the Gemini API wire format (candidates / functionCall / functionResponse)
@@ -115,5 +115,5 @@ as tool choices that could block the headless probe run.
 
 ## Implementation status
 
-`waldo gemini` is implemented.  `waldo harness verify gemini` probes the PATH
+`reach gemini` is implemented.  `reach harness verify gemini` probes the PATH
 shim seam end-to-end against the live session target.

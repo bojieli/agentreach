@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// These cover the arguments waldo hands to ssh, which is the most consequential
+// These cover the arguments reach hands to ssh, which is the most consequential
 // pure function in the project: everything else assumes the command reached the
 // machine the operator named, under the policy they chose. None of it was
 // tested, because testing it looked like testing a string.
@@ -45,7 +45,7 @@ func TestSSHArgsRefuseAgentForwardingExplicitly(t *testing.T) {
 	tr := newTestSSH(t, SSHConfig{})
 	got, ok := argValue(tr.baseArgs(), "ForwardAgent")
 	if !ok {
-		t.Fatal("ForwardAgent is not set at all; the operator's ssh_config decides, which is not waldo's call to delegate")
+		t.Fatal("ForwardAgent is not set at all; the operator's ssh_config decides, which is not reach's call to delegate")
 	}
 	if got != "no" {
 		t.Errorf("ForwardAgent=%s by default, want no", got)
@@ -76,7 +76,7 @@ func TestSSHArgsAlwaysBoundTheConnection(t *testing.T) {
 	}
 }
 
-// Multiplexing is what makes waldo usable over a real link — measured at 4-5x
+// Multiplexing is what makes reach usable over a real link — measured at 4-5x
 // per command — but it is only sent when the local ssh proved it supports it.
 // Win32-OpenSSH does not, and refuses the options outright.
 func TestSSHArgsMultiplexOnlyWhenEnabled(t *testing.T) {
@@ -131,7 +131,7 @@ func TestSSHArgsPortAndUser(t *testing.T) {
 }
 
 func TestSSHArgsHonourAnAlternateConfig(t *testing.T) {
-	t.Setenv("WALDO_SSH_CONFIG", "/tmp/alt_ssh_config")
+	t.Setenv("REACH_SSH_CONFIG", "/tmp/alt_ssh_config")
 	args := newTestSSH(t, SSHConfig{}).baseArgs()
 	i := slices.Index(args, "-F")
 	if i < 0 || args[i+1] != "/tmp/alt_ssh_config" {

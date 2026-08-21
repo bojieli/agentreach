@@ -4,7 +4,7 @@
 // This is deliberately not a filesystem sync engine. Nothing is mirrored until
 // a tool actually asks for it, there is no background reconciliation, and no
 // attempt is made to track deletions or resolve divergence. A sync engine would
-// have to answer questions waldo has no good answer to — what to do when both
+// have to answer questions reach has no good answer to — what to do when both
 // sides changed, whether a missing file was deleted or never fetched — and
 // getting those wrong loses the operator's work. Fetching exactly the file a
 // tool is about to touch, at the moment it touches it, has none of those
@@ -22,8 +22,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/bojieli/waldo/internal/fileops"
-	"github.com/bojieli/waldo/internal/waldo"
+	"github.com/bojieli/agentreach/internal/fileops"
+	"github.com/bojieli/agentreach/internal/reach"
 )
 
 // Mirror maps target paths to local paths and moves content between them.
@@ -45,7 +45,7 @@ func (m *Mirror) Root() string { return m.root }
 //
 // The path is cleaned before joining. Without that, a target path containing
 // ".." would escape the mirror root once filepath.Join normalised it, and
-// waldo would read or write an arbitrary local file on behalf of whatever
+// reach would read or write an arbitrary local file on behalf of whatever
 // supplied the path. Since file paths can originate in content read from an
 // untrusted target, that is a real attack path and not a theoretical one.
 func (m *Mirror) Local(targetPath string) string {
@@ -153,7 +153,7 @@ func (m *Mirror) Push(ctx context.Context, targetPath string) error {
 					"Something else modified it. Re-read the file and redo the change.", targetPath)
 			}
 		} else {
-			var nf *waldo.NotFoundError
+			var nf *reach.NotFoundError
 			if !errors.As(readErr, &nf) {
 				return fmt.Errorf("verify %s before writing: %w", targetPath, readErr)
 			}
@@ -191,7 +191,7 @@ func digestOf(b []byte) string {
 // no lock, and each update is a single atomic rename.
 
 // digestDir holds the per-path digest records.
-func (m *Mirror) digestDir() string { return filepath.Join(m.root, ".waldo-digests") }
+func (m *Mirror) digestDir() string { return filepath.Join(m.root, ".reach-digests") }
 
 // digestRecordPath names a target path's record. The name is a digest of the
 // path rather than the path itself, so it is flat, fixed-length, and cannot
@@ -235,7 +235,7 @@ func (m *Mirror) recordDigest(targetPath, digest string) error {
 }
 
 // expectedDigest returns the digest recorded at fetch time. known is false when
-// waldo has no record, which Push must treat as "cannot verify" rather than as
+// reach has no record, which Push must treat as "cannot verify" rather than as
 // "the file was absent".
 func (m *Mirror) expectedDigest(targetPath string) (digest string, known bool) {
 	data, err := os.ReadFile(m.digestRecordPath(targetPath))

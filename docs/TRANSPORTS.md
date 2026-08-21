@@ -1,9 +1,9 @@
 # Transport tiers
 
-waldo separates *how it reaches a target* (transport) from *how it performs file
+reach separates *how it reaches a target* (transport) from *how it performs file
 operations* (file-op strategy). File-op strategies are tiered by what the target
-can support, and waldo negotiates automatically. Every tier is selectable
-explicitly with `--fileops=<tier>`; `waldo doctor` reports which tiers a given
+can support, and reach negotiates automatically. Every tier is selectable
+explicitly with `--fileops=<tier>`; `reach doctor` reports which tiers a given
 host qualifies for and why.
 
 The guarantee: **tier 0 works on any host running stock `sshd` and requires
@@ -24,9 +24,9 @@ see [Why there is no SFTP tier](#why-there-is-no-sftp-tier).
 
 Measured twice, because the first measurement was taken in the wrong place.
 
-Both tables drive waldo through its CLI, one process per operation, which is how
+Both tables drive reach through its CLI, one process per operation, which is how
 a harness drives it. Reproduce with `make bench`, or against your own host with
-`WALDO_BENCH_SSH_HOST=my-box make bench`.
+`REACH_BENCH_SSH_HOST=my-box make bench`.
 
 **At zero latency**, the tiers are not really what is being measured. Same
 machine, same `local://` transport, same work — only the operating system
@@ -38,8 +38,8 @@ differs:
 | `pipe` | 1.94 s | 0.87 s |
 | `helper` | 0.95 s | 0.47 s |
 
-Tier 0 is 7× more expensive on the macOS target, and waldo's own startup is not
-the reason — 40 invocations of `waldo version` take 0.13 s. The cause is that
+Tier 0 is 7× more expensive on the macOS target, and reach's own startup is not
+the reason — 40 invocations of `reach version` take 0.13 s. The cause is that
 tier 0 spawns a process per read on the target, and macOS creates processes far
 more slowly than Linux. A loopback benchmark therefore mostly measures the
 target's process spawner. Useful to know — **if your target is macOS, tier 0
@@ -82,8 +82,8 @@ Every operation is an ordinary command over the SSH connection:
 | glob | `find` with `-path` or `-name` |
 | mkdir/rename/remove | `mkdir -p` / `mv` / `rm` |
 
-Binary-safe in both directions, and only pays for it when it has to. waldo
-proves the link is 8-bit clean during `waldo up` — piping every byte value
+Binary-safe in both directions, and only pays for it when it has to. reach
+proves the link is 8-bit clean during `reach up` — piping every byte value
 through the target's own digest command in one direction, and having the target
 print them back in the other — and moves content unencoded when it is. A
 transport that garbles anything keeps base64, which is unconditionally safe and
@@ -110,12 +110,12 @@ the session.
 
 The obvious design, `ssh host 'python3 -' < handler.py`, cannot work: the
 interpreter reads its program from stdin until EOF, leaving no stdin for the
-protocol afterwards. waldo instead runs a one-line bootstrap that decodes the
+protocol afterwards. reach instead runs a one-line bootstrap that decodes the
 handler from the first line of stdin and executes it, so everything after that
 newline is protocol:
 
 ```console
-ssh host "exec python3 -c 'import sys,base64;exec(compile(base64.b64decode(sys.stdin.buffer.readline()),\"<waldo>\",\"exec\"))'"
+ssh host "exec python3 -c 'import sys,base64;exec(compile(base64.b64decode(sys.stdin.buffer.readline()),\"<reach>\",\"exec\"))'"
 ```
 
 File content travels as a raw payload beside the JSON header rather than inside
@@ -130,10 +130,10 @@ handler rather than leaving an orphan on someone else's machine.
 
 Never chosen automatically, and no longer for performance reasons — it is the
 fastest tier for small reads. It is opt-in because it writes a binary to a
-machine the operator may not own, which is a decision waldo does not make for
+machine the operator may not own, which is a decision reach does not make for
 them.
 
-A small static Go binary, installed by waldo when this tier is selected. The
+A small static Go binary, installed by reach when this tier is selected. The
 user is never asked to install anything by hand. It speaks the identical
 protocol to tier 1 — one client serves both, because a second implementation
 would be a second thing to keep honest.
@@ -144,43 +144,43 @@ to be verifiable and reversible:
 1. `uname -sm` resolves the target's OS and architecture. An unrecognised
    platform is an error, not a guess: a wrong guess leaves an unrunnable binary
    on a host that was supposed to stay untouched.
-2. waldo looks for a build for that platform beside its own binary (release
-   archives ship them), then in `~/.waldo/helper/`, then cross-compiles one with
-   the local Go toolchain from a source checkout. `WALDO_HELPER_BINARY`
+2. reach looks for a build for that platform beside its own binary (release
+   archives ship them), then in `~/.reach/helper/`, then cross-compiles one with
+   the local Go toolchain from a source checkout. `REACH_HELPER_BINARY`
    overrides all of that with one you built yourself. Nothing is downloaded at
    run time: a tool that exists to touch nothing should not be fetching
    executables over the network to put on a client's server.
 3. The binary is uploaded **using tier 0**, to
-   `${XDG_CACHE_HOME:-$HOME/.cache}/waldo/helper-<version>-<os>-<arch>` on the
+   `${XDG_CACHE_HOME:-$HOME/.cache}/reach/helper-<version>-<os>-<arch>` on the
    target. Bootstrapping the fast tier with the universal one means installation
-   works on exactly the hosts waldo can already reach.
-4. `waldo-helper --selftest` prints its version, a digest of itself, and its
-   platform. waldo compares all three against the file it just sent, and
+   works on exactly the hosts reach can already reach.
+4. `reach-helper --selftest` prints its version, a digest of itself, and its
+   platform. reach compares all three against the file it just sent, and
    reinstalls rather than trusting a mismatch. Version alone would accept a
    truncated upload; a digest alone would accept a binary left behind by a
    different release.
 
 Properties:
 
-- **Self-updating.** The version is part of the path, so an upgraded waldo
+- **Self-updating.** The version is part of the path, so an upgraded reach
   installs a new helper rather than reusing a stale one.
-- **Visible.** `waldo doctor` lists exactly what waldo has placed on the host,
+- **Visible.** `reach doctor` lists exactly what reach has placed on the host,
   and says plainly when it has placed nothing.
-- **Removable.** `waldo helper uninstall` deletes the cache directory. That path
-  is derived by waldo, never from anything the target said.
+- **Removable.** `reach helper uninstall` deletes the cache directory. That path
+  is derived by reach, never from anything the target said.
 - **Never automatic.** Autonegotiation stops below this tier. Writing to someone
   else's machine stays an explicit operator decision.
 - **Refused on untrusted targets.** A session created with `--untrusted` cannot
   use this tier at all.
 
-Set `WALDO_HELPER_BINARY` to use a build you produced yourself.
+Set `REACH_HELPER_BINARY` to use a build you produced yourself.
 
 ## Negotiation
 
 ```console
-waldo up ssh://host/srv/app                  # negotiate the best proven tier
-waldo up ssh://host/srv/app --fileops=posix  # pin tier 0 — install nothing, touch nothing
-waldo up ssh://host/srv/app --fileops=helper  # opt in to the auto-installed helper
+reach up ssh://host/srv/app                  # negotiate the best proven tier
+reach up ssh://host/srv/app --fileops=posix  # pin tier 0 — install nothing, touch nothing
+reach up ssh://host/srv/app --fileops=helper  # opt in to the auto-installed helper
 ```
 
 Negotiation order is `pipe`, then `posix`, chosen by measurement against a real
@@ -191,20 +191,20 @@ the only tier that writes anything to the target.
 Two rules make the outcome trustworthy:
 
 - **A pinned tier is never substituted.** If `--fileops=pipe` cannot be built —
-  no `python3` on the target — waldo fails and explains why rather than quietly
+  no `python3` on the target — reach fails and explains why rather than quietly
   handing you `posix`. Reporting a tier the session is not using is a lie the
   operator would act on.
 - **An autonegotiated tier may degrade, but never silently.** The fallback and
-  its reason are printed, recorded in the session, and shown by `waldo status`.
+  its reason are printed, recorded in the session, and shown by `reach status`.
 
-The tier is not merely chosen during `waldo up` — it is *built* once, to prove
+The tier is not merely chosen during `reach up` — it is *built* once, to prove
 it works. Recording a tier that turns out to be unusable would move the failure
-out of `waldo up`, where an operator is present to act on it, and into the
+out of `reach up`, where an operator is present to act on it, and into the
 middle of an agent's turn, where it looks like a broken tool.
 
 ## Why there is no SFTP tier
 
-waldo had one, and removing it is the most useful thing this document records.
+reach had one, and removing it is the most useful thing this document records.
 
 SFTP is the one structured file protocol every stock `sshd` already speaks, so a
 tier built on it promised faster file access with nothing installed. It was
@@ -219,9 +219,9 @@ composite open-and-read. Two was the floor. Every surviving tier does it in one 
 the shell tier sends a command and reads its output, the pipe and helper tiers
 send a request and read a response.
 
-**Its remaining advantage was bandwidth, and that turned out to be waldo's own
+**Its remaining advantage was bandwidth, and that turned out to be reach's own
 fault.** Tier 0 base64-encoded file content unconditionally, which costs a third
-of the bandwidth, and SFTP did not. Once waldo started *proving* whether a link
+of the bandwidth, and SFTP did not. Once reach started *proving* whether a link
 is 8-bit clean and skipping the encoding when it is, the shell tier read 8 MiB
 in 6.4 s against SFTP's 8.1 s, and matched it on small reads and writes. The
 tier that existed to beat the shell on file content no longer beat it on any
@@ -235,7 +235,7 @@ makes impossible.
 
 If you need file access on a target with no `python3` and nothing installable,
 that is tier 0, and it is now as fast. If you want request/response without
-`python3`, that is `--fileops=helper`, at the cost of the one thing waldo will
+`python3`, that is `--fileops=helper`, at the cost of the one thing reach will
 not do silently: writing a binary to the target.
 
 ## Conformance

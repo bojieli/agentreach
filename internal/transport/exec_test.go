@@ -5,16 +5,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bojieli/waldo/internal/waldo"
+	"github.com/bojieli/agentreach/internal/reach"
 )
 
 // TestExitIsNotMistakenForTransportFailure guards the subshell decision in
 // wrapWithSentinel. Agents write `exit N` routinely; if that killed the
-// wrapper, waldo would report a transport failure for an ordinary command.
+// wrapper, reach would report a transport failure for an ordinary command.
 func TestExitIsNotMistakenForTransportFailure(t *testing.T) {
 	tr := localTransport(t)
 	for _, code := range []int{0, 1, 3, 66, 127, 255} {
-		res, err := tr.Run(context.Background(), waldo.ExecRequest{
+		res, err := tr.Run(context.Background(), reach.ExecRequest{
 			Command: "echo before; exit " + itoa(code),
 		})
 		if err != nil {
@@ -37,7 +37,7 @@ func TestStdoutIsByteExact(t *testing.T) {
 		{"printf ''", ""},
 		{"printf 'two\\n\\n'", "two\n\n"},
 	} {
-		res, err := tr.Run(context.Background(), waldo.ExecRequest{Command: tc.cmd})
+		res, err := tr.Run(context.Background(), reach.ExecRequest{Command: tc.cmd})
 		if err != nil {
 			t.Fatalf("%s: %v", tc.cmd, err)
 		}
@@ -53,7 +53,7 @@ func TestStdoutIsByteExact(t *testing.T) {
 func TestOutputCapPreservesHeadTailAndExitCode(t *testing.T) {
 	tr := localTransport(t)
 	const outputCap = 4096
-	res, err := tr.Run(context.Background(), waldo.ExecRequest{
+	res, err := tr.Run(context.Background(), reach.ExecRequest{
 		Command:   "echo FIRST_LINE; yes abcdefghij | head -n 200000; echo LAST_LINE; exit 7",
 		MaxOutput: outputCap,
 	})
@@ -90,7 +90,7 @@ func TestShellQuoteSurvivesHostileInput(t *testing.T) {
 		"plain", "with space", "it's", `"double"`, "$(whoami)", "`id`",
 		"back\\slash", "semi;colon", "pipe|char", "new\nline", "{brace}", "*glob*",
 	} {
-		res, err := tr.Run(context.Background(), waldo.ExecRequest{
+		res, err := tr.Run(context.Background(), reach.ExecRequest{
 			Command: "printf '%s' " + ShellQuote(s),
 		})
 		if err != nil {
@@ -103,7 +103,7 @@ func TestShellQuoteSurvivesHostileInput(t *testing.T) {
 }
 
 func TestBuildCommandChainsDirectorySafely(t *testing.T) {
-	got := BuildCommand(waldo.ExecRequest{Command: "ls", Dir: "/tmp/a b"})
+	got := BuildCommand(reach.ExecRequest{Command: "ls", Dir: "/tmp/a b"})
 	if !strings.HasPrefix(got, "cd '/tmp/a b' && ") {
 		t.Errorf("directory not chained with &&: %q", got)
 	}
@@ -138,25 +138,25 @@ func localTransport(t *testing.T) *LocalTransport {
 // wrong for as long as it existed and never ran.
 //
 // BuildCommand rendered an environment as `env K=V <command>`. env takes a
-// *command*, and several of waldo's are shell constructs — the tier-0 write is
+// *command*, and several of reach's are shell constructs — the tier-0 write is
 // `{ ...; } || { ...; }` — so the shell failed at the brace with a syntax
-// error. Nothing set Env until waldo began carrying the target's login PATH, so
+// error. Nothing set Env until reach began carrying the target's login PATH, so
 // the defect shipped undetected.
 func TestEnvSurvivesCompoundCommands(t *testing.T) {
 	tr := localTransport(t)
 	ctx := context.Background()
 
 	for _, tc := range []struct{ name, command, want string }{
-		{"simple", `printf %s "$WALDO_T"`, "value"},
-		{"brace group", `{ printf %s "$WALDO_T"; }`, "value"},
-		{"or list", `{ printf %s "$WALDO_T"; } || { printf nope; }`, "value"},
-		{"subshell", `( printf %s "$WALDO_T" )`, "value"},
-		{"pipeline", `printf %s "$WALDO_T" | cat`, "value"},
+		{"simple", `printf %s "$REACH_T"`, "value"},
+		{"brace group", `{ printf %s "$REACH_T"; }`, "value"},
+		{"or list", `{ printf %s "$REACH_T"; } || { printf nope; }`, "value"},
+		{"subshell", `( printf %s "$REACH_T" )`, "value"},
+		{"pipeline", `printf %s "$REACH_T" | cat`, "value"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			res, err := tr.Run(ctx, waldo.ExecRequest{
+			res, err := tr.Run(ctx, reach.ExecRequest{
 				Command: tc.command,
-				Env:     map[string]string{"WALDO_T": "value"},
+				Env:     map[string]string{"REACH_T": "value"},
 			})
 			if err != nil {
 				t.Fatalf("%s: %v", tc.command, err)
@@ -168,9 +168,9 @@ func TestEnvSurvivesCompoundCommands(t *testing.T) {
 	}
 
 	// A value containing shell metacharacters must reach the command intact.
-	res, err := tr.Run(ctx, waldo.ExecRequest{
-		Command: `printf %s "$WALDO_T"`,
-		Env:     map[string]string{"WALDO_T": `a b'c"d$e;f|g`},
+	res, err := tr.Run(ctx, reach.ExecRequest{
+		Command: `printf %s "$REACH_T"`,
+		Env:     map[string]string{"REACH_T": `a b'c"d$e;f|g`},
 	})
 	if err != nil {
 		t.Fatal(err)

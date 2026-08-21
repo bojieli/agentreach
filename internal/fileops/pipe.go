@@ -14,24 +14,24 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bojieli/waldo/internal/transport"
-	"github.com/bojieli/waldo/internal/waldo"
+	"github.com/bojieli/agentreach/internal/transport"
+	"github.com/bojieli/agentreach/internal/reach"
 )
 
 //go:embed handler.py
 var pipeHandler string
 
-// bootstrap is the entire command line waldo runs on the target for this tier.
+// bootstrap is the entire command line reach runs on the target for this tier.
 //
 // The obvious form — `python3 -` with the program on stdin — cannot work: the
 // interpreter reads its source from stdin until EOF, leaving no stdin for the
-// protocol to use afterwards. So waldo sends the program as a single base64
+// protocol to use afterwards. So reach sends the program as a single base64
 // line, which a one-liner decodes and executes, and everything after that first
 // newline is the protocol. Nothing touches the target's disk either way.
 //
 // `exec` replaces the shell with the interpreter, so closing the channel kills
 // the handler instead of leaving an orphan behind on someone else's machine.
-const bootstrap = `import sys,base64;exec(compile(base64.b64decode(sys.stdin.buffer.readline()),'<waldo>','exec'))`
+const bootstrap = `import sys,base64;exec(compile(base64.b64decode(sys.stdin.buffer.readline()),'<reach>','exec'))`
 
 // maxFrame bounds a single protocol frame in both directions.
 //
@@ -83,7 +83,7 @@ func contextWithAtLeast(ctx context.Context, d time.Duration) (context.Context, 
 type handlerOps struct {
 	stream transport.Stream
 	base   *POSIX
-	tier   waldo.Tier
+	tier   reach.Tier
 	// label names the program on the other end, for error messages an operator
 	// has to act on: "the python handler died" and "the agent died" call for
 	// different next steps.
@@ -117,7 +117,7 @@ type handlerOps struct {
 // NewPipe starts the Python handler on the target and verifies it answers.
 func NewPipe(ctx context.Context, t transport.Transport, base *POSIX) (FileOps, error) {
 	cmd := fmt.Sprintf("exec python3 -c %s", transport.ShellQuote(bootstrap))
-	return startHandler(ctx, t, base, waldo.TierPipe, "python handler", cmd,
+	return startHandler(ctx, t, base, reach.TierPipe, "python handler", cmd,
 		base64.StdEncoding.EncodeToString([]byte(pipeHandler))+"\n")
 }
 
@@ -127,7 +127,7 @@ func NewPipe(ctx context.Context, t transport.Transport, base *POSIX) (FileOps, 
 // It used to send a ping and wait for the pong, so that a program which failed
 // to start was reported at once rather than at the first file operation. That
 // was the right instinct and the wrong mechanism: it cost a round trip on every
-// tool call, because waldo starts a fresh process per call and so paid the
+// tool call, because reach starts a fresh process per call and so paid the
 // handshake every time. Two round trips for one file read, on a tier whose
 // entire argument is that it needs only one.
 //
@@ -135,7 +135,7 @@ func NewPipe(ctx context.Context, t transport.Transport, base *POSIX) (FileOps, 
 // diagnosis — the captured stderr, the program's name, the timeout — so a
 // target where nothing started still says so, in the same words, one round trip
 // sooner.
-func startHandler(ctx context.Context, t transport.Transport, base *POSIX, tier waldo.Tier, label, command, preamble string) (FileOps, error) {
+func startHandler(ctx context.Context, t transport.Transport, base *POSIX, tier reach.Tier, label, command, preamble string) (FileOps, error) {
 	// The channel outlives this call, so it must not be tied to a context that
 	// is cancelled once this function returns.
 	stream, err := t.Open(context.WithoutCancel(ctx), command)
@@ -174,7 +174,7 @@ func startHandler(ctx context.Context, t transport.Transport, base *POSIX, tier 
 
 // safeBuffer is a bounded buffer written by one goroutine and read by another.
 //
-// The bound stops a chatty or hostile program from growing waldo's memory
+// The bound stops a chatty or hostile program from growing reach's memory
 // through a diagnostic buffer; the mutex is because the writer is an io.Copy in
 // its own goroutine and the reader is whichever request fails first.
 type safeBuffer struct {
@@ -211,7 +211,7 @@ func firstLine(s string) string {
 }
 
 // Tier implements FileOps.
-func (p *handlerOps) Tier() waldo.Tier { return p.tier }
+func (p *handlerOps) Tier() reach.Tier { return p.tier }
 
 // Close implements FileOps, ending the handler process.
 func (p *handlerOps) Close() error {
@@ -395,13 +395,13 @@ func (p *handlerOps) readUint32() (uint32, error) {
 	return binary.BigEndian.Uint32(buf[:]), nil
 }
 
-// pipeError converts a handler failure into waldo's error vocabulary.
+// pipeError converts a handler failure into reach's error vocabulary.
 func pipeError(hdr map[string]any, req map[string]any) error {
 	msg, _ := hdr["error"].(string)
 	kind, _ := hdr["kind"].(string)
 	if kind == "notfound" {
 		path, _ := req["path"].(string)
-		return &waldo.NotFoundError{Path: path}
+		return &reach.NotFoundError{Path: path}
 	}
 	if msg == "" {
 		msg = "the handler reported a failure with no message"
@@ -457,7 +457,7 @@ func (p *handlerOps) Write(ctx context.Context, filePath string, data []byte, mo
 }
 
 // Stat implements FileOps.
-func (p *handlerOps) Stat(ctx context.Context, filePath string) (*waldo.FileInfo, error) {
+func (p *handlerOps) Stat(ctx context.Context, filePath string) (*reach.FileInfo, error) {
 	hdr, _, err := p.roundTrip(ctx, map[string]any{"op": "stat", "path": filePath}, nil)
 	if err != nil {
 		return nil, err
@@ -471,13 +471,13 @@ func (p *handlerOps) Stat(ctx context.Context, filePath string) (*waldo.FileInfo
 }
 
 // List implements FileOps.
-func (p *handlerOps) List(ctx context.Context, dir string) ([]waldo.FileInfo, error) {
+func (p *handlerOps) List(ctx context.Context, dir string) ([]reach.FileInfo, error) {
 	hdr, _, err := p.roundTrip(ctx, map[string]any{"op": "list", "path": dir}, nil)
 	if err != nil {
 		return nil, err
 	}
 	rawEntries, _ := hdr["entries"].([]any)
-	out := make([]waldo.FileInfo, 0, len(rawEntries))
+	out := make([]reach.FileInfo, 0, len(rawEntries))
 	for _, e := range rawEntries {
 		if m, ok := e.(map[string]any); ok {
 			out = append(out, infoFromMap(m))
@@ -527,7 +527,7 @@ func (p *handlerOps) Hash(ctx context.Context, filePath string) (string, error) 
 // Python by a wide margin, and matching its ignore-file and encoding behaviour
 // in a reimplementation would be a source of quiet disagreement between tiers.
 // The same search runs at every tier.
-func (p *handlerOps) Search(ctx context.Context, req waldo.SearchRequest) ([]waldo.Match, error) {
+func (p *handlerOps) Search(ctx context.Context, req reach.SearchRequest) ([]reach.Match, error) {
 	return p.base.Search(ctx, req)
 }
 
@@ -536,7 +536,7 @@ func (p *handlerOps) Glob(ctx context.Context, root, pattern string) ([]string, 
 	return p.base.Glob(ctx, root, pattern)
 }
 
-func infoFromMap(m map[string]any) waldo.FileInfo {
+func infoFromMap(m map[string]any) reach.FileInfo {
 	num := func(k string) int64 {
 		if v, ok := m[k].(float64); ok {
 			return int64(v)
@@ -551,7 +551,7 @@ func infoFromMap(m map[string]any) waldo.FileInfo {
 		v, _ := m[k].(bool)
 		return v
 	}
-	return waldo.FileInfo{
+	return reach.FileInfo{
 		Name:       str("name"),
 		Path:       str("path"),
 		Size:       num("size"),

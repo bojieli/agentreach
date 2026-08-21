@@ -20,15 +20,15 @@ type Entry struct {
 
 // cacheSchema versions the on-disk shape. Schema 1 was a bare
 // harness→version→entry map; every verdict recorded under it measured the
-// PATH-shim seam. When waldo's seam for a harness changes (Codex moved to the
+// PATH-shim seam. When reach's seam for a harness changes (Codex moved to the
 // exec-server protocol, Kimi to KIMI_SHELL_PATH), those verdicts describe a
-// mechanism waldo no longer uses, so the whole file is discarded rather than
+// mechanism reach no longer uses, so the whole file is discarded rather than
 // trusted: a stale "bypassed" would refuse a launch the new seam would pass,
 // and a stale "ok" would be worse.
 const cacheSchema = 2
 
 // cacheFile is the on-disk shape: a schema marker, then harness name, then
-// version, then entry. Verdicts live in WALDO_HOME rather than beside the
+// version, then entry. Verdicts live in REACH_HOME rather than beside the
 // sessions because they describe the local harness installation, not any
 // target.
 type cacheFile struct {
@@ -41,19 +41,19 @@ func emptyCache() cacheFile {
 	return cacheFile{Schema: cacheSchema, Verdicts: map[string]map[string]Entry{}}
 }
 
-// cachePath resolves $WALDO_HOME/harness-verdicts.json, applying the same
-// WALDO_HOME-then-~/.waldo rule as the session store. Duplicated rather than
+// cachePath resolves $REACH_HOME/harness-verdicts.json, applying the same
+// REACH_HOME-then-~/.reach rule as the session store. Duplicated rather than
 // shared because the main package's helper is not importable and the rule is
 // five lines; two copies of a five-line rule beat a dependency from internal
 // to main.
 func cachePath() (string, error) {
-	base := os.Getenv("WALDO_HOME")
+	base := os.Getenv("REACH_HOME")
 	if base == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return "", fmt.Errorf("locate home directory: %w", err)
 		}
-		base = filepath.Join(home, ".waldo")
+		base = filepath.Join(home, ".reach")
 	}
 	if err := os.MkdirAll(base, 0o700); err != nil {
 		return "", err
@@ -81,7 +81,7 @@ func readCache() (cacheFile, error) {
 		return emptyCache(), nil
 	}
 	if c.Schema != cacheSchema {
-		// A cache from another schema — including a newer waldo's — is not
+		// A cache from another schema — including a newer reach's — is not
 		// evidence about the seam this build uses. Re-probe everything.
 		return emptyCache(), nil
 	}
@@ -103,7 +103,7 @@ func LoadVerdict(harness, version string) (Entry, bool, error) {
 
 // StoreVerdict records a conclusive verdict for one harness version.
 //
-// The write is read-modify-write under an atomic rename. Two waldo processes
+// The write is read-modify-write under an atomic rename. Two reach processes
 // storing at once can lose each other's update; that is acceptable here —
 // the loser simply re-probes next launch — while a half-written file is not,
 // because the guard reads this cache on the path to launching an agent.

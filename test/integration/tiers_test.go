@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bojieli/waldo/internal/fileops"
-	"github.com/bojieli/waldo/internal/fileops/fileopstest"
-	"github.com/bojieli/waldo/internal/transport"
-	"github.com/bojieli/waldo/internal/waldo"
+	"github.com/bojieli/agentreach/internal/fileops"
+	"github.com/bojieli/agentreach/internal/fileops/fileopstest"
+	"github.com/bojieli/agentreach/internal/transport"
+	"github.com/bojieli/agentreach/internal/reach"
 )
 
 // TestTierConformanceOverSSH runs the shared file-operation suite against every
@@ -21,8 +21,8 @@ import (
 // second round of shell interpretation, nor whether the link is 8-bit clean —
 // which is what decides whether file content is base64-framed.
 func TestTierConformanceOverSSH(t *testing.T) {
-	for _, tier := range []waldo.Tier{
-		waldo.TierPOSIX, waldo.TierPipe, waldo.TierHelper,
+	for _, tier := range []reach.Tier{
+		reach.TierPOSIX, reach.TierPipe, reach.TierHelper,
 	} {
 		t.Run(tier.String(), func(t *testing.T) {
 			tr := newTransport(t)
@@ -60,7 +60,7 @@ func TestTierConformanceOverSSH(t *testing.T) {
 // the same file written through one tier must read back identically through
 // every other. A disagreement here would mean an operator's results depend on
 // which tier happened to be negotiated, which is precisely the invisible
-// wrong-answer failure waldo is built to prevent.
+// wrong-answer failure reach is built to prevent.
 func TestTiersAgreeByteForByte(t *testing.T) {
 	tr := newTransport(t)
 	ctx := context.Background()
@@ -69,8 +69,8 @@ func TestTiersAgreeByteForByte(t *testing.T) {
 		t.Fatalf("probe: %v", err)
 	}
 
-	tiers := []waldo.Tier{waldo.TierPOSIX, waldo.TierPipe, waldo.TierHelper}
-	ops := map[waldo.Tier]fileops.FileOps{}
+	tiers := []reach.Tier{reach.TierPOSIX, reach.TierPipe, reach.TierHelper}
+	ops := map[reach.Tier]fileops.FileOps{}
 	for _, tier := range tiers {
 		sel, err := fileops.New(ctx, tier, tr, caps, true, nil)
 		if err != nil {
@@ -81,10 +81,10 @@ func TestTiersAgreeByteForByte(t *testing.T) {
 	}
 
 	dir := filepath.Join(workspace, "cross-tier")
-	if err := ops[waldo.TierPOSIX].Mkdir(ctx, dir, 0o755); err != nil {
+	if err := ops[reach.TierPOSIX].Mkdir(ctx, dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = ops[waldo.TierPOSIX].Remove(context.Background(), dir, true) })
+	t.Cleanup(func() { _ = ops[reach.TierPOSIX].Remove(context.Background(), dir, true) })
 
 	content := []byte("cross-tier\x00\xff\xfe\r\n世界\n")
 	for _, writer := range tiers {
@@ -104,7 +104,7 @@ func TestTiersAgreeByteForByte(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s hash: %v", reader, err)
 			}
-			if want, _ := ops[waldo.TierPOSIX].Hash(ctx, p); digest != want {
+			if want, _ := ops[reach.TierPOSIX].Hash(ctx, p); digest != want {
 				t.Errorf("%s hash = %s, but tier posix says %s", reader, digest, want)
 			}
 		}
@@ -114,7 +114,7 @@ func TestTiersAgreeByteForByte(t *testing.T) {
 // TestWorksWithoutMultiplexing exercises the connection path Windows is
 // permanently on.
 //
-// Win32-OpenSSH does not implement ControlMaster, so waldo there opens and
+// Win32-OpenSSH does not implement ControlMaster, so reach there opens and
 // authenticates a connection per command. That is a different code path — no
 // control socket, no master to tear down, a fresh authentication every time —
 // and it cannot be exercised on the platform where it matters, because this
@@ -142,7 +142,7 @@ func TestWorksWithoutMultiplexing(t *testing.T) {
 		{"exit 3", 3},
 		{"exit 255", 255}, // ssh's own failure code, which must not be confused
 	} {
-		res, err := tr.Run(ctx, waldo.ExecRequest{Command: tc.command})
+		res, err := tr.Run(ctx, reach.ExecRequest{Command: tc.command})
 		if err != nil {
 			t.Fatalf("command %d (%q) failed without multiplexing: %v", i, tc.command, err)
 		}

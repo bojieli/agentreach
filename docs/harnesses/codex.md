@@ -1,7 +1,7 @@
 # Codex
 
 Works against **0.148.0**, through a seam Codex itself provides: its
-exec-server protocol. Re-verify any version with `waldo harness verify codex`.
+exec-server protocol. Re-verify any version with `reach harness verify codex`.
 
 ## The finding that shapes everything
 
@@ -14,7 +14,7 @@ as a command *inside* `exec_command`.
 
 So Codex's entire tool surface funnels through one protocol. Intercept that
 protocol and there is nothing left to deny, nothing to mirror, and no gap for
-a wrong-machine write to slip through. This is the cleanest fit waldo has —
+a wrong-machine write to slip through. This is the cleanest fit reach has —
 cleaner than Claude Code, where whole tool families must be denied or mirrored
 around the fact that they cannot be redirected.
 
@@ -22,18 +22,18 @@ around the fact that they cannot be redirected.
 
 Codex 0.148 supports *remote environments*: `$CODEX_HOME/environments.toml`
 points it at an external exec-server, a JSON-RPC endpoint that receives every
-process spawn and filesystem operation. waldo is that server. `waldo codex`
+process spawn and filesystem operation. reach is that server. `reach codex`
 builds a managed `CODEX_HOME` — the operator's real one is never touched —
-whose `environments.toml` selects waldo and sets `include_local = false`, so
+whose `environments.toml` selects reach and sets `include_local = false`, so
 the local machine is not merely avoided, it is absent from the list.
 
 Every `process/*` call runs on the target through the session transport; every
-`fs/*` call is served from the target through waldo's fileops. If the session
+`fs/*` call is served from the target through reach's fileops. If the session
 is broken the server fails loudly. There is no code path that falls back to
 local execution, because the local machine is not a value the protocol can
 name.
 
-The launch guard is unchanged in shape: `waldo harness verify codex` drives
+The launch guard is unchanged in shape: `reach harness verify codex` drives
 one real turn against an offline mock model — no API key, no tokens — and
 checks where the scripted command actually ran. Because old verdicts measured
 a different seam, the verdict cache is schema-versioned and discards them
@@ -59,7 +59,7 @@ Two design rules came out of that, and they now apply to every harness:
   The probe drives a real turn and checks which machine answered.
 - **Prefer the harness's own remote-execution design over intercepting its
   process.** A shim fights the binary; a protocol cooperates with it. When
-  codex grew a supported seam, waldo moved to it and deleted a sandbox
+  codex grew a supported seam, reach moved to it and deleted a sandbox
   workaround, a network exemption, and a class of version fragility in one
   motion.
 

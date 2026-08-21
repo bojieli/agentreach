@@ -38,7 +38,7 @@ func TestGateFromCache(t *testing.T) {
 		},
 		{
 			name:      "an unrecognised verdict re-probes",
-			cached:    &Entry{Verdict: "from-a-future-waldo", When: time.Now()},
+			cached:    &Entry{Verdict: "from-a-future-reach", When: time.Now()},
 			wantProbe: true,
 		},
 	}
@@ -98,7 +98,7 @@ func TestGateFromProbe(t *testing.T) {
 }
 
 // The refusal is the message an operator reads at the worst moment; pin the
-// facts it must carry: that commands would run locally, how waldo knows, and
+// facts it must carry: that commands would run locally, how reach knows, and
 // every documented way forward.
 func TestRefusalMessageCarriesTheFacts(t *testing.T) {
 	d := Gate("codex", "0.148.0", &Entry{Verdict: VerdictBypassed, When: time.Now(), Detail: "ran locally"})
@@ -106,7 +106,7 @@ func TestRefusalMessageCarriesTheFacts(t *testing.T) {
 		"0.148.0",
 		"exec-server",
 		"THIS machine",
-		"waldo harness verify codex",
+		"reach harness verify codex",
 		"--force",
 		"ran locally",
 	} {
@@ -124,7 +124,7 @@ func TestRefusalMessageCarriesTheFacts(t *testing.T) {
 		"absolute path",
 		"THIS machine",
 		"on the target itself",
-		"waldo harness verify kimi",
+		"reach harness verify kimi",
 		"--force",
 		"read_file, write_file and multi_edit",
 		"LOCAL filesystem",

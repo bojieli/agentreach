@@ -3,8 +3,8 @@
 #
 # Stock kimi-code resolves its POSIX shell from a hardcoded candidate list
 # (/bin/bash, /usr/bin/bash, ...) and spawns it by absolute path, which
-# bypasses waldo's PATH shim entirely.  contrib/kimi-shell-path-patch.mjs
-# prepends process.env.KIMI_SHELL_PATH to that candidate list, giving waldo
+# bypasses reach's PATH shim entirely.  contrib/kimi-shell-path-patch.mjs
+# prepends process.env.KIMI_SHELL_PATH to that candidate list, giving reach
 # its intercept point.
 #
 # Usage:
@@ -13,15 +13,15 @@
 # VERSION defaults to the latest published @moonshot-ai/kimi-code.
 #
 # Installation target:
-#   ~/.waldo/kimi-<VERSION>/node_modules/.bin/kimi
+#   ~/.reach/kimi-<VERSION>/node_modules/.bin/kimi
 #
-# This is the path waldo's resolveKimiBinary() searches when deciding which
-# kimi binary to launch.  After this script completes, `waldo kimi` will find
+# This is the path reach's resolveKimiBinary() searches when deciding which
+# kimi binary to launch.  After this script completes, `reach kimi` will find
 # and use the patched binary automatically.
 #
 # Post-install check:
-#   If `waldo` is in PATH and WALDO_SESSION is set (or a session name is given
-#   as the second argument), the script runs `waldo harness verify kimi` to
+#   If `reach` is in PATH and REACH_SESSION is set (or a session name is given
+#   as the second argument), the script runs `reach harness verify kimi` to
 #   confirm the seam is working end-to-end.  Pass --no-verify to skip this.
 set -euo pipefail
 
@@ -70,8 +70,8 @@ fi
 
 # ── Install ───────────────────────────────────────────────────────────────────
 
-WALDO_HOME="${WALDO_HOME:-$HOME/.waldo}"
-INSTALL_DIR="$WALDO_HOME/kimi-$VERSION"
+REACH_HOME="${REACH_HOME:-$HOME/.reach}"
+INSTALL_DIR="$REACH_HOME/kimi-$VERSION"
 
 info "Installing @moonshot-ai/kimi-code@$VERSION into $INSTALL_DIR ..."
 
@@ -109,8 +109,8 @@ ok "kimi binary: $KIMI_BIN${KIMI_VERSION:+ ($KIMI_VERSION)}"
 printf '\n'
 info "Installation complete."
 printf '  Patched binary: %s\n' "$KIMI_BIN"
-printf '  waldo will use this binary automatically (resolveKimiBinary prefers\n'
-printf '  the newest waldo-managed install over the PATH-resolved one).\n'
+printf '  reach will use this binary automatically (resolveKimiBinary prefers\n'
+printf '  the newest reach-managed install over the PATH-resolved one).\n'
 printf '\n'
 
 # ── Post-install seam verification ───────────────────────────────────────────
@@ -120,28 +120,28 @@ if [[ $NO_VERIFY -eq 1 ]]; then
   exit 0
 fi
 
-WALDO_BIN="$(command -v waldo 2>/dev/null || true)"
-if [[ -z "$WALDO_BIN" ]]; then
-  warn "waldo not in PATH — skipping seam verification."
-  warn "Run 'waldo harness verify kimi' after adding waldo to PATH."
+REACH_BIN="$(command -v reach 2>/dev/null || true)"
+if [[ -z "$REACH_BIN" ]]; then
+  warn "reach not in PATH — skipping seam verification."
+  warn "Run 'reach harness verify kimi' after adding reach to PATH."
   exit 0
 fi
 
 SESS_ARG=""
-SESS="${SESSION:-${WALDO_SESSION:-}}"
+SESS="${SESSION:-${REACH_SESSION:-}}"
 if [[ -n "$SESS" ]]; then
   SESS_ARG="--session $SESS"
-elif ! "$WALDO_BIN" exec --session "" -- true >/dev/null 2>&1; then
+elif ! "$REACH_BIN" exec --session "" -- true >/dev/null 2>&1; then
   # No active session; skip the probe rather than failing confusingly.
-  warn "No active waldo session — skipping seam verification."
-  warn "Start a session with 'waldo up <target>' and then run:"
-  warn "  waldo harness verify kimi"
+  warn "No active reach session — skipping seam verification."
+  warn "Start a session with 'reach up <target>' and then run:"
+  warn "  reach harness verify kimi"
   exit 0
 fi
 
 info "Verifying kimi seam end-to-end against the session target ..."
 # shellcheck disable=SC2086
-"$WALDO_BIN" harness verify kimi \
+"$REACH_BIN" harness verify kimi \
     --binary "$KIMI_BIN" \
     $SESS_ARG \
     && ok "Seam verdict: ok — shell commands route to the target." \

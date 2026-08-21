@@ -1,6 +1,6 @@
-// Package audit records what waldo did on a target.
+// Package audit records what reach did on a target.
 //
-// This exists because of the situation waldo is built for. You have pointed an
+// This exists because of the situation reach is built for. You have pointed an
 // autonomous agent at a machine you do not own — a client's server, a shared
 // box, a production host someone else administers — and at some point somebody
 // will ask what it did there. Without a record the honest answer is "I don't
@@ -10,9 +10,9 @@
 // nothing is sent anywhere, and it is written to a file only the operator can
 // read.
 //
-// It is also deliberately not a security control. A record of what waldo was
+// It is also deliberately not a security control. A record of what reach was
 // asked to do is not a record of everything that happened on the target, and a
-// compromised target can do things waldo never sees. It answers "what did my
+// compromised target can do things reach never sees. It answers "what did my
 // agent run", which is the question that actually gets asked.
 package audit
 
@@ -52,14 +52,14 @@ type Entry struct {
 // DisableEnv turns the log off. It exists because a record of every command is
 // occasionally the wrong thing to keep — a shared machine, a command line that
 // will contain a secret — and that judgement belongs to the operator.
-const DisableEnv = "WALDO_NO_AUDIT"
+const DisableEnv = "REACH_NO_AUDIT"
 
 // maxField bounds any single recorded string.
 //
 // It keeps a record under the 4 KiB that POSIX guarantees an O_APPEND write
 // delivers atomically, which is what lets concurrent tool calls append to one
 // file without interleaving into corruption. It is a bound on the *record*, not
-// on what waldo will run: a command too long to record in full is truncated in
+// on what reach will run: a command too long to record in full is truncated in
 // the log and executed in full.
 const maxField = 1500
 
@@ -104,7 +104,7 @@ func Append(dir, sessionName string, e Entry) {
 // Repeating it once per command would be noise inside an agent's turn.
 func warn(err error) {
 	warnOnce.Do(func() {
-		fmt.Fprintf(os.Stderr, "waldo: cannot write the audit log (%v); actions are not being recorded\n", err)
+		fmt.Fprintf(os.Stderr, "reach: cannot write the audit log (%v); actions are not being recorded\n", err)
 	})
 }
 

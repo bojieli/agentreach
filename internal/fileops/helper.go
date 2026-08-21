@@ -12,21 +12,21 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/bojieli/waldo/internal/transport"
-	"github.com/bojieli/waldo/internal/waldo"
+	"github.com/bojieli/agentreach/internal/transport"
+	"github.com/bojieli/agentreach/internal/reach"
 )
 
 // HelperBinaryEnv names an explicit path to a helper binary for the target's
 // platform, for operators who build or vendor their own.
-const HelperBinaryEnv = "WALDO_HELPER_BINARY"
+const HelperBinaryEnv = "REACH_HELPER_BINARY"
 
 // NewHelper installs the helper binary if needed and starts it.
 //
 // This is the only tier that writes to the target. Everything about it is
 // therefore built to be reversible and visible: the version is in the path so
 // an upgrade never reuses a stale binary, the content is verified by digest
-// after upload so a truncated transfer is caught rather than executed, `waldo
-// doctor` reports what is there, and `waldo helper uninstall` removes it.
+// after upload so a truncated transfer is caught rather than executed, `reach
+// doctor` reports what is there, and `reach helper uninstall` removes it.
 func NewHelper(ctx context.Context, t transport.Transport, base *POSIX, caps *Capabilities) (FileOps, error) {
 	goos, goarch, err := platformOf(caps.Uname)
 	if err != nil {
@@ -52,18 +52,18 @@ func NewHelper(ctx context.Context, t transport.Transport, base *POSIX, caps *Ca
 	// Verification is a per-session fact, not a per-tool-call one.
 	//
 	// Asking the installed binary to identify itself costs a round trip, and
-	// waldo runs one process per tool call, so doing it every time tripled this
+	// reach runs one process per tool call, so doing it every time tripled this
 	// tier's cost: three round trips to read one small file, on a tier whose
 	// whole argument is that it needs one. It happens when the session is
 	// created — where an operator is present to see a mismatch — and is
 	// recorded.
 	//
 	// The trade is explicit: a binary swapped underneath a live session is not
-	// noticed until the next `waldo up`. Catching that would mean re-verifying
+	// noticed until the next `reach up`. Catching that would mean re-verifying
 	// before every operation, which is the cost this avoids, and a target able
 	// to swap the binary can equally lie about its digest.
 	if caps.HelperPath == remote && caps.HelperDigest == digest {
-		return startHandler(ctx, t, base, waldo.TierHelper, "helper",
+		return startHandler(ctx, t, base, reach.TierHelper, "helper",
 			fmt.Sprintf("exec %s serve", transport.ShellQuote(remote)), "")
 	}
 
@@ -72,9 +72,9 @@ func NewHelper(ctx context.Context, t transport.Transport, base *POSIX, caps *Ca
 			return nil, err
 		}
 		if !helperMatches(ctx, t, remote, digest, goos, goarch) {
-			// Take back what was just written. waldo put this binary on the
+			// Take back what was just written. reach put this binary on the
 			// target and has now declared it cannot identify it; leaving an
-			// executable waldo does not trust on a machine the operator may not
+			// executable reach does not trust on a machine the operator may not
 			// own is the opposite of what this tier promises.
 			//
 			// What the message says about it depends on whether it worked. A
@@ -87,27 +87,27 @@ func NewHelper(ctx context.Context, t transport.Transport, base *POSIX, caps *Ca
 			}
 
 			// The local source is named, not only the destination. The usual
-			// cause is a helper from a *different* waldo sitting where this one
-			// looks: release archives ship helpers beside the waldo binary, so
+			// cause is a helper from a *different* reach sitting where this one
+			// looks: release archives ship helpers beside the reach binary, so
 			// upgrading in place leaves the previous version's helpers exactly
 			// there. Reporting only the remote path sends the operator to
 			// inspect a file that is a faithful copy of the wrong one.
 			return nil, fmt.Errorf(
-				"the helper waldo installed at %s did not identify itself as waldo %s,\n"+
+				"the helper reach installed at %s did not identify itself as reach %s,\n"+
 					"%s.\n"+
-					"It was copied from %s, so that file is probably from a different waldo:\n"+
-					"release archives ship helpers beside the waldo binary, and upgrading in\n"+
+					"It was copied from %s, so that file is probably from a different reach:\n"+
+					"release archives ship helpers beside the reach binary, and upgrading in\n"+
 					"place leaves the old ones there. Remove it, or point %s at the right one.\n"+
-					"waldo will not run a binary it cannot identify; use --fileops=pipe or omit\n"+
+					"reach will not run a binary it cannot identify; use --fileops=pipe or omit\n"+
 					"--fileops to negotiate a tier that installs nothing",
-				remote, waldo.Version, fate, local, HelperBinaryEnv)
+				remote, reach.Version, fate, local, HelperBinaryEnv)
 		}
 	}
 
 	// Record what was verified so the rest of the session can skip it.
 	caps.HelperPath, caps.HelperDigest = remote, digest
 
-	return startHandler(ctx, t, base, waldo.TierHelper, "helper",
+	return startHandler(ctx, t, base, reach.TierHelper, "helper",
 		fmt.Sprintf("exec %s serve", transport.ShellQuote(remote)), "")
 }
 
@@ -115,24 +115,24 @@ func NewHelper(ctx context.Context, t transport.Transport, base *POSIX, caps *Ca
 //
 // Both the version and the content digest must match. Version alone would
 // happily accept a truncated upload, and a digest alone would accept a binary
-// from a different waldo release that happened to hash the same way it did
+// from a different reach release that happened to hash the same way it did
 // before an upgrade — neither is something to run on someone else's machine.
 func helperMatches(ctx context.Context, t transport.Transport, remote, digest, goos, goarch string) bool {
-	res, err := t.Run(ctx, waldo.ExecRequest{
+	res, err := t.Run(ctx, reach.ExecRequest{
 		Command:   fmt.Sprintf("%s --selftest 2>/dev/null", transport.ShellQuote(remote)),
 		MaxOutput: 4 << 10,
 	})
 	if err != nil || res.Code != 0 {
 		return false
 	}
-	want := fmt.Sprintf("waldo-helper %s %s %s/%s", waldo.Version, digest, goos, goarch)
+	want := fmt.Sprintf("reach-helper %s %s %s/%s", reach.Version, digest, goos, goarch)
 	return strings.TrimSpace(string(res.Stdout)) == want
 }
 
 // installHelper uploads the binary using the tier that needs nothing installed.
 //
 // Tier 0 is used deliberately: bootstrapping the fast tier with the universal
-// one means installation works on exactly the hosts waldo can already reach,
+// one means installation works on exactly the hosts reach can already reach,
 // with no separate upload path to keep correct.
 func installHelper(ctx context.Context, base *POSIX, remote string, payload []byte) error {
 	if err := base.Mkdir(ctx, path.Dir(remote), 0o700); err != nil {
@@ -146,9 +146,9 @@ func installHelper(ctx context.Context, base *POSIX, remote string, payload []by
 
 // HelperPath resolves where the agent lives on a target.
 //
-// The version is part of the filename so that an upgraded waldo installs a new
-// helper rather than silently reusing an old one, and so that `waldo doctor` can
-// list exactly what waldo has left on a host.
+// The version is part of the filename so that an upgraded reach installs a new
+// helper rather than silently reusing an old one, and so that `reach doctor` can
+// list exactly what reach has left on a host.
 func HelperPath(ctx context.Context, t transport.Transport, caps *Capabilities, goos, goarch string) (string, error) {
 	cache := ""
 	if caps != nil {
@@ -157,7 +157,7 @@ func HelperPath(ctx context.Context, t transport.Transport, caps *Capabilities, 
 	if cache == "" {
 		// A session created before the probe reported this, or a caller with no
 		// capabilities to hand. Costs the round trip this field exists to save.
-		res, err := t.Run(ctx, waldo.ExecRequest{
+		res, err := t.Run(ctx, reach.ExecRequest{
 			Command:   `printf %s "${XDG_CACHE_HOME:-$HOME/.cache}"`,
 			MaxOutput: 4 << 10,
 		})
@@ -170,10 +170,10 @@ func HelperPath(ctx context.Context, t transport.Transport, caps *Capabilities, 
 		return "", fmt.Errorf("the target reported no usable cache directory (%q); "+
 			"the helper tier needs somewhere it may write", cache)
 	}
-	return path.Join(cache, "waldo", fmt.Sprintf("helper-%s-%s-%s", waldo.Version, goos, goarch)), nil
+	return path.Join(cache, "reach", fmt.Sprintf("helper-%s-%s-%s", reach.Version, goos, goarch)), nil
 }
 
-// HelperCacheDir is the directory waldo creates on a target for the helper
+// HelperCacheDir is the directory reach creates on a target for the helper
 // tier, and the only directory it ever removes there.
 func HelperCacheDir(ctx context.Context, t transport.Transport) (string, error) {
 	p, err := HelperPath(ctx, t, nil, "x", "y")
@@ -185,14 +185,14 @@ func HelperCacheDir(ctx context.Context, t transport.Transport) (string, error) 
 
 // LocateHelperBinary finds a helper build for a target platform.
 //
-// Release archives ship one per supported platform beside the waldo binary. A
-// source checkout has a Go toolchain by definition, so waldo cross-compiles one
-// and caches it. Both paths end with a real file whose digest waldo can verify
+// Release archives ship one per supported platform beside the reach binary. A
+// source checkout has a Go toolchain by definition, so reach cross-compiles one
+// and caches it. Both paths end with a real file whose digest reach can verify
 // after upload; neither downloads anything at run time, because a tool that
 // exists to touch nothing on a target should not be fetching executables over
 // the network to put there.
 func LocateHelperBinary(ctx context.Context, goos, goarch string) (string, error) {
-	name := fmt.Sprintf("waldo-helper-%s-%s", goos, goarch)
+	name := fmt.Sprintf("reach-helper-%s-%s", goos, goarch)
 
 	if explicit := os.Getenv(HelperBinaryEnv); explicit != "" {
 		if _, err := os.Stat(explicit); err != nil {
@@ -209,7 +209,7 @@ func LocateHelperBinary(ctx context.Context, goos, goarch string) (string, error
 		dir := filepath.Dir(self)
 		candidates = append(candidates, filepath.Join(dir, name))
 		if goos == runtime.GOOS && goarch == runtime.GOARCH {
-			candidates = append(candidates, filepath.Join(dir, "waldo-helper"))
+			candidates = append(candidates, filepath.Join(dir, "reach-helper"))
 		}
 	}
 	cacheDir, cacheErr := helperCacheDir()
@@ -229,7 +229,7 @@ func LocateHelperBinary(ctx context.Context, goos, goarch string) (string, error
 	if err != nil {
 		return "", fmt.Errorf(
 			"no helper binary for %s/%s.\n"+
-				"Release archives ship one beside the waldo binary; from a source checkout waldo\n"+
+				"Release archives ship one beside the reach binary; from a source checkout reach\n"+
 				"builds one with the local Go toolchain, which failed here: %w\n"+
 				"Set %s to a binary you built yourself, or use --fileops=pipe, which installs nothing",
 			goos, goarch, err, HelperBinaryEnv)
@@ -238,13 +238,13 @@ func LocateHelperBinary(ctx context.Context, goos, goarch string) (string, error
 }
 
 func helperCacheDir() (string, error) {
-	base := os.Getenv("WALDO_HOME")
+	base := os.Getenv("REACH_HOME")
 	if base == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return "", fmt.Errorf("locate home directory: %w", err)
 		}
-		base = filepath.Join(home, ".waldo")
+		base = filepath.Join(home, ".reach")
 	}
 	dir := filepath.Join(base, "helper")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -269,9 +269,9 @@ func buildHelper(ctx context.Context, goos, goarch, out string) (string, error) 
 	}
 	cmd := exec.CommandContext(ctx, goBin, "build",
 		"-trimpath",
-		"-ldflags", "-s -w -X main.version="+waldo.Version,
+		"-ldflags", "-s -w -X main.version="+reach.Version,
 		"-o", out,
-		"./cmd/waldo-helper")
+		"./cmd/reach-helper")
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(),
 		"GOOS="+goos, "GOARCH="+goarch, "CGO_ENABLED=0")
@@ -281,10 +281,10 @@ func buildHelper(ctx context.Context, goos, goarch, out string) (string, error) 
 	return out, nil
 }
 
-// moduleRoot finds a waldo source checkout to build the helper from.
+// moduleRoot finds a reach source checkout to build the helper from.
 //
-// It searches upward from the waldo binary and from the working directory,
-// because both are plausible: a developer running ./waldo from the checkout,
+// It searches upward from the reach binary and from the working directory,
+// because both are plausible: a developer running ./reach from the checkout,
 // and one who installed it but is standing in the source tree. A release binary
 // finds neither, which is correct — it ships the agent builds instead.
 func moduleRoot() (string, error) {
@@ -301,7 +301,7 @@ func moduleRoot() (string, error) {
 	for _, start := range starts {
 		for dir := start; ; {
 			data, err := os.ReadFile(filepath.Join(dir, "go.mod"))
-			if err == nil && strings.Contains(string(data), "module github.com/bojieli/waldo") {
+			if err == nil && strings.Contains(string(data), "module github.com/bojieli/agentreach") {
 				return dir, nil
 			}
 			parent := filepath.Dir(dir)
@@ -311,12 +311,12 @@ func moduleRoot() (string, error) {
 			dir = parent
 		}
 	}
-	return "", fmt.Errorf("no waldo source checkout found to build the helper from")
+	return "", fmt.Errorf("no reach source checkout found to build the helper from")
 }
 
 // platformOf maps `uname -sm` to a Go platform pair.
 //
-// An unrecognised platform is an error rather than a guess: waldo would be
+// An unrecognised platform is an error rather than a guess: reach would be
 // uploading an executable to someone else's machine, and the failure mode of
 // guessing wrong is an unrunnable binary left behind on a host that was
 // supposed to stay untouched.
@@ -338,7 +338,7 @@ func platformOf(uname string) (string, string, error) {
 	case "netbsd":
 		goos = "netbsd"
 	default:
-		return "", "", fmt.Errorf("target OS %q has no waldo helper build", fields[0])
+		return "", "", fmt.Errorf("target OS %q has no reach helper build", fields[0])
 	}
 	var goarch string
 	switch strings.ToLower(fields[1]) {
@@ -357,7 +357,7 @@ func platformOf(uname string) (string, string, error) {
 	case "s390x":
 		goarch = "s390x"
 	default:
-		return "", "", fmt.Errorf("target architecture %q has no waldo helper build", fields[1])
+		return "", "", fmt.Errorf("target architecture %q has no reach helper build", fields[1])
 	}
 	return goos, goarch, nil
 }

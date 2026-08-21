@@ -9,7 +9,7 @@ Be decent to people. Argue about code, not about each other.
 This project adopts the [Contributor Covenant](https://www.contributor-covenant.org/version/2/1/code_of_conduct/)
 version 2.1. In summary, participants can expect:
 
-- **Technical disagreement is welcome and expected.** waldo depends on
+- **Technical disagreement is welcome and expected.** reach depends on
   undocumented behaviour in closed binaries, so being shown you are wrong is
   routine and useful. Bring evidence; an experiment beats an opinion.
 - **Harassment, personal attacks, and demeaning comments are not acceptable**,

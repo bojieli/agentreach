@@ -28,7 +28,7 @@ func FuzzParseClaudeCode(f *testing.F) {
 			return
 		}
 		// A recognised envelope may only ever have had a prefix and a suffix
-		// removed. Anything else means waldo is editing the model's command.
+		// removed. Anything else means reach is editing the model's command.
 		if !strings.Contains(raw, p.Command) {
 			t.Fatalf("parsed command is not a substring of the envelope:\n envelope %q\n command  %q", raw, p.Command)
 		}

@@ -1,7 +1,7 @@
 // Package fileopstest is the conformance suite every file-operation tier must
 // pass.
 //
-// waldo has three ways to touch a file on a target and they share almost no
+// reach has three ways to touch a file on a target and they share almost no
 // code: a shell pipeline, a Python handler, and a Go binary.
 // A user cannot tell which one is in use, and must not need to — the whole
 // design rests on the claim that they are interchangeable. That claim is only
@@ -26,8 +26,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/bojieli/waldo/internal/fileops"
-	"github.com/bojieli/waldo/internal/waldo"
+	"github.com/bojieli/agentreach/internal/fileops"
+	"github.com/bojieli/agentreach/internal/reach"
 )
 
 // Factory builds the strategy under test, rooted at a directory the suite may
@@ -176,9 +176,9 @@ func testNotFound(t *testing.T, ctx context.Context, ops fileops.FileOps, dir st
 	if err == nil {
 		t.Fatal("reading a missing file succeeded; it must fail as not-found")
 	}
-	var nf *waldo.NotFoundError
+	var nf *reach.NotFoundError
 	if !errors.As(err, &nf) {
-		t.Errorf("reading a missing file gave %T (%v), want *waldo.NotFoundError", err, err)
+		t.Errorf("reading a missing file gave %T (%v), want *reach.NotFoundError", err, err)
 	}
 	if _, err := ops.Stat(ctx, path.Join(dir, "does-not-exist")); err == nil {
 		t.Error("stat of a missing file succeeded")
@@ -227,7 +227,7 @@ func testList(t *testing.T, ctx context.Context, ops fileops.FileOps, dir string
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	found := map[string]waldo.FileInfo{}
+	found := map[string]reach.FileInfo{}
 	for _, e := range entries {
 		found[e.Name] = e
 	}
@@ -401,7 +401,7 @@ func testSearchGlob(t *testing.T, ctx context.Context, ops fileops.FileOps, dir 
 	if err := ops.Write(ctx, path.Join(dir, "other.txt"), []byte("nothing here\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	matches, err := ops.Search(ctx, waldo.SearchRequest{Pattern: "Needle", Root: dir, MaxResults: 10})
+	matches, err := ops.Search(ctx, reach.SearchRequest{Pattern: "Needle", Root: dir, MaxResults: 10})
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
@@ -424,7 +424,7 @@ func testSearchGlob(t *testing.T, ctx context.Context, ops fileops.FileOps, dir 
 	}
 }
 
-func names(entries []waldo.FileInfo) []string {
+func names(entries []reach.FileInfo) []string {
 	out := make([]string, 0, len(entries))
 	for _, e := range entries {
 		out = append(out, e.Name)
@@ -495,7 +495,7 @@ func testConcurrentWrites(t *testing.T, ctx context.Context, ops fileops.FileOps
 		t.Fatalf("list: %v", err)
 	}
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name, ".waldo.tmp.") {
+		if strings.HasPrefix(e.Name, ".reach.tmp.") {
 			t.Errorf("a temporary file survived the writes: %s", e.Name)
 		}
 	}

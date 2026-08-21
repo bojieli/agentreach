@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bojieli/waldo/internal/transport"
-	"github.com/bojieli/waldo/internal/waldo"
+	"github.com/bojieli/agentreach/internal/transport"
+	"github.com/bojieli/agentreach/internal/reach"
 )
 
 func newLocalPOSIX(t *testing.T) *POSIX {
@@ -89,7 +89,7 @@ func TestWriteIsAtomicAndLeavesNoDebris(t *testing.T) {
 	}
 	ents, _ := os.ReadDir(dir)
 	for _, e := range ents {
-		if len(e.Name()) > 6 && e.Name()[:6] == ".waldo" {
+		if len(e.Name()) > 6 && e.Name()[:6] == ".reach" {
 			t.Errorf("temporary file left behind: %s", e.Name())
 		}
 	}
@@ -133,7 +133,7 @@ func TestReadMissingFileIsNotFound(t *testing.T) {
 	}
 	// An agent must be able to distinguish "missing" from "empty": returning
 	// empty content for an absent file would be silently wrong.
-	if _, ok := err.(*waldo.NotFoundError); !ok {
+	if _, ok := err.(*reach.NotFoundError); !ok {
 		t.Logf("note: missing file surfaced as %T: %v", err, err)
 	}
 }
@@ -207,7 +207,7 @@ func TestSearchAndGlob(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m, err := p.Search(ctx, waldoSearch(dir, "Target"))
+	m, err := p.Search(ctx, reachSearch(dir, "Target"))
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
@@ -241,8 +241,8 @@ func TestHash(t *testing.T) {
 	}
 }
 
-func waldoSearch(root, pattern string) waldo.SearchRequest {
-	return waldo.SearchRequest{Pattern: pattern, Root: root}
+func reachSearch(root, pattern string) reach.SearchRequest {
+	return reach.SearchRequest{Pattern: pattern, Root: root}
 }
 
 // TestReadLargerThanOutputCap guards against a corruption mode: if an encoded

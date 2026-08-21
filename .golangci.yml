@@ -1,6 +1,6 @@
 version: "2"
 
-# waldo's linting is chosen for one thing above style: this program runs shell
+# reach's linting is chosen for one thing above style: this program runs shell
 # commands on machines the operator does not control, holds their credentials,
 # and is trusted not to touch anything it was not asked to. The linters enabled
 # here are the ones that catch that class of mistake — an unchecked error that
@@ -21,7 +21,7 @@ linters:
     - staticcheck
     - ineffassign
     - unused
-    # Every long-lived channel and process waldo opens must be closed; one left
+    # Every long-lived channel and process reach opens must be closed; one left
     # behind is a live connection to a machine the operator wanted untouched.
     - bodyclose
     - noctx
@@ -57,7 +57,7 @@ linters:
         # entire job. Containment is enforced where it matters (mirror.Local)
         # and tested, rather than asserted by a linter that cannot see it.
         - G304
-        # G702/G703: taint analysis flags every command and path waldo builds,
+        # G702/G703: taint analysis flags every command and path reach builds,
         # which is all of them. Quoting goes through transport.ShellQuote and is
         # covered by tests for shell metacharacters and awkward filenames; a
         # blanket rule here would produce a wall of nolint comments that hides
@@ -66,7 +66,7 @@ linters:
         - G703
         # G301: the opencode tool directory must be readable by opencode.
         - G301
-        # G204: waldo's entire purpose is running commands built from variables.
+        # G204: reach's entire purpose is running commands built from variables.
         # Every construction site quotes through transport.ShellQuote and is
         # covered by tests for shell metacharacters; a blanket ban would produce
         # a wall of nolint comments that hides the cases worth looking at.
@@ -84,7 +84,7 @@ linters:
         - all
         # ST1005 requires error strings to be lowercase and unpunctuated,
         # because Go errors are usually fragments wrapped into a larger
-        # sentence. waldo's are not: they are the terminal message an operator
+        # sentence. reach's are not: they are the terminal message an operator
         # or an agent reads, and several are deliberately multi-sentence
         # instructions on what to do next — "it changed on the target since it
         # was read. Re-read the file and redo the change." Mangling those into

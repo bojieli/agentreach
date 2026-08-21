@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/bojieli/waldo/internal/transport"
-	"github.com/bojieli/waldo/internal/waldo"
+	"github.com/bojieli/agentreach/internal/transport"
+	"github.com/bojieli/agentreach/internal/reach"
 )
 
 // Warner receives a human-readable note about a degradation that happened.
@@ -20,9 +20,9 @@ type Warner func(string)
 // Selection records what a tier request actually produced.
 type Selection struct {
 	// Requested is the tier that was asked for.
-	Requested waldo.Tier
+	Requested reach.Tier
 	// Effective is the tier that was actually built.
-	Effective waldo.Tier
+	Effective reach.Tier
 	// Reason explains a difference between the two, and is empty when there is
 	// none.
 	Reason string
@@ -41,9 +41,9 @@ func (s Selection) Degraded() bool { return s.Effective < s.Requested }
 // tier they asked for, is precisely the silent wrong-behaviour this project
 // exists to make impossible. An autonegotiated tier steps down to the next one
 // that works and reports it through warn.
-func New(ctx context.Context, tier waldo.Tier, t transport.Transport, caps *Capabilities, pinned bool, warn Warner) (Selection, error) {
+func New(ctx context.Context, tier reach.Tier, t transport.Transport, caps *Capabilities, pinned bool, warn Warner) (Selection, error) {
 	if caps == nil {
-		return Selection{}, fmt.Errorf("file operations need a capability probe; run `waldo up` again to refresh this session")
+		return Selection{}, fmt.Errorf("file operations need a capability probe; run `reach up` again to refresh this session")
 	}
 	sel := Selection{Requested: tier}
 
@@ -57,10 +57,10 @@ func New(ctx context.Context, tier waldo.Tier, t transport.Transport, caps *Capa
 		if pinned {
 			return Selection{}, fmt.Errorf(
 				"target cannot support --fileops=%s: %w\n"+
-					"Run `waldo doctor` to see which tiers this host qualifies for, or omit\n"+
-					"--fileops to let waldo negotiate the best one it can prove works.", try, err)
+					"Run `reach doctor` to see which tiers this host qualifies for, or omit\n"+
+					"--fileops to let reach negotiate the best one it can prove works.", try, err)
 		}
-		if try == waldo.TierPOSIX {
+		if try == reach.TierPOSIX {
 			// Tier 0 needs only a POSIX shell. If it cannot be built there is
 			// nothing left to fall back to, and pretending otherwise would
 			// hand the caller a strategy that fails on first use.
@@ -68,26 +68,26 @@ func New(ctx context.Context, tier waldo.Tier, t transport.Transport, caps *Capa
 		}
 		sel.Reason = fmt.Sprintf("%s unavailable (%v); using %s", try, err, try-1)
 		if warn != nil {
-			warn("waldo: " + sel.Reason)
+			warn("reach: " + sel.Reason)
 		}
 	}
 }
 
 // build constructs exactly one tier, with no fallback.
-func build(ctx context.Context, tier waldo.Tier, t transport.Transport, caps *Capabilities) (FileOps, error) {
+func build(ctx context.Context, tier reach.Tier, t transport.Transport, caps *Capabilities) (FileOps, error) {
 	base := NewPOSIX(t, caps)
 	switch tier {
-	case waldo.TierPOSIX:
+	case reach.TierPOSIX:
 		if caps.Base64Decode == "" || caps.Base64Encode == "" {
 			return nil, fmt.Errorf("no base64 or openssl on the target")
 		}
 		return base, nil
-	case waldo.TierPipe:
+	case reach.TierPipe:
 		if !caps.Python3 {
 			return nil, fmt.Errorf("no python3 on the target")
 		}
 		return NewPipe(ctx, t, base)
-	case waldo.TierHelper:
+	case reach.TierHelper:
 		return NewHelper(ctx, t, base, caps)
 	}
 	return nil, fmt.Errorf("unknown tier %v", tier)

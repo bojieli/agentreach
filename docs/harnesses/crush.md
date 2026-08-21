@@ -14,14 +14,14 @@ In server mode every tool call — bash, file read, file write, edit, glob,
 grep — executes on the machine running `crush server`.  The CLI instance that
 talks to the model acts as the client; the server instance acts on the target.
 
-For waldo, `waldo crush` would:
+For reach, `reach crush` would:
 1. Start `crush server` on the session target (via SSH).
 2. Launch `crush --remote tcp://localhost:PORT` locally, tunneling the TCP
    connection through the SSH session.
 3. All tool calls route to the server on the target.
 
 This gives 100% coverage with no patching and no env-var tricks — the seam is
-Crush's own design.  Implementation in waldo is pending but straightforward.
+Crush's own design.  Implementation in reach is pending but straightforward.
 
 ## Secondary seam: hooks with input rewrite
 
@@ -56,7 +56,7 @@ Crush has a deny list for subprocess-based attacks:
 blocked, so the shim would intercept Crush's Bash tool calls in principle.
 
 However, the deny list means the agent cannot use `ssh` or `scp` inside its
-Bash calls — waldo's own transport uses SSH, so this is a second-order concern
+Bash calls — reach's own transport uses SSH, so this is a second-order concern
 — and the PATH shim adds complexity without adding capability beyond what
 server mode already provides.
 
@@ -75,7 +75,7 @@ Server mode is always preferred.
 
 ## Implementation status
 
-`waldo crush` is implemented.  It uses Crush's server mode end-to-end:
+`reach crush` is implemented.  It uses Crush's server mode end-to-end:
 `crush server --host tcp://127.0.0.1:PORT` starts on the target, the port is
 forwarded through the SSH ControlMaster socket, and the local crush client
 connects to `tcp://127.0.0.1:PORT`.
@@ -86,7 +86,7 @@ crush locally (tools act on the operator's machine — operators are warned).
 
 ## Probe
 
-A formal seam probe (`waldo harness verify crush`) is not yet implemented.
+A formal seam probe (`reach harness verify crush`) is not yet implemented.
 Server mode is inherently verifiable by design — all tool calls execute on
 the server (the target) — but a scripted end-to-end probe would confirm this
 behaviorally rather than by assertion.  It is tracked for a future release.

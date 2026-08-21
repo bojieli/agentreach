@@ -5,9 +5,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        waldo hooks undocumented implementation details in closed binaries, so a
+        reach hooks undocumented implementation details in closed binaries, so a
         harness upgrade can change them without notice. This is the most likely
-        way waldo breaks, and the most important kind of report to get.
+        way reach breaks, and the most important kind of report to get.
 
         **First, please run `make conformance`.** It probes the seams with a
         real agent and says which one changed shape, which usually turns this
@@ -23,10 +23,10 @@ body:
       required: true
 
   - type: input
-    id: waldo-version
+    id: reach-version
     attributes:
-      label: waldo version
-      placeholder: waldo version
+      label: reach version
+      placeholder: reach version
     validations:
       required: true
 
@@ -52,7 +52,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        If commands ran locally, please say so prominently — waldo treats silent
+        If commands ran locally, please say so prominently — reach treats silent
         wrong-target execution as its most serious possible failure, and that
         report gets priority over everything else.
 
@@ -60,4 +60,4 @@ body:
     id: details
     attributes:
       label: Anything else
-      description: Session details from `waldo status`, and `waldo doctor` output if the target is reachable.
+      description: Session details from `reach status`, and `reach doctor` output if the target is reachable.

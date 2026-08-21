@@ -9,14 +9,14 @@ import (
 	"context"
 	"io/fs"
 
-	"github.com/bojieli/waldo/internal/waldo"
+	"github.com/bojieli/agentreach/internal/reach"
 )
 
 // FileOps performs file operations on a target.
 //
 // Search and Glob are first-class operations rather than helpers derived from
 // List. Running them on the target and returning only matches is the single
-// biggest reason waldo is not a filesystem mount: a mount would drag every
+// biggest reason reach is not a filesystem mount: a mount would drag every
 // candidate file across the network to answer a question the target could have
 // answered locally.
 type FileOps interface {
@@ -29,10 +29,10 @@ type FileOps interface {
 	Write(ctx context.Context, path string, data []byte, mode fs.FileMode) error
 
 	// Stat describes a single path.
-	Stat(ctx context.Context, path string) (*waldo.FileInfo, error)
+	Stat(ctx context.Context, path string) (*reach.FileInfo, error)
 
 	// List returns the immediate children of a directory.
-	List(ctx context.Context, path string) ([]waldo.FileInfo, error)
+	List(ctx context.Context, path string) ([]reach.FileInfo, error)
 
 	// Mkdir creates a directory and any missing parents.
 	Mkdir(ctx context.Context, path string, mode fs.FileMode) error
@@ -44,7 +44,7 @@ type FileOps interface {
 	Rename(ctx context.Context, from, to string) error
 
 	// Search runs a content search on the target and returns only matches.
-	Search(ctx context.Context, req waldo.SearchRequest) ([]waldo.Match, error)
+	Search(ctx context.Context, req reach.SearchRequest) ([]reach.Match, error)
 
 	// Glob expands a shell-style pattern under root on the target.
 	Glob(ctx context.Context, root, pattern string) ([]string, error)
@@ -56,7 +56,7 @@ type FileOps interface {
 	// Tier reports which strategy this is, for diagnostics. It reports what was
 	// actually built, not what was asked for: a strategy that degraded must not
 	// be able to report the tier it failed to reach.
-	Tier() waldo.Tier
+	Tier() reach.Tier
 
 	// Close releases whatever the strategy holds open — a long-lived handler
 	// process, an installed agent's channel. Tier 0 holds nothing and returns

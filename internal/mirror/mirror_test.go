@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bojieli/waldo/internal/fileops"
-	"github.com/bojieli/waldo/internal/transport"
+	"github.com/bojieli/agentreach/internal/fileops"
+	"github.com/bojieli/agentreach/internal/transport"
 )
 
 func newTestMirror(t *testing.T) (*Mirror, string) {
@@ -182,7 +182,7 @@ func TestPathMappingIsReversible(t *testing.T) {
 // TestPathTraversalIsRefused covers a real attack path: file paths can come
 // from content read off an untrusted target, and a ".." segment would otherwise
 // escape the mirror root once filepath.Join normalised it — letting a hostile
-// target make waldo read or overwrite arbitrary files on the operator's machine.
+// target make reach read or overwrite arbitrary files on the operator's machine.
 func TestPathTraversalIsRefused(t *testing.T) {
 	m, target := newTestMirror(t)
 	ctx := context.Background()

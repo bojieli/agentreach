@@ -9,7 +9,7 @@ import (
 
 // TestConcurrentAppendsStayIntact is the property the format is chosen for.
 //
-// A harness issues tool calls in parallel and each is its own waldo process, so
+// A harness issues tool calls in parallel and each is its own reach process, so
 // several append to one file at once. Records are kept under the size POSIX
 // guarantees an O_APPEND write delivers atomically, which is what stops two
 // commands from interleaving into a line that parses as neither.

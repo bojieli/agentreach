@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bojieli/waldo/internal/waldo"
+	"github.com/bojieli/agentreach/internal/reach"
 )
 
 // A session file outlives the binary that wrote it. These tests cover what
@@ -77,9 +77,9 @@ func TestLoadRefusesANewerSchema(t *testing.T) {
 
 	_, err := Load("future")
 	if err == nil {
-		t.Fatal("loaded a session written by a newer waldo; its unknown fields would be silently ignored")
+		t.Fatal("loaded a session written by a newer reach; its unknown fields would be silently ignored")
 	}
-	for _, want := range []string{"newer waldo", "waldo down"} {
+	for _, want := range []string{"newer reach", "reach down"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error does not mention %q: %v", want, err)
 		}
@@ -96,7 +96,7 @@ func TestLoadAcceptsAPreVersionDocument(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a pre-version session should still load: %v", err)
 	}
-	if s.Tier != waldo.TierPipe {
+	if s.Tier != reach.TierPipe {
 		t.Errorf("tier is %v, want pipe", s.Tier)
 	}
 	if s.Version != SchemaVersion {
@@ -106,7 +106,7 @@ func TestLoadAcceptsAPreVersionDocument(t *testing.T) {
 
 // The bug this replaces: Load discarded ParseTier's error, so a session created
 // with a tier that no longer exists loaded as posix — with Pinned still true.
-// waldo would then run a tier other than the one it was instructed to use and
+// reach would then run a tier other than the one it was instructed to use and
 // report the tier it was told, which is the exact failure this project refuses.
 func TestLoadRefusesARemovedTierRatherThanSilentlyDowngrading(t *testing.T) {
 	withTempHome(t)
@@ -122,7 +122,7 @@ func TestLoadRefusesARemovedTierRatherThanSilentlyDowngrading(t *testing.T) {
 
 			s, err := Load("s")
 			if err == nil {
-				t.Fatalf("loaded tier %q as %v with pinned=%v; waldo would run a tier "+
+				t.Fatalf("loaded tier %q as %v with pinned=%v; reach would run a tier "+
 					"it was not asked for and report the one it was told",
 					tc.tier, s.Tier, s.Pinned)
 			}
@@ -131,7 +131,7 @@ func TestLoadRefusesARemovedTierRatherThanSilentlyDowngrading(t *testing.T) {
 			}
 			// An error that does not say what to do next leaves the operator
 			// with a session they cannot use and no way forward.
-			if !strings.Contains(err.Error(), "waldo up") {
+			if !strings.Contains(err.Error(), "reach up") {
 				t.Errorf("error does not say how to recover: %v", err)
 			}
 		})
@@ -150,13 +150,13 @@ func TestLoadTreatsAnAbsentTierAsPOSIX(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a session with no recorded tier should load: %v", err)
 	}
-	if s.Tier != waldo.TierPOSIX {
+	if s.Tier != reach.TierPOSIX {
 		t.Errorf("tier is %v, want posix", s.Tier)
 	}
 }
 
 // A session that will not load is still configured in somebody's harness.
-// Dropping it from the listing prints "no waldo sessions" to an operator whose
+// Dropping it from the listing prints "no reach sessions" to an operator whose
 // agent is at that moment pointed at one.
 func TestListReportsUnloadableSessions(t *testing.T) {
 	withTempHome(t)

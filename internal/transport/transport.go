@@ -8,7 +8,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/bojieli/waldo/internal/waldo"
+	"github.com/bojieli/agentreach/internal/reach"
 )
 
 // Transport runs commands on a target.
@@ -18,7 +18,7 @@ type Transport interface {
 	// the agent must be able to reason about a failing command as data. An
 	// error means the transport itself failed and the command's fate is
 	// unknown.
-	Run(ctx context.Context, req waldo.ExecRequest) (waldo.ExecResult, error)
+	Run(ctx context.Context, req reach.ExecRequest) (reach.ExecResult, error)
 
 	// Open starts a long-lived command with piped stdio. It backs the pipe and
 	// helper file-operation tiers, which keep one process alive and speak a
@@ -45,7 +45,7 @@ type Stream struct {
 
 // ShellQuote renders s as a single POSIX shell word.
 //
-// Everything waldo sends to a target passes through here. The empty string
+// Everything reach sends to a target passes through here. The empty string
 // must still produce a word, and a single quote inside the value must not be
 // able to terminate the quoting: the standard '"'"' idiom is used instead of
 // backslash escaping, which is not portable inside single quotes.
@@ -64,7 +64,7 @@ func ShellQuote(s string) string {
 // The `cd` is chained with && so a missing directory fails loudly rather than
 // silently running the command somewhere unintended, which on an untrusted
 // host could mean acting on the wrong tree entirely.
-func BuildCommand(req waldo.ExecRequest) string {
+func BuildCommand(req reach.ExecRequest) string {
 	var b strings.Builder
 	if req.Dir != "" {
 		b.WriteString("cd ")
@@ -73,7 +73,7 @@ func BuildCommand(req waldo.ExecRequest) string {
 	}
 	// `export K=V; cmd` rather than `env K=V cmd`.
 	//
-	// env takes a *command*, and waldo's commands are frequently shell
+	// env takes a *command*, and reach's commands are frequently shell
 	// constructs — the tier-0 write is `{ ...; } || { ...; }` — which env
 	// cannot run: the shell fails with a syntax error at the brace. The export
 	// form is plain POSIX and works with anything that follows it.

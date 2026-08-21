@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/bojieli/waldo/internal/waldo"
+	"github.com/bojieli/agentreach/internal/reach"
 )
 
 type fakeOps struct{}
@@ -16,17 +16,17 @@ func (fakeOps) Read(_ context.Context, p string, _, _ int64) ([]byte, error) {
 	return []byte("content of " + p), nil
 }
 func (fakeOps) Write(context.Context, string, []byte, fs.FileMode) error { return nil }
-func (fakeOps) Stat(context.Context, string) (*waldo.FileInfo, error)    { return nil, nil }
-func (fakeOps) List(context.Context, string) ([]waldo.FileInfo, error)   { return nil, nil }
+func (fakeOps) Stat(context.Context, string) (*reach.FileInfo, error)    { return nil, nil }
+func (fakeOps) List(context.Context, string) ([]reach.FileInfo, error)   { return nil, nil }
 func (fakeOps) Mkdir(context.Context, string, fs.FileMode) error         { return nil }
 func (fakeOps) Remove(context.Context, string, bool) error               { return nil }
 func (fakeOps) Rename(context.Context, string, string) error             { return nil }
-func (fakeOps) Search(context.Context, waldo.SearchRequest) ([]waldo.Match, error) {
+func (fakeOps) Search(context.Context, reach.SearchRequest) ([]reach.Match, error) {
 	return nil, nil
 }
 func (fakeOps) Glob(context.Context, string, string) ([]string, error) { return nil, nil }
 func (fakeOps) Hash(context.Context, string) (string, error)           { return "", nil }
-func (fakeOps) Tier() waldo.Tier                                       { return waldo.TierPOSIX }
+func (fakeOps) Tier() reach.Tier                                       { return reach.TierPOSIX }
 func (fakeOps) Close() error                                           { return nil }
 
 // TestConcurrentFetchesKeepEveryDigest is a regression test for a real defect.

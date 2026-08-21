@@ -1,5 +1,5 @@
 name: Bug report
-description: Something waldo does is wrong
+description: Something reach does is wrong
 labels: [bug]
 body:
   - type: textarea
@@ -13,10 +13,10 @@ body:
   - type: textarea
     id: doctor
     attributes:
-      label: Output of `waldo doctor`
+      label: Output of `reach doctor`
       description: |
         This reports the target's userland, which tiers it qualifies for, and
-        anything waldo has installed there. Targets differ in exactly the
+        anything reach has installed there. Targets differ in exactly the
         utilities file operations depend on, so this usually explains a
         surprising failure on its own.
       render: console
@@ -26,8 +26,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: waldo version
-      placeholder: waldo version
+      label: reach version
+      placeholder: reach version
     validations:
       required: true
 
@@ -35,12 +35,12 @@ body:
     id: tier
     attributes:
       label: Which file-operation tier
-      description: Shown by `waldo status`. If the bug only appears on one tier, that is a strong clue.
+      description: Shown by `reach status`. If the bug only appears on one tier, that is a strong clue.
       options: [posix, pipe, helper, "not sure"]
 
   - type: markdown
     attributes:
       value: |
-        **If waldo read or wrote a file on the wrong machine**, please say so in
+        **If reach read or wrote a file on the wrong machine**, please say so in
         the title. Silent wrong-target file access is the failure this project
         is built to make impossible, and those reports are handled first.

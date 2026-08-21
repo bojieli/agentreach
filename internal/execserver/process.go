@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bojieli/waldo/internal/audit"
-	"github.com/bojieli/waldo/internal/transport"
-	"github.com/bojieli/waldo/internal/waldo"
+	"github.com/bojieli/agentreach/internal/audit"
+	"github.com/bojieli/agentreach/internal/transport"
+	"github.com/bojieli/agentreach/internal/reach"
 )
 
 // retainedOutputBytes caps one process's replay buffer, matching codex's own
@@ -109,7 +109,7 @@ func (s *Server) handleProcessStart(ctx context.Context, raw json.RawMessage) (a
 	}
 
 	sentinel := transport.NewSentinel()
-	wrapped := transport.WrapWithSentinel(transport.BuildCommand(waldo.ExecRequest{
+	wrapped := transport.WrapWithSentinel(transport.BuildCommand(reach.ExecRequest{
 		Command: command,
 		Dir:     dir,
 		Env:     env,
@@ -202,12 +202,12 @@ func (s *Server) runProcess(p *process, st transport.Stream, sentinel string) {
 	case ok:
 		p.exitCode = code
 	case p.terminated:
-		// waldo asked for the exit; a missing marker is expected, not a
+		// reach asked for the exit; a missing marker is expected, not a
 		// transport failure.
 		p.exitCode = -1
 	default:
 		// No marker: the transport, not the command, failed. That distinction
-		// is waldo's core invariant, so it is reported as a failure the agent
+		// is reach's core invariant, so it is reported as a failure the agent
 		// can reason about rather than as an exit status it would trust.
 		p.exitCode = -1
 		p.failure = fmt.Sprintf("%s: the connection closed before the command completed", s.t.Describe())
@@ -434,7 +434,7 @@ func (s *Server) handleProcessWrite(raw json.RawMessage) (any, *rpcError) {
 
 // --- process/signal, process/terminate ---
 
-// killStream terminates a remote process best-effort. waldo's transports know
+// killStream terminates a remote process best-effort. reach's transports know
 // how to tear down the channel the command runs on (Stream.Close); remote
 // process-group signalling is not something a stock sshd offers, and a
 // protocol error here would leave codex's Esc-key path worse off than a kill.

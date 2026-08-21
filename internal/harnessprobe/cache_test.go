@@ -14,7 +14,7 @@ import (
 // be stored.
 
 func TestVerdictCacheRoundTrip(t *testing.T) {
-	t.Setenv("WALDO_HOME", t.TempDir())
+	t.Setenv("REACH_HOME", t.TempDir())
 
 	if _, ok, err := LoadVerdict("codex", "0.148.0"); err != nil || ok {
 		t.Fatalf("empty cache: got ok=%v err=%v, want a clean miss", ok, err)
@@ -59,7 +59,7 @@ func TestVerdictCacheRoundTrip(t *testing.T) {
 
 func TestVerdictCacheFileShape(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("WALDO_HOME", home)
+	t.Setenv("REACH_HOME", home)
 
 	if err := StoreVerdict("codex", "0.148.0", Result{Verdict: VerdictOK}); err != nil {
 		t.Fatalf("StoreVerdict: %v", err)
@@ -77,7 +77,7 @@ func TestVerdictCacheFileShape(t *testing.T) {
 }
 
 func TestStoreVerdictRefusesInconclusive(t *testing.T) {
-	t.Setenv("WALDO_HOME", t.TempDir())
+	t.Setenv("REACH_HOME", t.TempDir())
 	if err := StoreVerdict("codex", "0.148.0", Result{Verdict: VerdictError, Detail: "timeout"}); err == nil {
 		t.Fatal("an error verdict must not be cacheable: it is a fact about probe conditions, not the codex version")
 	}
@@ -85,7 +85,7 @@ func TestStoreVerdictRefusesInconclusive(t *testing.T) {
 
 func TestReadCacheToleratesCorruption(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("WALDO_HOME", home)
+	t.Setenv("REACH_HOME", home)
 	if err := os.WriteFile(filepath.Join(home, "harness-verdicts.json"), []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestReadCacheToleratesCorruption(t *testing.T) {
 
 func TestReadCacheDiscardsSchema1Verdicts(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("WALDO_HOME", home)
+	t.Setenv("REACH_HOME", home)
 	// Schema 1 was a bare harness→version→entry map, and every verdict in it
 	// was measured against the PATH-shim seam. Those verdicts must not
 	// survive into a build whose seam is different.

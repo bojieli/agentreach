@@ -5,7 +5,7 @@ Probed against **1.18.18**.
 ## Seam
 
 opencode documents that a custom tool whose filename matches a built-in **takes
-precedence over it**. That makes opencode the only harness where waldo needs no
+precedence over it**. That makes opencode the only harness where reach needs no
 workaround at all — no envelope parsing, no denied tools, no mirror. The model
 still sees `read` and `bash`, and they act on the target.
 
@@ -30,13 +30,13 @@ tool({
 ## Install
 
 ```console
-waldo up ssh://box/srv/app
-waldo opencode install          # writes ./.opencode/tool/*.ts
-waldo opencode install --global # or ~/.config/opencode/tool/
-waldo opencode uninstall        # restore the built-ins
+reach up ssh://box/srv/app
+reach opencode install          # writes ./.opencode/tool/*.ts
+reach opencode install --global # or ~/.config/opencode/tool/
+reach opencode uninstall        # restore the built-ins
 ```
 
-waldo *generates* the tool files rather than shipping them to be copied. Each is
+reach *generates* the tool files rather than shipping them to be copied. Each is
 self-contained: opencode treats every file in the tool directory as a tool, so a
 shared helper module placed there would itself be loaded as one.
 
@@ -49,7 +49,7 @@ What was confirmed on this machine:
 - The generated files are accepted by opencode: it loads the project config and
   the tool directory and proceeds to model selection without a parse or
   registration error.
-- The `waldo fs` verbs the tools invoke (`read`, `write`, `ls`, `grep`, `glob`)
+- The `reach fs` verbs the tools invoke (`read`, `write`, `ls`, `grep`, `glob`)
   are covered by unit and integration tests against a real sshd, including
   binary-safe round trips.
 

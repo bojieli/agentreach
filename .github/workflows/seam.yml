@@ -1,12 +1,12 @@
 name: Seam
 
 # Verify that every supported harness version routes its shell tool calls
-# through waldo to the remote target, rather than running them locally.
+# through reach to the remote target, rather than running them locally.
 #
 # Each harness probe does a full behavioural observation: it drives one real
 # (but mock-model-backed) turn, captures the hostname from the tool output, and
 # compares it to the session target's hostname. A local hostname is a bypass —
-# the seam is broken and waldo cannot protect the operator.
+# the seam is broken and reach cannot protect the operator.
 #
 # Why a separate job from CI:
 #   - CI's unit tests catch code regressions; this catches harness regressions —
@@ -22,14 +22,14 @@ on:
     branches: [main]
     # Only run when something that might affect a harness seam changed.
     paths:
-      - 'cmd/waldo/**'
+      - 'cmd/reach/**'
       - 'internal/harnessprobe/**'
       - 'internal/envelope/**'
       - 'test/e2e/**'
       - '.github/workflows/seam.yml'
   schedule:
     # Weekly: Monday 06:00 UTC. Catches new harness releases that break the seam
-    # even when no waldo code changed.
+    # even when no reach code changed.
     - cron: '0 6 * * 1'
   workflow_dispatch:
     inputs:
@@ -50,17 +50,17 @@ env:
   GO_VERSION: '1.25'
   # Default pinned versions. Add entries here when a new known-good or
   # known-bypassing version is discovered. Each version gets a `bin/<harness>`
-  # wrapper in WALDO_HARNESS_VERSIONS_DIR so seam_test.sh probes it by label.
+  # wrapper in REACH_HARNESS_VERSIONS_DIR so seam_test.sh probes it by label.
   #
   # Format: space-separated semver strings.
   #
   # codex 0.147.x: last known-good PATH-shim era.
   # codex 0.148.0: switched to getpwuid_r + absolute path → bypasses shim.
-  #                waldo refuses to launch it (fail-closed), so the probe
+  #                reach refuses to launch it (fail-closed), so the probe
   #                returns verdict "BYPASSED" and the step is expected to fail.
   DEFAULT_CODEX_VERSIONS:  '0.1.0 0.147.5 0.148.0'
   # kimi 0.37.2: resolves shell by absolute path without the KIMI_SHELL_PATH patch.
-  #              waldo's managed patched binary honours KIMI_SHELL_PATH → ok.
+  #              reach's managed patched binary honours KIMI_SHELL_PATH → ok.
   DEFAULT_KIMI_VERSIONS:   '0.36.0 0.37.2'
   # gemini: PATH shim; add newer versions as they are released.
   DEFAULT_GEMINI_VERSIONS: '0.1.9'
@@ -77,8 +77,8 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - name: build waldo
-        run: go build -o waldo ./cmd/waldo
+      - name: build reach
+        run: go build -o reach ./cmd/reach
 
       - uses: actions/setup-node@v4
         with:
@@ -192,10 +192,10 @@ jobs:
 
       - name: run seam_test.sh
         env:
-          WALDO_BIN: ${{ github.workspace }}/waldo
-          WALDO_HARNESS_VERSIONS_DIR: ${{ runner.temp }}/harness-versions
-          WALDO_E2E_DIR: ${{ runner.temp }}/waldo-e2e
-          WALDO_E2E_SSH_PORT: '22222'
+          REACH_BIN: ${{ github.workspace }}/reach
+          REACH_HARNESS_VERSIONS_DIR: ${{ runner.temp }}/harness-versions
+          REACH_E2E_DIR: ${{ runner.temp }}/reach-e2e
+          REACH_E2E_SSH_PORT: '22222'
         run: |
           set -euo pipefail
           bash test/e2e/seam_test.sh 2>&1 | tee "${RUNNER_TEMP}/seam-results.txt"
@@ -216,5 +216,5 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: seam-probe-logs
-          path: ${{ runner.temp }}/waldo-e2e/seam-results/
+          path: ${{ runner.temp }}/reach-e2e/seam-results/
           if-no-files-found: ignore

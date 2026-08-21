@@ -14,26 +14,26 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bojieli/waldo/internal/fileops"
-	"github.com/bojieli/waldo/internal/fileops/fileopstest"
-	"github.com/bojieli/waldo/internal/transport"
-	"github.com/bojieli/waldo/internal/waldo"
+	"github.com/bojieli/agentreach/internal/fileops"
+	"github.com/bojieli/agentreach/internal/fileops/fileopstest"
+	"github.com/bojieli/agentreach/internal/transport"
+	"github.com/bojieli/agentreach/internal/reach"
 )
 
 // The container transport is a documented target kind — `docker://container/path`
 // is in the README — and it was the least exercised thing in the project: every
 // other test reached a target over ssh or a local shell.
 //
-// It also buys the only practical way to test waldo against a userland that is
-// neither GNU nor BSD. waldo's tier-0 strategy branches on what the target has,
+// It also buys the only practical way to test reach against a userland that is
+// neither GNU nor BSD. reach's tier-0 strategy branches on what the target has,
 // and busybox is the case where the branches actually differ: no `find -printf`,
-// a different `stat`, and applets rather than the coreutils waldo was written
+// a different `stat`, and applets rather than the coreutils reach was written
 // against. Claiming support for it without running it would be a claim this
 // project does not make.
 
 const (
-	gnuImageEnv     = "WALDO_TEST_DOCKER_IMAGE"
-	busyboxImageEnv = "WALDO_TEST_DOCKER_BUSYBOX_IMAGE"
+	gnuImageEnv     = "REACH_TEST_DOCKER_IMAGE"
+	busyboxImageEnv = "REACH_TEST_DOCKER_BUSYBOX_IMAGE"
 )
 
 func dockerAvailable(t *testing.T) {
@@ -68,7 +68,7 @@ func startContainer(t *testing.T, name, image string, runArgs ...string) {
 	}
 }
 
-const containerWorkspace = "/srv/waldo-test"
+const containerWorkspace = "/srv/reach-test"
 
 func containerTransport(t *testing.T, name string) transport.Transport {
 	t.Helper()
@@ -90,7 +90,7 @@ func imageOr(env, fallback string) string {
 // TestDockerTierConformance runs the shared suite against a container, for every
 // tier a container can support.
 func TestDockerTierConformance(t *testing.T) {
-	const name = "waldo-it-gnu"
+	const name = "reach-it-gnu"
 	startContainer(t, name, imageOr(gnuImageEnv, "python:3.11-slim"))
 	tr := containerTransport(t, name)
 	ctx := context.Background()
@@ -102,7 +102,7 @@ func TestDockerTierConformance(t *testing.T) {
 	t.Logf("container userland: %s stat=%s python3=%v find-printf=%v",
 		caps.Uname, caps.StatFlavor, caps.Python3, caps.FindPrintf)
 
-	for _, tier := range []waldo.Tier{waldo.TierPOSIX, waldo.TierPipe, waldo.TierHelper} {
+	for _, tier := range []reach.Tier{reach.TierPOSIX, reach.TierPipe, reach.TierHelper} {
 		t.Run(tier.String(), func(t *testing.T) {
 			if ok, why := caps.Qualifies(tier); !ok {
 				t.Skipf("this image does not qualify for tier %s: %s", tier, why)
@@ -122,15 +122,15 @@ func TestDockerTierConformance(t *testing.T) {
 	}
 }
 
-// TestBusyboxTarget is the userland waldo degrades for but had never met.
+// TestBusyboxTarget is the userland reach degrades for but had never met.
 //
 // busybox is not a smaller GNU: `find` has no -printf, the applets accept a
-// different subset of flags, and the fallbacks waldo carries for exactly this
+// different subset of flags, and the fallbacks reach carries for exactly this
 // case had never been executed against the thing they were written for. A
 // target like this is also the likeliest real one — an Alpine container, an
 // embedded box, a rescue image.
 func TestBusyboxTarget(t *testing.T) {
-	const name = "waldo-it-busybox"
+	const name = "reach-it-busybox"
 	startContainer(t, name, imageOr(busyboxImageEnv, "alpine:latest"))
 	tr := containerTransport(t, name)
 	ctx := context.Background()
@@ -152,7 +152,7 @@ func TestBusyboxTarget(t *testing.T) {
 		t.Log("confirmed: no find -printf, so the portable listing fallback is under test")
 	}
 
-	sel, err := fileops.New(ctx, waldo.TierPOSIX, tr, caps, true, nil)
+	sel, err := fileops.New(ctx, reach.TierPOSIX, tr, caps, true, nil)
 	if err != nil {
 		t.Fatalf("build tier 0 on busybox: %v", err)
 	}
@@ -166,15 +166,15 @@ func TestBusyboxTarget(t *testing.T) {
 }
 
 // TestDockerExecReportsStatusAndOutput covers the transport itself: a container
-// runtime reports failures differently from ssh, and waldo must still tell a
+// runtime reports failures differently from ssh, and reach must still tell a
 // command that failed apart from a runtime that did.
 func TestDockerExecReportsStatusAndOutput(t *testing.T) {
-	const name = "waldo-it-exec"
+	const name = "reach-it-exec"
 	startContainer(t, name, imageOr(gnuImageEnv, "python:3.11-slim"))
 	tr := containerTransport(t, name)
 	ctx := context.Background()
 
-	res, err := tr.Run(ctx, waldo.ExecRequest{Command: "echo out; echo err >&2; exit 9"})
+	res, err := tr.Run(ctx, reach.ExecRequest{Command: "echo out; echo err >&2; exit 9"})
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -189,20 +189,20 @@ func TestDockerExecReportsStatusAndOutput(t *testing.T) {
 	}
 
 	// A container that is not there is a transport failure, not a command that
-	// exited non-zero — the distinction waldo's whole exec protocol exists for.
+	// exited non-zero — the distinction reach's whole exec protocol exists for.
 	missing, err := transport.NewContainer(transport.ContainerConfig{
-		Runtime: "docker", Container: "waldo-it-definitely-not-running",
+		Runtime: "docker", Container: "reach-it-definitely-not-running",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := missing.Run(ctx, waldo.ExecRequest{Command: "true"}); err == nil {
+	if _, err := missing.Run(ctx, reach.ExecRequest{Command: "true"}); err == nil {
 		t.Error("running in a nonexistent container was reported as success")
 	}
 
 	// Quoting survives the runtime's own argument handling.
 	for _, s := range []string{"with space", "it's", `"double"`, "$(hostname)", "semi;colon", "new\nline"} {
-		res, err := tr.Run(ctx, waldo.ExecRequest{Command: "printf '%s' " + transport.ShellQuote(s)})
+		res, err := tr.Run(ctx, reach.ExecRequest{Command: "printf '%s' " + transport.ShellQuote(s)})
 		if err != nil {
 			t.Fatalf("%q: %v", s, err)
 		}
@@ -213,7 +213,7 @@ func TestDockerExecReportsStatusAndOutput(t *testing.T) {
 	_ = fmt.Sprint()
 }
 
-// The tests below are about waldo's governing rule rather than about
+// The tests below are about reach's governing rule rather than about
 // containers: every failure must be a value the agent can reason about, never a
 // process that stops responding. A container runtime is simply the cheapest way
 // to build targets that are broken in specific, realistic ways — no shell, a
@@ -222,12 +222,12 @@ func TestDockerExecReportsStatusAndOutput(t *testing.T) {
 
 // TestTargetWithNoShellFailsClearly covers a target with no shell at all.
 //
-// waldo's floor is a POSIX shell. A target without one cannot be used, and the
-// only question is whether waldo says so or hangs trying. This is not an exotic
+// reach's floor is a POSIX shell. A target without one cannot be used, and the
+// only question is whether reach says so or hangs trying. This is not an exotic
 // case: distroless and scratch images are ordinary production containers, and
 // pointing an agent at one is an easy mistake to make.
 //
-// The image is built here rather than pulled, from nothing but waldo's own
+// The image is built here rather than pulled, from nothing but reach's own
 // statically linked agent — which is the most honest distroless target
 // available, needs no registry, and holds itself open by blocking on the stdin
 // it expects to receive a protocol on.
@@ -248,7 +248,7 @@ func TestTargetWithNoShellFailsClearly(t *testing.T) {
 	dir := t.TempDir()
 	arch := runtime.GOARCH // the daemon runs Linux containers of the host's arch
 	build := exec.Command("go", "build", "-trimpath", "-o", filepath.Join(dir, "agent"),
-		"./cmd/waldo-helper")
+		"./cmd/reach-helper")
 	build.Dir = root
 	build.Env = append(os.Environ(), "GOOS=linux", "GOARCH="+arch, "CGO_ENABLED=0")
 	if out, err := build.CombinedOutput(); err != nil {
@@ -258,12 +258,12 @@ func TestTargetWithNoShellFailsClearly(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte(dockerfile), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	const image = "waldo-it-scratch"
+	const image = "reach-it-scratch"
 	if out, err := exec.Command("docker", "build", "-q", "-t", image, dir).CombinedOutput(); err != nil {
 		t.Skipf("cannot build the scratch image: %v: %s", err, out)
 	}
 
-	const name = "waldo-it-noshell"
+	const name = "reach-it-noshell"
 	_ = exec.Command("docker", "rm", "-f", name).Run()
 	// -i keeps stdin open, so the agent blocks waiting for a request and the
 	// container stays up with nothing else in it.
@@ -322,7 +322,7 @@ func repoRoot() (string, bool) {
 // Reads must keep working, and a write must fail as an error the agent can act
 // on — not a partial file, and not a success the agent believes.
 func TestReadOnlyTargetRefusesWritesButServesReads(t *testing.T) {
-	const name = "waldo-it-readonly"
+	const name = "reach-it-readonly"
 	dockerAvailable(t)
 	_ = exec.Command("docker", "rm", "-f", name).Run()
 	image := imageOr(gnuImageEnv, "python:3.11-slim")
@@ -340,7 +340,7 @@ func TestReadOnlyTargetRefusesWritesButServesReads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("probe: %v", err)
 	}
-	sel, err := fileops.New(ctx, waldo.TierPOSIX, tr, caps, true, nil)
+	sel, err := fileops.New(ctx, reach.TierPOSIX, tr, caps, true, nil)
 	if err != nil {
 		t.Fatalf("build tier: %v", err)
 	}
@@ -351,14 +351,14 @@ func TestReadOnlyTargetRefusesWritesButServesReads(t *testing.T) {
 		t.Errorf("reading from a read-only target failed: %v", err)
 	}
 	// Writing to it must fail, and say so.
-	err = sel.Ops.Write(ctx, "/etc/waldo-should-not-appear", []byte("x"), 0o644)
+	err = sel.Ops.Write(ctx, "/etc/reach-should-not-appear", []byte("x"), 0o644)
 	if err == nil {
 		t.Fatal("writing to a read-only filesystem was reported as success")
 	}
 	t.Logf("write refused with: %v", err)
 
 	// And must not have left debris behind while failing.
-	res, runErr := tr.Run(ctx, waldo.ExecRequest{Command: "ls /etc/.waldo.tmp.* 2>/dev/null | wc -l"})
+	res, runErr := tr.Run(ctx, reach.ExecRequest{Command: "ls /etc/.reach.tmp.* 2>/dev/null | wc -l"})
 	if runErr == nil && strings.TrimSpace(string(res.Stdout)) != "0" {
 		t.Errorf("a failed write left temporary files behind: %s", res.Stdout)
 	}
@@ -368,7 +368,7 @@ func TestReadOnlyTargetRefusesWritesButServesReads(t *testing.T) {
 // no home directory — the default for a security-conscious image, and the case
 // where the helper tier has nowhere obvious to cache itself.
 func TestUnprivilegedTargetUser(t *testing.T) {
-	const name = "waldo-it-nonroot"
+	const name = "reach-it-nonroot"
 	startContainer(t, name, imageOr(gnuImageEnv, "python:3.11-slim"), "--user", "1000:1000")
 	tr := containerTransport(t, name)
 	ctx := context.Background()
@@ -379,8 +379,8 @@ func TestUnprivilegedTargetUser(t *testing.T) {
 	}
 
 	// /tmp is writable by anyone; the prepared workspace may not be.
-	root := "/tmp/waldo-nonroot"
-	sel, err := fileops.New(ctx, waldo.TierPOSIX, tr, caps, true, nil)
+	root := "/tmp/reach-nonroot"
+	sel, err := fileops.New(ctx, reach.TierPOSIX, tr, caps, true, nil)
 	if err != nil {
 		t.Fatalf("build tier: %v", err)
 	}
@@ -393,7 +393,7 @@ func TestUnprivilegedTargetUser(t *testing.T) {
 	fileopstest.Run(t, root, func(*testing.T) fileops.FileOps { return sel.Ops })
 
 	// Writing somewhere this user cannot must be a clean refusal.
-	if err := sel.Ops.Write(ctx, "/etc/waldo-should-not-appear", []byte("x"), 0o644); err == nil {
+	if err := sel.Ops.Write(ctx, "/etc/reach-should-not-appear", []byte("x"), 0o644); err == nil {
 		t.Error("an unprivileged write to /etc was reported as success")
 	}
 }

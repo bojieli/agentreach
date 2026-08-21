@@ -12,7 +12,7 @@ on Linux x86_64 and macOS arm64.
 
 ## Why this document exists
 
-waldo relies on interception seams that are, in most harnesses, undocumented
+reach relies on interception seams that are, in most harnesses, undocumented
 implementation details. A seam that silently changes shape is the single most
 likely way this project breaks for users. So every seam is (a) verified by
 experiment, (b) recorded here with its exact observed shape, and (c) covered by
@@ -76,18 +76,18 @@ async function resolveShell() {
 **Rules, exactly:**
 
 1. The *path string* must contain the substring `bash` or `zsh` anywhere — not
-   just the basename. `/opt/waldo/waldo-bash` qualifies.
+   just the basename. `/opt/reach/reach-bash` qualifies.
 2. It must be executable (`X_OK`), or exit 0 on `--version`.
 3. On failure it falls back silently to shell detection — the agent keeps
    working against the **local** machine. A misconfigured shim is therefore a
-   silent correctness hazard, which is why `waldo doctor` checks the name rule.
+   silent correctness hazard, which is why `reach doctor` checks the name rule.
 
 Invocation shape, observed:
 
     argv = ["-c", "<command>"]
     argv = ["-c", "-l", "<snapshot-builder-script>"]   # once per session
 
-### `CLAUDE_CODE_SHELL_PREFIX`  ← the seam waldo uses
+### `CLAUDE_CODE_SHELL_PREFIX`  ← the seam reach uses
 
 Observed invocation:
 
@@ -110,7 +110,7 @@ function prelude(shellPath) {
 
 That the prelude is deliberately written to work under *either* shell is strong
 evidence this variable exists for wrapping execution in a foreign environment
-(container/remote), which is exactly waldo's use case. This is the seam waldo
+(container/remote), which is exactly reach's use case. This is the seam reach
 targets: one argument, no parsing of flags, stable contract.
 
 ### The command envelope
@@ -123,16 +123,16 @@ Every Bash tool call arrives wrapped:
       && eval '<USER COMMAND>' < /dev/null
       && pwd -P >| /tmp/claude-<rand>-cwd
 
-Three parts matter to waldo:
+Three parts matter to reach:
 
 **1. The snapshot (`source ...`)** — a file generated on the *local* machine
-capturing the user's shell functions, aliases, `shopt`, and `PATH`. waldo
+capturing the user's shell functions, aliases, `shopt`, and `PATH`. reach
 **strips** this segment rather than forwarding it, for two reasons:
 
 - It references local absolute paths that do not exist remotely; sourcing it
   remotely is a silent no-op at best.
 - It leaks the local username and directory layout to the remote host. On an
-  untrusted client server that is an information disclosure waldo must not
+  untrusted client server that is an information disclosure reach must not
   cause. See `docs/SECURITY.md`.
 
 **2. `pwd -P >| /tmp/claude-<rand>-cwd`** — this is how Claude Code persists
@@ -142,7 +142,7 @@ back on the local filesystem after the command returns.
 
 If the envelope is forwarded verbatim to a remote host, this file is written
 *remotely* and the local read finds nothing — **`cd` silently stops
-persisting**. waldo therefore strips this segment, tracks cwd itself, and
+persisting**. reach therefore strips this segment, tracks cwd itself, and
 writes the resolved working directory to the local path the envelope named.
 This is the single most important correctness detail in the Claude Code
 adapter.
@@ -156,10 +156,10 @@ function find { (exec -a bfs   "$CLAUDE_CODE_EXECPATH" -S dfs -regextype finduti
 function grep { (exec -a ugrep "$CLAUDE_CODE_EXECPATH" -G --ignore-files --hidden -I ... "$@") }
 ```
 
-Because waldo strips the snapshot, these functions are never defined remotely
+Because reach strips the snapshot, these functions are never defined remotely
 and `rg`/`find`/`grep` resolve to the remote host's real binaries. That is the
 desired behaviour — but it means **remote hosts without ripgrep get plain
-grep semantics**, which `waldo doctor` reports.
+grep semantics**, which `reach doctor` reports.
 
 Stripping the snapshot leaves a gap that had to be filled separately. The
 snapshot is also what carries the operator's `PATH`, and `ssh host command` runs
@@ -169,10 +169,10 @@ differed by five directories: the login shell had `~/.local/bin`, `~/bin`,
 `~/.cargo/bin`, `~/.deno/bin` and a toolchain directory that a plain `ssh
 host command` never sees.
 
-That matters because `cargo install ripgrep` is how most people get `rg`. waldo
+That matters because `cargo install ripgrep` is how most people get `rg`. reach
 would have reported "no ripgrep on the target" and fallen back to grep on a
-machine that has it. waldo therefore asks the login shell for its `PATH` once
-during `waldo up`, and applies it to detection and execution alike — finding a
+machine that has it. reach therefore asks the login shell for its `PATH` once
+during `reach up`, and applies it to detection and execution alike — finding a
 tool it could not then run would be worse than not finding it.
 
 ### Native file tools
@@ -216,8 +216,8 @@ or hook changes this (`zsh_path` is internal to the under-development zsh-fork
 backend; `PreToolUse` remains deny-only; `wire_api = "chat"` was removed, which
 is why the offline probe speaks the Responses API). The macOS build is
 hardened-runtime signed without `disable-library-validation`, so
-`DYLD_INSERT_LIBRARIES` is blocked as well. waldo therefore measures the seam
-(`waldo harness verify codex`) and refuses versions that bypass it.
+`DYLD_INSERT_LIBRARIES` is blocked as well. reach therefore measures the seam
+(`reach harness verify codex`) and refuses versions that bypass it.
 
 ## Kimi Code CLI 0.34.0
 
@@ -236,7 +236,7 @@ build of it.
 Re-checked again against 0.37.2 and the seam claim no longer holds: the Bash
 tool spawns its shell by absolute path, so the PATH shim is never invoked. The
 documented hooks honour allow/deny only and cannot rewrite a tool call's
-input. Measured by `waldo harness verify kimi`, which drives 0.37.2 against an
+input. Measured by `reach harness verify kimi`, which drives 0.37.2 against an
 offline mock over the chat-completions wire (`KIMI_MODEL_*` env vars point it
 at the mock) and watches a scripted command run on the local machine.
 

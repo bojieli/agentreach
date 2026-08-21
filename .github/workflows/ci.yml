@@ -24,7 +24,7 @@ jobs:
         # disagree on exactly the utilities file operations depend on, and
         # `chmod 700 -- path` worked under one and failed under the other.
         #
-        # Windows is here because waldo runs *on* it. Its differences are not
+        # Windows is here because reach runs *on* it. Its differences are not
         # cosmetic — the search path is spelled `Path`, and there is no execute
         # bit — and both failed silently in ways that end with an agent running
         # commands on the operator's own machine. Those assertions only mean
@@ -109,19 +109,19 @@ jobs:
       # it report itself honestly, and does it fail with an explanation rather
       # than a stack trace when pointed somewhere it cannot reach?
       - name: build
-        run: go build -o waldo.exe ./cmd/waldo
+        run: go build -o reach.exe ./cmd/reach
       - name: version and help
         shell: bash
         run: |
           set -euo pipefail
-          ./waldo.exe version | tee version.txt
+          ./reach.exe version | tee version.txt
           grep -qi 'windows/' version.txt
-          ./waldo.exe help | grep -q 'teleoperation'
+          ./reach.exe help | grep -q 'teleoperation'
       - name: an unreachable target fails with an explanation
         shell: bash
         run: |
           set -uo pipefail
-          export WALDO_HOME="$RUNNER_TEMP/waldo-home"
+          export REACH_HOME="$RUNNER_TEMP/reach-home"
           # BatchMode plus a host that does not exist: this must be a clear
           # error, not a hang and not a panic.
           #
@@ -130,7 +130,7 @@ jobs:
           # not undo, so the non-zero exit being asserted ended the step at this
           # command and none of the assertions below it had ever run.
           set +e
-          ./waldo.exe up ssh://waldo-nonexistent.invalid/tmp/x --name smoke > out.txt 2>&1
+          ./reach.exe up ssh://reach-nonexistent.invalid/tmp/x --name smoke > out.txt 2>&1
           status=$?
           set -e
           cat out.txt
@@ -140,8 +140,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          export WALDO_HOME="$RUNNER_TEMP/waldo-home-empty"
-          ./waldo.exe status | grep -qi 'no waldo sessions'
+          export REACH_HOME="$RUNNER_TEMP/reach-home-empty"
+          ./reach.exe status | grep -qi 'no reach sessions'
 
   handler:
     name: python handler (${{ matrix.python }})
@@ -172,13 +172,13 @@ jobs:
           cache: true
       # Short runs on every pull request: enough to catch a parser regression
       # while it is still cheap to fix, not enough to find something deep. These
-      # both parse input waldo does not control — the agent's framing, and a
+      # both parse input reach does not control — the agent's framing, and a
       # closed harness's command envelope — in a process holding the operator's
       # credentials.
       - name: fuzz
         run: |
           set -euo pipefail
-          go test -run xxx -fuzz FuzzReadFrame       -fuzztime=60s ./cmd/waldo-helper/
+          go test -run xxx -fuzz FuzzReadFrame       -fuzztime=60s ./cmd/reach-helper/
           go test -run xxx -fuzz FuzzParseClaudeCode -fuzztime=60s ./internal/envelope/
       - name: keep any crasher found
         if: failure()
@@ -186,7 +186,7 @@ jobs:
         with:
           name: fuzz-corpus
           path: |
-            cmd/waldo-helper/testdata/fuzz/**
+            cmd/reach-helper/testdata/fuzz/**
             internal/envelope/testdata/fuzz/**
 
   vuln:
@@ -220,7 +220,7 @@ jobs:
       - uses: actions/setup-go@v7
         with: { go-version: '1.25', cache: true }
       # The helper is built for every platform a *target* might run, which is a
-      # wider set than the platforms waldo itself is released for.
+      # wider set than the platforms reach itself is released for.
       - run: GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} CGO_ENABLED=0 go build ./cmd/...
 
   release-dryrun:
@@ -252,8 +252,8 @@ jobs:
           for archive in dist/*.tar.gz; do
             echo "checking $archive"
             contents=$(tar tzf "$archive")
-            for want in waldo waldo-helper-linux-amd64 waldo-helper-linux-arm64 \
-                        waldo-helper-darwin-amd64 waldo-helper-darwin-arm64 \
+            for want in reach reach-helper-linux-amd64 reach-helper-linux-arm64 \
+                        reach-helper-darwin-amd64 reach-helper-darwin-arm64 \
                         docs/ARCHITECTURE.md docs/TRANSPORTS.md docs/SECURITY.md \
                         README.md LICENSE; do
               grep -qx "$want" <<<"$contents" || {
@@ -270,5 +270,5 @@ jobs:
           done
           # The Windows archive carries POSIX helpers on purpose: a Windows
           # operator's target is a POSIX host.
-          unzip -l dist/waldo_*_windows_amd64.zip | grep -q waldo-helper-linux-amd64 || {
+          unzip -l dist/reach_*_windows_amd64.zip | grep -q reach-helper-linux-amd64 || {
             echo "::error::the windows archive has no helper for a POSIX target"; exit 1; }

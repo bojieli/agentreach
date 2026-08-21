@@ -39,7 +39,7 @@ func postResponses(t *testing.T, m *Mock, body string) string {
 }
 
 func TestMockScriptsOneToolCallAndRecordsItsOutput(t *testing.T) {
-	m := StartMock("WALDO_TEST_MARKER", DialectResponses)
+	m := StartMock("REACH_TEST_MARKER", DialectResponses)
 	defer m.Close()
 
 	// Turn one: the harness opens a turn, advertising its tools. The mock must
@@ -56,9 +56,9 @@ func TestMockScriptsOneToolCallAndRecordsItsOutput(t *testing.T) {
 		"event: response.created\n",
 		"event: response.output_item.done\n",
 		`"type":"function_call"`,
-		`"call_id":"call_waldo_1"`,
+		`"call_id":"call_reach_1"`,
 		`"name":"exec_command"`,
-		"echo WALDO_TEST_MARKER; hostname",
+		"echo REACH_TEST_MARKER; hostname",
 		"event: response.completed\n",
 		`"total_tokens":0`,
 	} {
@@ -85,7 +85,7 @@ func TestMockScriptsOneToolCallAndRecordsItsOutput(t *testing.T) {
 	if err := json.Unmarshal([]byte(ev.Item.Arguments), &args); err != nil {
 		t.Fatalf("function_call arguments are not a JSON string holding an object: %v", err)
 	}
-	if args["cmd"] != "echo WALDO_TEST_MARKER; hostname" {
+	if args["cmd"] != "echo REACH_TEST_MARKER; hostname" {
 		t.Fatalf("arguments cmd = %v, want the scripted command", args["cmd"])
 	}
 
@@ -97,14 +97,14 @@ func TestMockScriptsOneToolCallAndRecordsItsOutput(t *testing.T) {
 	// function_call_output item. The mock must store it verbatim and close the
 	// turn with a plain assistant message.
 	turn2 := postResponses(t, m, `{
-		"input": [{"type": "function_call_output", "call_id": "call_waldo_1",
-			"output": "WALDO_TEST_MARKER\nremote-box"}]
+		"input": [{"type": "function_call_output", "call_id": "call_reach_1",
+			"output": "REACH_TEST_MARKER\nremote-box"}]
 	}`)
 	for _, want := range []string{
 		`"type":"message"`,
 		`"role":"assistant"`,
 		`"type":"output_text"`,
-		"OBSERVED: WALDO_TEST_MARKER",
+		"OBSERVED: REACH_TEST_MARKER",
 		"event: response.completed\n",
 	} {
 		if !strings.Contains(turn2, want) {
@@ -116,7 +116,7 @@ func TestMockScriptsOneToolCallAndRecordsItsOutput(t *testing.T) {
 	if !observed {
 		t.Fatal("the tool output was not recorded")
 	}
-	if out != "WALDO_TEST_MARKER\nremote-box" {
+	if out != "REACH_TEST_MARKER\nremote-box" {
 		t.Fatalf("recorded output = %q", out)
 	}
 }
@@ -234,7 +234,7 @@ func chatChunks(t *testing.T, body string) []map[string]any {
 }
 
 func TestMockChatDialectScriptsOneToolCall(t *testing.T) {
-	m := StartMock("WALDO_CHAT_MARKER", DialectChat)
+	m := StartMock("REACH_CHAT_MARKER", DialectChat)
 	defer m.Close()
 
 	// Turn one: kimi advertises its tools in the chat-completions shape —
@@ -256,7 +256,7 @@ func TestMockChatDialectScriptsOneToolCall(t *testing.T) {
 	}
 	// Every chunk carries the fixed envelope the reference mock established.
 	for i, c := range chunks {
-		if c["object"] != "chat.completion.chunk" || c["id"] != "chatcmpl-waldo" {
+		if c["object"] != "chat.completion.chunk" || c["id"] != "chatcmpl-reach" {
 			t.Errorf("chunk %d has the wrong envelope: %v", i, c)
 		}
 	}
@@ -279,7 +279,7 @@ func TestMockChatDialectScriptsOneToolCall(t *testing.T) {
 	tcs, _ := delta(1)["tool_calls"].([]any)
 	tc, _ := tcs[0].(map[string]any)
 	fn, _ := tc["function"].(map[string]any)
-	if tc["id"] != "call_waldo_1" || fn["name"] != "Bash" || fn["arguments"] != "" {
+	if tc["id"] != "call_reach_1" || fn["name"] != "Bash" || fn["arguments"] != "" {
 		t.Errorf("chunk 1 should name Bash with empty arguments: %v", delta(1))
 	}
 	tcs2, _ := delta(2)["tool_calls"].([]any)
@@ -290,7 +290,7 @@ func TestMockChatDialectScriptsOneToolCall(t *testing.T) {
 	if err := json.Unmarshal([]byte(args), &parsed); err != nil {
 		t.Fatalf("chunk 2 arguments are not a JSON string holding an object: %v", err)
 	}
-	if parsed["command"] != "echo WALDO_CHAT_MARKER; hostname" {
+	if parsed["command"] != "echo REACH_CHAT_MARKER; hostname" {
 		t.Errorf("arguments command = %v, want the scripted command", parsed["command"])
 	}
 	if finish(2) != nil || finish(3) != "tool_calls" {
@@ -305,13 +305,13 @@ func TestMockChatDialectScriptsOneToolCall(t *testing.T) {
 	turn2 := postChat(t, m, `{
 		"messages": [
 			{"role": "user", "content": "go"},
-			{"role": "tool", "tool_call_id": "call_waldo_1", "content": "WALDO_CHAT_MARKER\nremote-box"}
+			{"role": "tool", "tool_call_id": "call_reach_1", "content": "REACH_CHAT_MARKER\nremote-box"}
 		]
 	}`)
 	chunks2 := chatChunks(t, turn2)
 	// "OBSERVED: " and the tool output stream as separate content chunks, as
 	// the reference mock emits them.
-	if !strings.Contains(turn2, `"OBSERVED: "`) || !strings.Contains(turn2, `WALDO_CHAT_MARKER\nremote-box`) {
+	if !strings.Contains(turn2, `"OBSERVED: "`) || !strings.Contains(turn2, `REACH_CHAT_MARKER\nremote-box`) {
 		t.Errorf("turn-2 stream should echo the observed output:\n%s", turn2)
 	}
 	if got := finishOfLast(chunks2); got != "stop" {
@@ -322,7 +322,7 @@ func TestMockChatDialectScriptsOneToolCall(t *testing.T) {
 	}
 
 	out, observed := m.Result()
-	if !observed || out != "WALDO_CHAT_MARKER\nremote-box" {
+	if !observed || out != "REACH_CHAT_MARKER\nremote-box" {
 		t.Fatalf("recorded output = %q observed=%v", out, observed)
 	}
 }
@@ -404,7 +404,7 @@ func geminiChunks(t *testing.T, body string) []map[string]any {
 }
 
 func TestMockGeminiDialectScriptsOneToolCall(t *testing.T) {
-	m := StartMock("WALDO_GEMINI_MARKER", DialectGemini)
+	m := StartMock("REACH_GEMINI_MARKER", DialectGemini)
 	defer m.Close()
 
 	// The Gemini mock's BaseURL() should be the raw server URL (no /v1 suffix),
@@ -414,7 +414,7 @@ func TestMockGeminiDialectScriptsOneToolCall(t *testing.T) {
 	}
 
 	// Turn one: Gemini CLI sends a request with functionDeclarations.
-	turn1 := postGemini(t, m, "waldo-mock", `{
+	turn1 := postGemini(t, m, "reach-mock", `{
 		"contents": [{"role":"user","parts":[{"text":"go"}]}],
 		"tools": [{
 			"functionDeclarations": [
@@ -451,7 +451,7 @@ func TestMockGeminiDialectScriptsOneToolCall(t *testing.T) {
 		t.Fatalf("functionCall name = %v, want run_shell_command", fc["name"])
 	}
 	fcArgs, _ := fc["args"].(map[string]any)
-	if !strings.Contains(fmt.Sprintf("%v", fcArgs["command"]), "WALDO_GEMINI_MARKER") {
+	if !strings.Contains(fmt.Sprintf("%v", fcArgs["command"]), "REACH_GEMINI_MARKER") {
 		t.Fatalf("functionCall args.command = %v, want it to contain the marker", fcArgs["command"])
 	}
 
@@ -460,18 +460,18 @@ func TestMockGeminiDialectScriptsOneToolCall(t *testing.T) {
 	}
 
 	// Turn two: Gemini CLI sends the tool result as functionResponse.
-	turn2 := postGemini(t, m, "waldo-mock", `{
+	turn2 := postGemini(t, m, "reach-mock", `{
 		"contents": [
 			{"role":"user","parts":[{"text":"go"}]},
-			{"role":"model","parts":[{"functionCall":{"name":"run_shell_command","args":{"command":"echo WALDO_GEMINI_MARKER; hostname"}}}]},
-			{"role":"user","parts":[{"functionResponse":{"id":"call_1","name":"run_shell_command","response":{"output":"WALDO_GEMINI_MARKER\nremote-box"}}}]}
+			{"role":"model","parts":[{"functionCall":{"name":"run_shell_command","args":{"command":"echo REACH_GEMINI_MARKER; hostname"}}}]},
+			{"role":"user","parts":[{"functionResponse":{"id":"call_1","name":"run_shell_command","response":{"output":"REACH_GEMINI_MARKER\nremote-box"}}}]}
 		]
 	}`)
 	chunks2 := geminiChunks(t, turn2)
 	if len(chunks2) == 0 {
 		t.Fatalf("turn-2 stream has no chunks:\n%s", turn2)
 	}
-	if !strings.Contains(turn2, "OBSERVED:") || !strings.Contains(turn2, "WALDO_GEMINI_MARKER") {
+	if !strings.Contains(turn2, "OBSERVED:") || !strings.Contains(turn2, "REACH_GEMINI_MARKER") {
 		t.Errorf("turn-2 stream should echo the observed output:\n%s", turn2)
 	}
 
@@ -479,7 +479,7 @@ func TestMockGeminiDialectScriptsOneToolCall(t *testing.T) {
 	if !observed {
 		t.Fatal("the tool output was not recorded")
 	}
-	if out != "WALDO_GEMINI_MARKER\nremote-box" {
+	if out != "REACH_GEMINI_MARKER\nremote-box" {
 		t.Fatalf("recorded output = %q", out)
 	}
 }
@@ -499,7 +499,7 @@ func TestMockGeminiAdaptiveToolSelection(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			m := StartMock("M", DialectGemini)
 			defer m.Close()
-			body := postGemini(t, m, "waldo-mock", `{"contents":[{"role":"user","parts":[{"text":"go"}]}],"tools":[{"functionDeclarations":`+tc.decls+`}]}`)
+			body := postGemini(t, m, "reach-mock", `{"contents":[{"role":"user","parts":[{"text":"go"}]}],"tools":[{"functionDeclarations":`+tc.decls+`}]}`)
 			if !strings.Contains(body, `"name":"`+tc.wantName+`"`) {
 				t.Fatalf("called the wrong tool, want %q:\n%s", tc.wantName, body)
 			}
@@ -543,7 +543,7 @@ func TestMockAnthropicDialectScriptsOneToolCall(t *testing.T) {
 
 	// Turn 1: first request should produce a tool_use response for Bash.
 	body1, status1 := postAnthropic(t, mock.BaseURL()+"/v1/messages", map[string]any{
-		"model":      "claude-waldo",
+		"model":      "claude-reach",
 		"max_tokens": 1024,
 		"messages":   []map[string]any{{"role": "user", "content": "run a command"}},
 		"tools":      []map[string]any{{"name": "Bash", "description": "run bash", "input_schema": map[string]any{}}},
@@ -566,15 +566,15 @@ func TestMockAnthropicDialectScriptsOneToolCall(t *testing.T) {
 
 	// Turn 2: send tool_result, expect a text response echoing the output.
 	body2, status2 := postAnthropic(t, mock.BaseURL()+"/v1/messages", map[string]any{
-		"model":      "claude-waldo",
+		"model":      "claude-reach",
 		"max_tokens": 1024,
 		"messages": []map[string]any{
 			{"role": "user", "content": "run a command"},
 			{"role": "assistant", "content": []map[string]any{
-				{"type": "tool_use", "id": "toolu_waldo_1", "name": "Bash", "input": map[string]any{"command": "echo PROBE_MARKER; hostname"}},
+				{"type": "tool_use", "id": "toolu_reach_1", "name": "Bash", "input": map[string]any{"command": "echo PROBE_MARKER; hostname"}},
 			}},
 			{"role": "user", "content": []map[string]any{
-				{"type": "tool_result", "tool_use_id": "toolu_waldo_1", "content": "PROBE_MARKER\nremote-host\n"},
+				{"type": "tool_result", "tool_use_id": "toolu_reach_1", "content": "PROBE_MARKER\nremote-host\n"},
 			}},
 		},
 		"tools": []map[string]any{{"name": "Bash", "description": "run bash", "input_schema": map[string]any{}}},
@@ -599,7 +599,7 @@ func TestMockAnthropicDialectRejectsChatEndpoint(t *testing.T) {
 	mock := StartMock("MARKER", DialectAnthropic)
 	defer mock.Close()
 	_, status := postAnthropic(t, mock.BaseURL()+"/v1/chat/completions", map[string]any{
-		"model": "waldo-mock",
+		"model": "reach-mock",
 	})
 	if status != 404 {
 		t.Errorf("anthropic mock should 404 the chat endpoint, got %d", status)

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bojieli/waldo/internal/transport"
+	"github.com/bojieli/agentreach/internal/transport"
 )
 
 // TestHandlerThatNeverStartsExplainsItself: removing the handshake ping must

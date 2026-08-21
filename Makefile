@@ -1,7 +1,7 @@
-# waldo — teleoperation for coding agents
+# AgentReach — agent hands on remote hosts
 GO      ?= go
-BIN     := waldo
-VERSION := $(shell sed -n 's/.*Version = "\(.*\)".*/\1/p' internal/waldo/types.go)
+BIN     := reach
+VERSION := $(shell sed -n 's/.*Version = "\(.*\)".*/\1/p' internal/reach/types.go)
 COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 # The commit's own date rather than the wall clock, so two builds of the same
 # commit produce identical binaries.
@@ -15,15 +15,15 @@ LDFLAGS := -s -w \
 
 all: check build
 
-build: ## build the waldo binary
-	$(GO) build -ldflags '$(LDFLAGS)' -o $(BIN) ./cmd/waldo
+build: ## build the reach binary
+	$(GO) build -ldflags '$(LDFLAGS)' -o $(BIN) ./cmd/reach
 
-# The helper binary for this platform. waldo finds it beside its own binary, so
+# The helper binary for this platform. reach finds it beside its own binary, so
 # installing both means the agent tier works against a same-platform target
 # without a cross-compile. Other platforms are cross-built on demand.
 build-helper: ## build the optional helper binary for this platform
 	$(GO) build -trimpath -ldflags '-s -w -X main.version=$(VERSION)' \
-		-o $(BIN)-helper ./cmd/waldo-helper
+		-o $(BIN)-helper ./cmd/reach-helper
 
 install: build build-helper ## install to ~/.local/bin
 	install -d $(HOME)/.local/bin
@@ -55,7 +55,7 @@ e2e: build ## end-to-end tests against real agents (SPENDS MODEL TOKENS)
 mock: ## verify the mock model server (no API key, no tokens)
 	./test/e2e/mockmodel_test.sh
 
-conformance: build ## verify harness seams still have the shape waldo expects
+conformance: build ## verify harness seams still have the shape reach expects
 	./test/e2e/conformance_test.sh
 
 integration: ## file-operation tiers against a real sshd (no network, no API key)

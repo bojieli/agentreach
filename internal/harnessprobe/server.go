@@ -36,10 +36,10 @@ const (
 // Mock is a minimal OpenAI model server that scripts exactly one tool call
 // and records what the harness reports back.
 //
-// It exists because waldo's hardest claim — "the harness's own tools act on
+// It exists because reach's hardest claim — "the harness's own tools act on
 // the target" — cannot be checked by reading version strings; it has to be
 // observed. Checking it against a real model would need an API key, which
-// means the check could never run in CI, in `waldo doctor`, or on a machine
+// means the check could never run in CI, in `reach doctor`, or on a machine
 // whose operator has no account. A scripted server keeps the harness — the
 // part whose behaviour is actually in question — fully in the loop while
 // removing the model, the network and the bill.
@@ -160,7 +160,7 @@ func (m *Mock) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Some harnesses enumerate models before starting a turn. Answering is
 		// cheap; being asked is harmless.
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprint(w, `{"object":"list","data":[{"id":"waldo-mock","object":"model","owned_by":"waldo"}]}`)
+		_, _ = fmt.Fprint(w, `{"object":"list","data":[{"id":"reach-mock","object":"model","owned_by":"reach"}]}`)
 	case r.Method == http.MethodPost && m.dialect == DialectResponses && strings.HasSuffix(path, "/responses"):
 		m.serveResponses(w, r)
 	case r.Method == http.MethodPost && m.dialect == DialectChat && strings.HasSuffix(path, "/chat/completions"):
@@ -171,7 +171,7 @@ func (m *Mock) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && m.dialect == DialectAnthropic && r.URL.Path == "/v1/messages":
 		m.serveAnthropic(w, r)
 	default:
-		http.Error(w, "waldo harnessprobe mock: unexpected request", http.StatusNotFound)
+		http.Error(w, "reach harnessprobe mock: unexpected request", http.StatusNotFound)
 	}
 }
 
@@ -203,7 +203,7 @@ func (m *Mock) serveResponses(w http.ResponseWriter, r *http.Request) {
 	}
 	var req responsesRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		http.Error(w, "waldo harnessprobe mock: malformed request: "+err.Error(), http.StatusBadRequest)
+		http.Error(w, "reach harnessprobe mock: malformed request: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -230,7 +230,7 @@ func (m *Mock) serveResponses(w http.ResponseWriter, r *http.Request) {
 
 	m.writeEvent(w, flusher, "response.created", map[string]any{
 		"type":     "response.created",
-		"response": map[string]any{"id": "resp_waldo_1"},
+		"response": map[string]any{"id": "resp_reach_1"},
 	})
 	if firstTurn {
 		name, args := m.pickTool(req.Tools)
@@ -238,7 +238,7 @@ func (m *Mock) serveResponses(w http.ResponseWriter, r *http.Request) {
 			"type": "response.output_item.done",
 			"item": map[string]any{
 				"type":      "function_call",
-				"call_id":   "call_waldo_1",
+				"call_id":   "call_reach_1",
 				"name":      name,
 				"arguments": args,
 			},
@@ -266,7 +266,7 @@ func (m *Mock) serveResponses(w http.ResponseWriter, r *http.Request) {
 	m.writeEvent(w, flusher, "response.completed", map[string]any{
 		"type": "response.completed",
 		"response": map[string]any{
-			"id": "resp_waldo_1",
+			"id": "resp_reach_1",
 			"usage": map[string]any{
 				"input_tokens":          0,
 				"input_tokens_details":  nil,
@@ -367,7 +367,7 @@ func (m *Mock) serveChat(w http.ResponseWriter, r *http.Request) {
 	}
 	var req chatRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		http.Error(w, "waldo harnessprobe mock: malformed request: "+err.Error(), http.StatusBadRequest)
+		http.Error(w, "reach harnessprobe mock: malformed request: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -400,7 +400,7 @@ func (m *Mock) serveChat(w http.ResponseWriter, r *http.Request) {
 		name, args := m.pickChatTool(req.Tools)
 		m.writeChunk(w, flusher, map[string]any{"role": "assistant", "content": ""}, nil)
 		m.writeChunk(w, flusher, map[string]any{"tool_calls": []map[string]any{{
-			"index": 0, "id": "call_waldo_1", "type": "function",
+			"index": 0, "id": "call_reach_1", "type": "function",
 			"function": map[string]any{"name": name, "arguments": ""},
 		}}}, nil)
 		m.writeChunk(w, flusher, map[string]any{"tool_calls": []map[string]any{{
@@ -432,10 +432,10 @@ func (m *Mock) serveChat(w http.ResponseWriter, r *http.Request) {
 // shape.
 func (m *Mock) writeChunk(w http.ResponseWriter, f http.Flusher, delta map[string]any, finish any) {
 	data, err := json.Marshal(map[string]any{
-		"id":      "chatcmpl-waldo",
+		"id":      "chatcmpl-reach",
 		"object":  "chat.completion.chunk",
 		"created": time.Now().Unix(),
-		"model":   "waldo-mock",
+		"model":   "reach-mock",
 		"choices": []map[string]any{{"index": 0, "delta": delta, "finish_reason": finish}},
 	})
 	if err != nil {
@@ -531,7 +531,7 @@ func (m *Mock) serveGemini(w http.ResponseWriter, r *http.Request) {
 	}
 	var req geminiRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		http.Error(w, "waldo harnessprobe mock: malformed request: "+err.Error(), http.StatusBadRequest)
+		http.Error(w, "reach harnessprobe mock: malformed request: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -656,7 +656,7 @@ func (m *Mock) serveAnthropic(w http.ResponseWriter, r *http.Request) {
 	}
 	var req anthropicRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		http.Error(w, "waldo harnessprobe mock: malformed request: "+err.Error(), http.StatusBadRequest)
+		http.Error(w, "reach harnessprobe mock: malformed request: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -703,8 +703,8 @@ func (m *Mock) serveAnthropic(w http.ResponseWriter, r *http.Request) {
 	m.writeEvent(w, flusher, "message_start", map[string]any{
 		"type": "message_start",
 		"message": map[string]any{
-			"id": "msg_waldo_1", "type": "message", "role": "assistant",
-			"content": []any{}, "model": "claude-waldo",
+			"id": "msg_reach_1", "type": "message", "role": "assistant",
+			"content": []any{}, "model": "claude-reach",
 			"stop_reason": nil, "stop_sequence": nil,
 			"usage": map[string]any{"input_tokens": 0, "output_tokens": 0},
 		},
@@ -722,7 +722,7 @@ func (m *Mock) serveAnthropic(w http.ResponseWriter, r *http.Request) {
 		m.writeEvent(w, flusher, "content_block_start", map[string]any{
 			"type": "content_block_start", "index": 0,
 			"content_block": map[string]any{
-				"type": "tool_use", "id": "toolu_waldo_1",
+				"type": "tool_use", "id": "toolu_reach_1",
 				"name": name, "input": map[string]any{},
 			},
 		})

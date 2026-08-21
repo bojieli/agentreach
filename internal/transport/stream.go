@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/bojieli/waldo/internal/waldo"
+	"github.com/bojieli/agentreach/internal/reach"
 )
 
 // RunStream executes a command and streams its output as it arrives.
@@ -21,7 +21,7 @@ import (
 //
 // The exit status still travels in-band behind a random marker, so the
 // stdout stream is filtered to remove that marker before the caller sees it.
-func RunStream(ctx context.Context, t Transport, req waldo.ExecRequest, stdout, stderr io.Writer) (int, error) {
+func RunStream(ctx context.Context, t Transport, req reach.ExecRequest, stdout, stderr io.Writer) (int, error) {
 	if req.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, req.Timeout)

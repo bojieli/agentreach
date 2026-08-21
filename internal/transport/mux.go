@@ -5,28 +5,28 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/bojieli/waldo/internal/waldo"
+	"github.com/bojieli/agentreach/internal/reach"
 )
 
 // Connection multiplexing is the single largest performance difference between
-// the platforms waldo runs on, so it is decided by evidence rather than by an
+// the platforms reach runs on, so it is decided by evidence rather than by an
 // assumption compiled into the binary.
 //
 // On Unix, OpenSSH's ControlMaster keeps one authenticated connection alive and
 // runs later commands as new channels on it: ~7 ms per command against ~130 ms
 // for a cold connect, and one authentication instead of one per tool call.
-// waldo's whole "no daemon" argument rests on it — a daemon would buy exactly
+// reach's whole "no daemon" argument rests on it — a daemon would buy exactly
 // this and nothing else.
 //
 // Win32-OpenSSH does not implement it. The mux protocol passes file descriptors
 // over a Unix domain socket, which Windows has no equivalent for, so the
-// feature is absent rather than merely unconfigured. waldo therefore starts
+// feature is absent rather than merely unconfigured. reach therefore starts
 // without the options on Windows and probes: it never sends a client an option
 // that might make it refuse the connection, and if a future Windows OpenSSH
-// gains multiplexing, waldo will find it and use it with no code change.
+// gains multiplexing, reach will find it and use it with no code change.
 
 // muxProbeTimeout bounds the probe. Tier and capability decisions must always
-// terminate: an unanswerable question is a value waldo records, not a wait.
+// terminate: an unanswerable question is a value reach records, not a wait.
 const muxProbeTimeout = 20 * time.Second
 
 // DetectMultiplexing reports whether the local ssh client can hold a
@@ -51,7 +51,7 @@ func DetectMultiplexing(ctx context.Context, cfg SSHConfig) (bool, string) {
 	// ask for and will not know to close.
 	defer func() { _ = probe.Close() }()
 
-	if _, err := probe.Run(ctx, waldo.ExecRequest{Command: "true"}); err != nil {
+	if _, err := probe.Run(ctx, reach.ExecRequest{Command: "true"}); err != nil {
 		return false, "the ssh client rejected the multiplexing options: " + err.Error()
 	}
 	if !probe.Alive(ctx) {

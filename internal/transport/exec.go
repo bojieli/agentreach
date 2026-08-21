@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bojieli/waldo/internal/waldo"
+	"github.com/bojieli/agentreach/internal/reach"
 )
 
 // defaultMaxOutput bounds captured output per stream. A command that prints
@@ -27,7 +27,7 @@ const defaultMaxOutput = 4 << 20 // 4 MiB
 // indistinguishable from a remote command that genuinely exited 255. Getting
 // that wrong in either direction is bad: a transport failure reported as a
 // command failure sends the agent chasing a phantom bug, and a command failure
-// reported as a transport failure makes waldo retry something that should not
+// reported as a transport failure makes reach retry something that should not
 // be retried. So the real status is carried in-band behind a random marker,
 // and its absence is itself the signal that the transport, not the command,
 // failed.
@@ -36,9 +36,9 @@ func newSentinel() string {
 	if _, err := rand.Read(b[:]); err != nil {
 		// crypto/rand failing is not recoverable; fall back to a time-derived
 		// value rather than a predictable constant.
-		return "waldo" + strconv.FormatInt(time.Now().UnixNano(), 16)
+		return "reach" + strconv.FormatInt(time.Now().UnixNano(), 16)
 	}
-	return "__waldo_" + hex.EncodeToString(b[:]) + "__"
+	return "__reach_" + hex.EncodeToString(b[:]) + "__"
 }
 
 // NewSentinel returns an unguessable exit-status marker for a caller that
@@ -61,14 +61,14 @@ func WrapWithSentinel(cmd, sentinel string) string { return wrapWithSentinel(cmd
 //
 // The command runs in a subshell, not a brace group. A brace group shares the
 // shell with the wrapper, so a command containing `exit` — which agents write
-// routinely, and which waldo's own tier-0 helpers use to signal conditions —
+// routinely, and which reach's own tier-0 helpers use to signal conditions —
 // would terminate the shell before the status line was ever printed. The
-// marker would be missing and waldo would misreport a perfectly ordinary
+// marker would be missing and reach would misreport a perfectly ordinary
 // non-zero exit as a transport failure. A subshell confines `exit` to the
 // command and lets the wrapper observe its status.
 func wrapWithSentinel(cmd, sentinel string) string {
-	return "( " + cmd + "\n); __waldo_rc=$?; printf '\\n%s%d\\n' " +
-		ShellQuote(sentinel) + " \"$__waldo_rc\""
+	return "( " + cmd + "\n); __reach_rc=$?; printf '\\n%s%d\\n' " +
+		ShellQuote(sentinel) + " \"$__reach_rc\""
 }
 
 // splitSentinel recovers (stdout, exitCode) from captured output.
@@ -96,13 +96,13 @@ func splitSentinel(out []byte, sentinel string) (stdout []byte, code int, ok boo
 // over-long stream. It is only ever added on the exec path; file content never
 // passes through a truncating writer, because a marker spliced into a file
 // would be silently corrupting rather than merely lossy.
-const truncationNotice = "\n...[waldo: output truncated, %d bytes omitted]...\n"
+const truncationNotice = "\n...[reach: output truncated, %d bytes omitted]...\n"
 
 // capWriter bounds a stream while always preserving both its beginning and its
 // end.
 //
 // Keeping only the head — the obvious implementation — is wrong twice over.
-// First, waldo recovers a command's exit status from a marker printed last, so
+// First, reach recovers a command's exit status from a marker printed last, so
 // a head-only cap silently destroys the status of exactly those commands that
 // produce the most output. Second, when a build or test run floods the stream,
 // the useful part is nearly always the failure at the end, so a head-only cap
@@ -248,21 +248,21 @@ func runLocalProcess(ctx context.Context, argv []string, stdin []byte, maxOut in
 }
 
 // finishExec applies the sentinel protocol and timing to a raw process result.
-func finishExec(start time.Time, rawOut, rawErr []byte, procCode int, truncated bool, sentinel string, procErr error, describe string) (waldo.ExecResult, error) {
+func finishExec(start time.Time, rawOut, rawErr []byte, procCode int, truncated bool, sentinel string, procErr error, describe string) (reach.ExecResult, error) {
 	if procErr != nil {
-		return waldo.ExecResult{}, fmt.Errorf("%s: %w", describe, procErr)
+		return reach.ExecResult{}, fmt.Errorf("%s: %w", describe, procErr)
 	}
 	stdout, code, ok := splitSentinel(rawOut, sentinel)
 	if !ok {
 		// No marker: the remote shell never completed the wrapper. This is a
 		// transport failure, not a command failure, and must not be reported
 		// to the agent as a non-zero exit.
-		return waldo.ExecResult{}, fmt.Errorf(
+		return reach.ExecResult{}, fmt.Errorf(
 			"%s: command did not complete (exit %d): %s%s",
 			describe, procCode, strings.TrimSpace(truncateForError(string(rawErr))),
 			shellDiagnosis(procCode, rawErr))
 	}
-	return waldo.ExecResult{
+	return reach.ExecResult{
 		Stdout:    stdout,
 		Stderr:    rawErr,
 		Code:      code,
@@ -275,7 +275,7 @@ func finishExec(start time.Time, rawOut, rawErr []byte, procCode int, truncated 
 // here", which otherwise arrive as a bare number with no stderr at all.
 //
 // A container built FROM scratch or from a distroless base is an ordinary
-// production artefact, and pointing an agent at one is an easy mistake. waldo
+// production artefact, and pointing an agent at one is an easy mistake. reach
 // already refuses it rather than hanging, which is the property that matters —
 // but "exit 126" on its own tells an operator nothing about what to do, and
 // this project's rule is that an error should say what to do next.
@@ -286,11 +286,11 @@ func shellDiagnosis(procCode int, stderr []byte) string {
 	switch procCode {
 	case 126:
 		return "\n\nExit 126 with no output means the target would not execute a shell. " +
-			"Images built FROM scratch or from a distroless base have none, and waldo's " +
+			"Images built FROM scratch or from a distroless base have none, and reach's " +
 			"floor is a POSIX shell — there is no tier that works without one."
 	case 127:
 		return "\n\nExit 127 with no output means no shell was found on the target. " +
-			"waldo needs a POSIX shell; check that /bin/sh exists."
+			"reach needs a POSIX shell; check that /bin/sh exists."
 	}
 	return ""
 }

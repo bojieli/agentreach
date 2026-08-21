@@ -17,8 +17,8 @@ fn unix_shell() -> String {
 ```
 
 `GOOSE_SHELL` is a first-class, documented override — no patching, no shim
-gymnastics.  `waldo goose` sets `GOOSE_SHELL` to the absolute path of the
-PATH shim's `bash`.  Every command the `shell` tool runs goes through waldo
+gymnastics.  `reach goose` sets `GOOSE_SHELL` to the absolute path of the
+PATH shim's `bash`.  Every command the `shell` tool runs goes through reach
 and executes on the session target.
 
 Unlike Codex and Kimi, this is a supported, stable env var that Goose's own
@@ -34,16 +34,16 @@ Options for full coverage:
 
 1. **Goose ACP mode** (`goose acp`): Goose runs as an ACP (Agent Client
    Protocol) JSON-RPC server on stdio; the ACP client advertises file
-   capabilities and handles file reads/writes.  waldo would act as the ACP
+   capabilities and handles file reads/writes.  reach would act as the ACP
    client, routing every file operation to the target.  This gives 100%
-   coverage but requires waldo to implement the ACP client protocol — not yet
+   coverage but requires reach to implement the ACP client protocol — not yet
    done.
 
 2. **Shell-only posture**: Disable `file_read`, `file_write`, and `file_edit`
    (not yet configurable in stock Goose) and have the agent use shell commands
    for file access.  `GOOSE_SHELL` covers that path.
 
-Current default: `waldo goose` sets `GOOSE_SHELL` and warns that the file
+Current default: `reach goose` sets `GOOSE_SHELL` and warns that the file
 tools act locally.
 
 ## File tools: denied via available_tools
@@ -52,7 +52,7 @@ Goose's developer extension also exposes `file_read`, `file_write`,
 `file_edit`, `tree`, and `read_image` tools that call Rust's `std::fs`
 directly.  `GOOSE_SHELL` has no effect on these.
 
-`waldo goose` builds a managed `GOOSE_PATH_ROOT` whose
+`reach goose` builds a managed `GOOSE_PATH_ROOT` whose
 `config/config.yaml` sets `available_tools: [shell]` on the developer
 extension.  Goose enforces this allowlist at the extension layer: only tools
 named in `available_tools` are advertised to the model.  With the list set
@@ -61,7 +61,7 @@ for file access instead, which run on the target.
 
 The managed config is written from the operator's real goose
 `config.yaml` (provider settings, model selection) with the `extensions:`
-block replaced by waldo's controlled version.  If the operator configures
+block replaced by reach's controlled version.  If the operator configures
 their provider via env vars (the common case), no copying is needed.
 
 ## Seam coverage
@@ -84,15 +84,15 @@ verdict is expected to stay OK and rarely needs re-measurement.
 
 ## Implementation status
 
-`waldo goose` is implemented.  `waldo harness verify goose` probes the
+`reach goose` is implemented.  `reach harness verify goose` probes the
 `GOOSE_SHELL` seam end-to-end against the live session target.
 
 ## ACP roadmap
 
-Implementing waldo as a Goose ACP client would give 100% tool coverage — all
+Implementing reach as a Goose ACP client would give 100% tool coverage — all
 file reads and writes would route to the target — without needing
 `available_tools` restriction.  The ACP wire format is JSON-RPC over stdio,
 well-documented in Goose's repo.  File capabilities in ACP:
 `fs.read_text_file`, `fs.write_text_file`.  The `terminal` capability covers
 shell commands (overlapping with `GOOSE_SHELL`).  When the ACP client is
-implemented, `waldo goose` can drop `GOOSE_SHELL` and rely entirely on ACP.
+implemented, `reach goose` can drop `GOOSE_SHELL` and rely entirely on ACP.

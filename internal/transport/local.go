@@ -8,14 +8,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bojieli/waldo/internal/waldo"
+	"github.com/bojieli/agentreach/internal/reach"
 )
 
-// LocalTransport runs commands on the machine waldo itself runs on.
+// LocalTransport runs commands on the machine reach itself runs on.
 //
 // It exists so the whole stack above it — file-operation tiers, the daemon,
 // every harness adapter — can be exercised in tests without a network, and so
-// `waldo up local:///path` is a working degenerate case rather than a special
+// `reach up local:///path` is a working degenerate case rather than a special
 // path through the code.
 type LocalTransport struct {
 	Shell string
@@ -24,7 +24,7 @@ type LocalTransport struct {
 // NewLocal builds a local transport.
 //
 // It resolves a POSIX shell rather than assuming /bin/sh, because on Windows
-// there is not one. A local:// target means "the machine waldo is running on is
+// there is not one. A local:// target means "the machine reach is running on is
 // the target", and every file-operation tier below the agent speaks to a target
 // through a POSIX shell — so on Windows this is only usable when Git for
 // Windows or MSYS2 has supplied one, and says so plainly when it has not.
@@ -37,7 +37,7 @@ func NewLocal() (*LocalTransport, error) {
 }
 
 // Run implements Transport.
-func (t *LocalTransport) Run(ctx context.Context, req waldo.ExecRequest) (waldo.ExecResult, error) {
+func (t *LocalTransport) Run(ctx context.Context, req reach.ExecRequest) (reach.ExecResult, error) {
 	if req.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, req.Timeout)
@@ -153,7 +153,7 @@ func (t *ContainerTransport) execArgs(interactive bool) []string {
 }
 
 // Run implements Transport.
-func (t *ContainerTransport) Run(ctx context.Context, req waldo.ExecRequest) (waldo.ExecResult, error) {
+func (t *ContainerTransport) Run(ctx context.Context, req reach.ExecRequest) (reach.ExecResult, error) {
 	if req.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, req.Timeout)

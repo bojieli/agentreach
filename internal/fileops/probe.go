@@ -9,17 +9,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bojieli/waldo/internal/transport"
-	"github.com/bojieli/waldo/internal/waldo"
+	"github.com/bojieli/agentreach/internal/transport"
+	"github.com/bojieli/agentreach/internal/reach"
 )
 
 // Capabilities records what a target's userland actually provides.
 //
-// waldo probes once per session instead of guessing per command. Targets are
+// reach probes once per session instead of guessing per command. Targets are
 // not uniform — GNU coreutils, BSD, busybox and toybox differ on exactly the
 // utilities file operations depend on, and a wrong guess produces corrupted
 // data rather than a clean error. One round trip buys deterministic behaviour
-// for the rest of the session, and `waldo doctor` prints the result so a
+// for the rest of the session, and `reach doctor` prints the result so a
 // surprising host is visible rather than mysterious.
 type Capabilities struct {
 	// StatFlavor is "gnu", "bsd" or "" when no usable stat exists.
@@ -111,19 +111,19 @@ else printf 'SHA=\n'; fi
 // loginPathScript asks the target what PATH the operator would actually have.
 //
 // `ssh host command` runs a non-interactive shell, which on Debian and Ubuntu
-// returns from ~/.bashrc before reaching anything that edits PATH. So waldo saw
+// returns from ~/.bashrc before reaching anything that edits PATH. So reach saw
 // /usr/bin and friends while the operator's own shell had ~/.local/bin, ~/bin
 // and ~/.cargo/bin as well — measured on a real host, where the two differed by
 // five directories.
 //
 // That gap is not cosmetic. `cargo install ripgrep` is how most people get rg,
-// and it lands in ~/.cargo/bin, so waldo would report "no ripgrep on the
+// and it lands in ~/.cargo/bin, so reach would report "no ripgrep on the
 // target" and quietly fall back to grep on a machine that has it. Reporting a
 // capability as absent when it is present, and degrading on that basis, is the
 // failure this project exists to avoid.
 //
 // The login shell is asked once, with a timeout, and its answer is used for
-// every command afterwards — detection and execution together, so waldo can
+// every command afterwards — detection and execution together, so reach can
 // never find a tool during the probe that it then cannot run.
 const loginPathScript = `
 w_login_path() {
@@ -142,9 +142,9 @@ printf 'LOGINPATH=%s\n' "$(w_login_path 2>/dev/null)"
 // Probe inspects a target's userland.
 func Probe(ctx context.Context, t transport.Transport) (*Capabilities, error) {
 	loginPath := detectLoginPath(ctx, t)
-	// Detection runs under the login PATH, so what waldo finds is what the
+	// Detection runs under the login PATH, so what reach finds is what the
 	// operator would find.
-	res, err := t.Run(ctx, waldo.ExecRequest{Command: probeScript, Env: pathEnv(loginPath)})
+	res, err := t.Run(ctx, reach.ExecRequest{Command: probeScript, Env: pathEnv(loginPath)})
 	if err != nil {
 		return nil, fmt.Errorf("probe target: %w", err)
 	}
@@ -186,7 +186,7 @@ func Probe(ctx context.Context, t transport.Transport) (*Capabilities, error) {
 	}
 	if c.Base64Decode == "" || c.Base64Encode == "" {
 		return c, fmt.Errorf(
-			"target has no base64 and no openssl: waldo cannot move file content safely.\n"+
+			"target has no base64 and no openssl: reach cannot move file content safely.\n"+
 				"Binary-safe transfer needs one of them; without it, content would have to be\n"+
 				"passed through the shell unencoded, which corrupts any file containing NUL or\n"+
 				"invalid UTF-8. Target reports: %s", c.Uname)
@@ -209,7 +209,7 @@ func rawProbeBlob() []byte {
 
 // probeRawIO asks whether binary content survives the transport unencoded.
 //
-// waldo has always base64-framed file content, which is unconditionally safe
+// reach has always base64-framed file content, which is unconditionally safe
 // and costs a third of the bandwidth in both directions. Whether it is
 // *necessary* is a property of the transport, and transports differ: an ssh
 // session with no pty is 8-bit clean, while a pty translates newlines, and
@@ -228,7 +228,7 @@ func probeRawIO(ctx context.Context, t transport.Transport, c *Capabilities) (st
 
 	if c.SHA256 != "" {
 		sum := sha256.Sum256(blob)
-		res, err := t.Run(ctx, waldo.ExecRequest{
+		res, err := t.Run(ctx, reach.ExecRequest{
 			Command:   c.SHA256,
 			Stdin:     blob,
 			Env:       pathEnv(c.LoginPath),
@@ -246,7 +246,7 @@ func probeRawIO(ctx context.Context, t transport.Transport, c *Capabilities) (st
 	for _, b := range blob {
 		fmt.Fprintf(&esc, "\\%03o", b)
 	}
-	res, err := t.Run(ctx, waldo.ExecRequest{
+	res, err := t.Run(ctx, reach.ExecRequest{
 		Command:   "printf " + transport.ShellQuote(esc.String()),
 		Env:       pathEnv(c.LoginPath),
 		MaxOutput: 64 << 10,
@@ -263,7 +263,7 @@ func detectLoginPath(ctx context.Context, t transport.Transport) string {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 
-	res, err := t.Run(ctx, waldo.ExecRequest{Command: loginPathScript, MaxOutput: 64 << 10})
+	res, err := t.Run(ctx, reach.ExecRequest{Command: loginPathScript, MaxOutput: 64 << 10})
 	if err != nil || res.Code != 0 {
 		return "" // a target that will not answer keeps the default PATH
 	}
@@ -277,7 +277,7 @@ func detectLoginPath(ctx context.Context, t transport.Transport) string {
 		return ""
 	}
 	// A login shell that adds nothing is not worth overriding anything for.
-	plain, err := t.Run(ctx, waldo.ExecRequest{Command: `printf %s "$PATH"`, MaxOutput: 64 << 10})
+	plain, err := t.Run(ctx, reach.ExecRequest{Command: `printf %s "$PATH"`, MaxOutput: 64 << 10})
 	if err == nil && strings.TrimSpace(string(plain.Stdout)) == login {
 		return ""
 	}
@@ -301,12 +301,12 @@ func (c *Capabilities) Env() map[string]string {
 }
 
 // Qualifies reports whether a target can support a tier, and why not when it
-// cannot. The reason is shown by `waldo doctor`, so an operator can see that a
-// host is on tier 0 because it lacks python3 rather than because waldo decided
+// cannot. The reason is shown by `reach doctor`, so an operator can see that a
+// host is on tier 0 because it lacks python3 rather than because reach decided
 // so for no visible reason.
-func (c *Capabilities) Qualifies(tier waldo.Tier) (bool, string) {
+func (c *Capabilities) Qualifies(tier reach.Tier) (bool, string) {
 	switch tier {
-	case waldo.TierPOSIX:
+	case reach.TierPOSIX:
 		if c.Base64Decode == "" || c.Base64Encode == "" {
 			return false, "no base64 and no openssl"
 		}
@@ -314,12 +314,12 @@ func (c *Capabilities) Qualifies(tier waldo.Tier) (bool, string) {
 			return false, "no usable stat command"
 		}
 		return true, ""
-	case waldo.TierPipe:
+	case reach.TierPipe:
 		if !c.Python3 {
 			return false, "no python3"
 		}
 		return true, ""
-	case waldo.TierHelper:
+	case reach.TierHelper:
 		if _, _, err := platformOf(c.Uname); err != nil {
 			return false, err.Error()
 		}
@@ -353,16 +353,16 @@ func (c *Capabilities) Qualifies(tier waldo.Tier) (bool, string) {
 //
 // TierHelper is deliberately absent, and no longer for performance reasons —
 // it is now the fastest tier for small reads. It is absent because it writes a
-// binary to a machine the operator may not own, and that is a decision waldo
+// binary to a machine the operator may not own, and that is a decision reach
 // does not make for them. Speed is not the argument that would justify it.
-var negotiationOrder = []waldo.Tier{waldo.TierPipe}
+var negotiationOrder = []reach.Tier{reach.TierPipe}
 
 // BestTier reports the tier autonegotiation would choose for this target.
-func (c *Capabilities) BestTier() waldo.Tier {
+func (c *Capabilities) BestTier() reach.Tier {
 	for _, tier := range negotiationOrder {
 		if ok, _ := c.Qualifies(tier); ok {
 			return tier
 		}
 	}
-	return waldo.TierPOSIX
+	return reach.TierPOSIX
 }

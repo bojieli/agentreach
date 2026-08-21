@@ -1,14 +1,14 @@
 version: 2
-project_name: waldo
+project_name: reach
 
 before:
   hooks:
     - go mod tidy
     - go test ./...
     # The helper binary, built for every platform a target might run, and
-    # shipped inside every archive. waldo looks for these beside its own binary,
+    # shipped inside every archive. reach looks for these beside its own binary,
     # so an operator on macOS can use the helper tier against a Linux target
-    # without a Go toolchain — and waldo never has to download an executable at
+    # without a Go toolchain — and reach never has to download an executable at
     # run time to put on someone else's machine.
     #
     # Built into .helpers/ rather than dist/. before-hooks run *before*
@@ -19,26 +19,26 @@ before:
     - >-
       env GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath
       -ldflags "-s -w -X main.version={{.Version}}"
-      -o .helpers/waldo-helper-linux-amd64 ./cmd/waldo-helper
+      -o .helpers/reach-helper-linux-amd64 ./cmd/reach-helper
     - >-
       env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath
       -ldflags "-s -w -X main.version={{.Version}}"
-      -o .helpers/waldo-helper-linux-arm64 ./cmd/waldo-helper
+      -o .helpers/reach-helper-linux-arm64 ./cmd/reach-helper
     - >-
       env GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -trimpath
       -ldflags "-s -w -X main.version={{.Version}}"
-      -o .helpers/waldo-helper-darwin-amd64 ./cmd/waldo-helper
+      -o .helpers/reach-helper-darwin-amd64 ./cmd/reach-helper
     - >-
       env GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -trimpath
       -ldflags "-s -w -X main.version={{.Version}}"
-      -o .helpers/waldo-helper-darwin-arm64 ./cmd/waldo-helper
+      -o .helpers/reach-helper-darwin-arm64 ./cmd/reach-helper
 
 builds:
-  - id: waldo
-    main: ./cmd/waldo
-    binary: waldo
+  - id: reach
+    main: ./cmd/reach
+    binary: reach
     env: [CGO_ENABLED=0]
-    # waldo runs on the operator's machine, not the target, so these are the
+    # reach runs on the operator's machine, not the target, so these are the
     # platforms a developer drives agents from. The *target* platforms are a
     # different and wider set — see the helper builds above, which ship inside
     # every archive including the Windows ones, because a Windows operator's
@@ -73,9 +73,9 @@ archives:
 checksum:
   name_template: checksums.txt
 
-# waldo's helper tier writes a binary onto a machine the operator may not own,
+# reach's helper tier writes a binary onto a machine the operator may not own,
 # and the release archive is where that binary comes from. Provenance is not
-# decoration here: someone deciding whether to let waldo install something on
+# decoration here: someone deciding whether to let reach install something on
 # their production host should be able to establish that the artifact came from
 # this repository's tagged CI run and nowhere else.
 sboms:
@@ -108,8 +108,8 @@ release:
   footer: |
     ## Verifying this release
 
-    Every archive ships `waldo` plus the helper binary for each target platform.
-    At the helper tier waldo copies that binary onto your target, so it is worth
+    Every archive ships `reach` plus the helper binary for each target platform.
+    At the helper tier reach copies that binary onto your target, so it is worth
     knowing where it came from.
 
     Check the contents against `checksums.txt`:
@@ -127,7 +127,7 @@ release:
     cosign verify-blob checksums.txt \
       --certificate checksums.txt.pem \
       --signature checksums.txt.sig \
-      --certificate-identity-regexp '^https://github.com/bojieli/waldo/\.github/workflows/release\.yml@refs/tags/' \
+      --certificate-identity-regexp '^https://github.com/bojieli/agentreach/\.github/workflows/release\.yml@refs/tags/' \
       --certificate-oidc-issuer https://token.actions.githubusercontent.com
     ```
 

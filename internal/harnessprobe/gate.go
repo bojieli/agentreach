@@ -35,7 +35,7 @@ func Gate(harness, version string, cached *Entry) Decision {
 	case VerdictBypassed:
 		return Decision{Message: refusalMessage(harness, version, "on "+cached.When.Format("2006-01-02"), cached.Detail)}
 	default:
-		// A verdict this build does not recognise — written by a newer waldo,
+		// A verdict this build does not recognise — written by a newer reach,
 		// say — is not evidence either way. Re-probe.
 		return Decision{RunProbe: true}
 	}
@@ -44,7 +44,7 @@ func Gate(harness, version string, cached *Entry) Decision {
 // GateFromProbe decides from a fresh probe result.
 //
 // A probe error fails open, deliberately: the probe not running proves nothing
-// about the seam, and refusing to launch because waldo could not check would
+// about the seam, and refusing to launch because reach could not check would
 // break every user whose machine cannot run the probe. The warning is loud
 // because the operator is now flying without the guard. Only a measured
 // "bypassed" — where the danger is known, not hypothetical — refuses.
@@ -52,16 +52,16 @@ func GateFromProbe(harness, version string, r Result) Decision {
 	switch r.Verdict {
 	case VerdictOK:
 		return Decision{Allow: true, Message: fmt.Sprintf(
-			"waldo: %s %s seam verified — shell commands route to the target\n", harness, version)}
+			"reach: %s %s seam verified — shell commands route to the target\n", harness, version)}
 	case VerdictBypassed:
 		return Decision{Message: refusalMessage(harness, version, "just now", r.Detail)}
 	default:
 		return Decision{Allow: true, Message: fmt.Sprintf(
-			"waldo: WARNING: could not verify whether %s's shell is redirected: %s\n"+
-				"waldo: Launching anyway. If this %s version resolves its shell by absolute\n"+
-				"waldo: path, every command it runs will execute LOCALLY while the agent\n"+
-				"waldo: believes it is acting on the target. Run `waldo harness verify %s`\n"+
-				"waldo: to diagnose.\n", harness, r.Detail, harness, harness)}
+			"reach: WARNING: could not verify whether %s's shell is redirected: %s\n"+
+				"reach: Launching anyway. If this %s version resolves its shell by absolute\n"+
+				"reach: path, every command it runs will execute LOCALLY while the agent\n"+
+				"reach: believes it is acting on the target. Run `reach harness verify %s`\n"+
+				"reach: to diagnose.\n", harness, r.Detail, harness, harness)}
 	}
 }
 
@@ -80,21 +80,21 @@ type harnessMessage struct {
 var harnessMessages = map[string]harnessMessage{
 	HarnessCodex: {
 		whyBypass: "Codex 0.148+ runs its whole tool surface through an exec-server remote\n" +
-			"environment, which waldo implements (`waldo exec-server`). The seam probe measured\n" +
+			"environment, which reach implements (`reach exec-server`). The seam probe measured\n" +
 			"the scripted command running somewhere other than the session's target.",
 		remediation: []string{
-			"Run `waldo doctor` to check the session target, then re-probe with:\n      waldo harness verify codex",
+			"Run `reach doctor` to check the session target, then re-probe with:\n      reach harness verify codex",
 			"Report the failure with the probe detail above — the seam is measured, so this\n    verdict means the routing broke rather than that the version is unsupported.",
-			"Re-run with `waldo codex --force` if you accept that every command the agent\n    runs will execute on the local machine.",
+			"Re-run with `reach codex --force` if you accept that every command the agent\n    runs will execute on the local machine.",
 		},
 	},
 	HarnessKimi: {
 		whyBypass: "Kimi Code spawns its shell by absolute path instead of by name, so the PATH\n" +
-			"shim waldo installs can never intercept it.",
+			"shim reach installs can never intercept it.",
 		remediation: []string{
-			"Run kimi on the target itself, without waldo in between.",
-			"Track upstream and re-check after upgrading with:\n      waldo harness verify kimi",
-			"Re-run with `waldo kimi --force` if you accept that every command the agent\n    runs will execute on the local machine.",
+			"Run kimi on the target itself, without reach in between.",
+			"Track upstream and re-check after upgrading with:\n      reach harness verify kimi",
+			"Re-run with `reach kimi --force` if you accept that every command the agent\n    runs will execute on the local machine.",
 		},
 		// Even a *working* shell seam leaves Kimi's native file tools acting
 		// locally; a refusal that omits this would let the operator walk into
@@ -106,7 +106,7 @@ var harnessMessages = map[string]harnessMessage{
 }
 
 // refusalMessage is the fail-closed message for a version whose seam is
-// measured broken. It says what happens, how waldo knows, and what the
+// measured broken. It says what happens, how reach knows, and what the
 // operator's options are, because a refusal without a route forward reads as
 // the tool being broken rather than as the tool refusing to break the operator.
 func refusalMessage(harness, version, when, detail string) string {
@@ -114,20 +114,20 @@ func refusalMessage(harness, version, when, detail string) string {
 	if !ok {
 		msg = harnessMessage{
 			whyBypass: "This harness spawns its shell by absolute path instead of by name,\n" +
-				"so the PATH shim waldo installs can never intercept it.",
+				"so the PATH shim reach installs can never intercept it.",
 			remediation: []string{
-				fmt.Sprintf("Re-run with `waldo %s --force` if you accept that every command the agent\n    runs will execute on the local machine.", harness),
+				fmt.Sprintf("Re-run with `reach %s --force` if you accept that every command the agent\n    runs will execute on the local machine.", harness),
 			},
 		}
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "waldo: refusing to launch %s %s: this version bypasses waldo's shell redirection.\n\n", harness, version)
+	fmt.Fprintf(&b, "reach: refusing to launch %s %s: this version bypasses reach's shell redirection.\n\n", harness, version)
 	b.WriteString(msg.whyBypass + "\n")
 	b.WriteString("Everything it ran would execute on THIS machine while the agent believed —\n" +
-		"and reported — that it was acting on the target. That is the failure waldo exists\n" +
-		"to prevent, so waldo will not launch this combination.\n\n")
-	fmt.Fprintf(&b, "Verified %s by waldo's seam probe", when)
+		"and reported — that it was acting on the target. That is the failure reach exists\n" +
+		"to prevent, so reach will not launch this combination.\n\n")
+	fmt.Fprintf(&b, "Verified %s by reach's seam probe", when)
 	if detail != "" {
 		fmt.Fprintf(&b, ": %s", detail)
 	}

@@ -6,9 +6,9 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/bojieli/waldo/internal/audit"
-	"github.com/bojieli/waldo/internal/transport"
-	"github.com/bojieli/waldo/internal/waldo"
+	"github.com/bojieli/agentreach/internal/audit"
+	"github.com/bojieli/agentreach/internal/transport"
+	"github.com/bojieli/agentreach/internal/reach"
 )
 
 // Every fs/* method maps the PathUri codex sent onto a target path and runs
@@ -163,7 +163,7 @@ func (s *Server) handleFsCanonicalize(ctx context.Context, raw json.RawMessage) 
 	}
 	opCtx, cancel := s.operationContext(ctx)
 	defer cancel()
-	res, err := s.t.Run(opCtx, waldo.ExecRequest{
+	res, err := s.t.Run(opCtx, reach.ExecRequest{
 		Command:   "readlink -f " + transport.ShellQuote(target),
 		MaxOutput: 64 << 10,
 	})
@@ -356,7 +356,7 @@ func (s *Server) handleFsCopy(ctx context.Context, raw json.RawMessage) (any, *r
 		return nil, rerr
 	}
 	// The tiers have no copy, and reading the content across the wire to write
-	// it back is exactly the inefficiency waldo exists to avoid: one cp on the
+	// it back is exactly the inefficiency reach exists to avoid: one cp on the
 	// target does it without the bytes ever leaving the machine.
 	cmd := "cp"
 	if p.Recursive {
@@ -365,7 +365,7 @@ func (s *Server) handleFsCopy(ctx context.Context, raw json.RawMessage) (any, *r
 	cmd += " " + transport.ShellQuote(src) + " " + transport.ShellQuote(dst)
 	opCtx, cancel := s.operationContext(ctx)
 	defer cancel()
-	res, err := s.t.Run(opCtx, waldo.ExecRequest{Command: cmd, MaxOutput: 16 << 10})
+	res, err := s.t.Run(opCtx, reach.ExecRequest{Command: cmd, MaxOutput: 16 << 10})
 	entry := audit.Entry{Action: "write", Path: dst}
 	switch {
 	case err != nil:
@@ -464,7 +464,7 @@ type capabilityRootsParams struct {
 }
 
 // handleCapabilityDiscover answers codex's plugin/skill discovery with empty
-// discoveries in the valid shape: waldo does not scan the target for plugin
+// discoveries in the valid shape: reach does not scan the target for plugin
 // manifests, and an empty result is the honest answer from a seam whose job is
 // running the agent's commands, not managing its extensions.
 func (s *Server) handleCapabilityDiscover(raw json.RawMessage) (any, *rpcError) {

@@ -4,7 +4,7 @@
 // Harnesses do not hand a shell the command the model wrote. They wrap it with
 // environment restoration and bookkeeping that assumes the command runs on the
 // same machine as the harness. Forwarding that wrapper verbatim to a remote
-// host is wrong in ways that are silent rather than loud, so waldo takes the
+// host is wrong in ways that are silent rather than loud, so reach takes the
 // wrapper apart, keeps what is portable, and reproduces the local bookkeeping
 // itself.
 package envelope
@@ -57,13 +57,13 @@ var (
 // The snapshot is generated on the local machine and restores the *local*
 // user's functions, aliases and PATH. Remotely it is at best a no-op, and it
 // embeds the local username and directory layout — which, on a client's
-// server, is an information disclosure waldo would be causing. It is stripped.
+// server, is an information disclosure reach would be causing. It is stripped.
 //
 // The `pwd -P` redirect is how Claude Code persists `cd` between calls: it
 // writes the resulting directory to a local temp file and reads it back after
 // the command returns. Forwarded verbatim it would be written on the *remote*
 // filesystem while the harness reads the local path, so `cd` would silently
-// stop working, with no error anywhere. waldo strips it, records the path, and
+// stop working, with no error anywhere. reach strips it, records the path, and
 // writes the resolved directory locally itself.
 func ParseClaudeCode(raw string) Parsed {
 	p := Parsed{Command: raw}
@@ -85,9 +85,9 @@ func ParseClaudeCode(raw string) Parsed {
 
 // There was a StripLocalPaths here that scanned a command for the operator's
 // home path. Nothing called it, and nothing should have: SECURITY.md says
-// plainly that waldo does not inspect or rewrite arbitrary commands, because a
+// plainly that reach does not inspect or rewrite arbitrary commands, because a
 // false positive that mangled one would be worse than the leak it prevented.
-// What waldo does strip is the shell snapshot above — a specific, recognisable
+// What reach does strip is the shell snapshot above — a specific, recognisable
 // construct the harness generates, not a guess about a path.
 //
 // Deleted rather than kept for later. In a tool whose security posture is the

@@ -20,7 +20,7 @@ func TestParseTargetForms(t *testing.T) {
 		{"local:///tmp/x", KindLocal, "", "", 0, "", "/tmp/x"},
 		{"root@box:/srv/app", KindSSH, "box", "root", 0, "", "/srv/app"},
 		{"box:/srv/app", KindSSH, "box", "", 0, "", "/srv/app"},
-		// An ssh_config alias must survive untouched, since waldo delegates
+		// An ssh_config alias must survive untouched, since reach delegates
 		// destination resolution to the user's ssh client.
 		{"ssh://my-alias/srv/app", KindSSH, "my-alias", "", 0, "", "/srv/app"},
 	}
@@ -40,7 +40,7 @@ func TestParseTargetForms(t *testing.T) {
 func TestParseTargetRejectsBadInput(t *testing.T) {
 	for _, spec := range []string{
 		"",                   // empty
-		"ssh://box",          // no workspace: waldo would not know where to work
+		"ssh://box",          // no workspace: reach would not know where to work
 		"ssh://box/relative", // caught below as absolute; kept for clarity
 		"ftp://box/srv",      // unsupported scheme
 		"docker:///srv",      // no container name

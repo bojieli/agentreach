@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # Harness seam tests: does each installed agent's shell tool really route
-# through waldo to the remote target?
+# through reach to the remote target?
 #
-# Drives `waldo harness verify <harness> [--task-prefix CMD]` against a real
+# Drives `reach harness verify <harness> [--task-prefix CMD]` against a real
 # SSH target (docker sshd).  The probe points the harness at an embedded mock
 # model (no API key, no tokens), scripts one shell tool call, and checks WHERE
 # it ran:
 #
-#   remote hostname -> shell is intercepted; waldo works
+#   remote hostname -> shell is intercepted; reach works
 #   local hostname  -> harness resolved its shell by absolute path and bypassed
-#                      waldo's PATH shim
+#                      reach's PATH shim
 #
 # Three task variants are probed for each harness:
 #   exec  — "echo <marker>; hostname"                      (shell execution)
@@ -20,7 +20,7 @@
 # reading and writing on the target work, not just running commands.
 #
 # Multiple installed versions of the same harness are probed in parallel.
-# The WALDO_HARNESS_VERSIONS_DIR env var names a directory of the form:
+# The REACH_HARNESS_VERSIONS_DIR env var names a directory of the form:
 #
 #   <dir>/<harness>/<version>/bin/<harness>
 #
@@ -32,35 +32,35 @@
 set -uo pipefail
 cd "$(dirname "$0")" && source ./lib.sh
 
-WALDO_BIN="${WALDO_BIN:-$(cd ../.. && pwd)/waldo}"
+REACH_BIN="${REACH_BIN:-$(cd ../.. && pwd)/reach}"
 SESSION="seam-test"
-VERSIONS_DIR="${WALDO_HARNESS_VERSIONS_DIR:-}"
+VERSIONS_DIR="${REACH_HARNESS_VERSIONS_DIR:-}"
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "docker not installed — skipping harness seam tests"; exit 0
 fi
-if [[ ! -x "$WALDO_BIN" ]]; then
-  (cd ../.. && make build) || { echo "could not build waldo" >&2; exit 1; }
+if [[ ! -x "$REACH_BIN" ]]; then
+  (cd ../.. && make build) || { echo "could not build reach" >&2; exit 1; }
 fi
 
 info "Setting up remote target (docker sshd)"
 if ! setup_target; then echo "could not start test target" >&2; exit 1; fi
 cleanup() {
-  "$WALDO_BIN" down "$SESSION" >/dev/null 2>&1 || true
+  "$REACH_BIN" down "$SESSION" >/dev/null 2>&1 || true
   teardown_target
 }
 trap cleanup EXIT
 
-"$WALDO_BIN" up ssh://waldo-e2e/srv/app --name "$SESSION" >/dev/null 2>&1 \
-  || { echo "waldo up failed" >&2; exit 1; }
-REMOTE_HOST="$("$WALDO_BIN" exec --session "$SESSION" -- hostname)"
+"$REACH_BIN" up ssh://reach-e2e/srv/app --name "$SESSION" >/dev/null 2>&1 \
+  || { echo "reach up failed" >&2; exit 1; }
+REMOTE_HOST="$("$REACH_BIN" exec --session "$SESSION" -- hostname)"
 LOCAL_HOST="$(hostname)"
 info "Target is up (local=$LOCAL_HOST remote=$REMOTE_HOST)"
 if [[ "$LOCAL_HOST" == "$REMOTE_HOST" ]]; then
   echo "local and remote hostnames match; test cannot distinguish them" >&2; exit 1
 fi
 
-RESULT_DIR="$WALDO_E2E_DIR/seam-results"
+RESULT_DIR="$REACH_E2E_DIR/seam-results"
 rm -rf "$RESULT_DIR"
 mkdir -p "$RESULT_DIR"
 
@@ -88,9 +88,9 @@ probe() {
       ;;
     rw)
       task_label="read-write (write+read remote file)"
-      local tmp_path="/tmp/waldo-probe-rw-$RANDOM.txt"
+      local tmp_path="/tmp/reach-probe-rw-$RANDOM.txt"
       prefix_args=(--task-prefix \
-        "echo waldo_probe_write > $tmp_path && cat $tmp_path && rm -f $tmp_path")
+        "echo reach_probe_write > $tmp_path && cat $tmp_path && rm -f $tmp_path")
       ;;
     *)
       echo "unknown task $task" >&2; echo "error skip skip" > "$out_file"; return 0
@@ -101,7 +101,7 @@ probe() {
   [[ -n "$binary" ]] && bin_args=(--binary "$binary")
 
   local out rc=0
-  out="$(timeout 240 "$WALDO_BIN" harness verify "$harness" \
+  out="$(timeout 240 "$REACH_BIN" harness verify "$harness" \
       --session "$SESSION" "${prefix_args[@]}" "${bin_args[@]}" 2>&1)" || rc=$?
 
   local verdict="error"

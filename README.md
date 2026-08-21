@@ -1,18 +1,19 @@
-# waldo
+# AgentReach
 
 **Your coding agent stays on your laptop. Its hands work on the server.**
 
-[![CI](https://github.com/bojieli/waldo/actions/workflows/ci.yml/badge.svg)](https://github.com/bojieli/waldo/actions/workflows/ci.yml)
+[![CI](https://github.com/bojieli/agentreach/actions/workflows/ci.yml/badge.svg)](https://github.com/bojieli/agentreach/actions/workflows/ci.yml)
 [![Go 1.25.8+](https://img.shields.io/badge/go-1.25.8%2B-00ADD8)](https://go.dev)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)](go.mod)
 
-A *waldo* is a teleoperated manipulator — the arms used to handle hazardous
-material from behind a barrier. The operator never enters the cell.
+AgentReach (`reach`) extends your local coding agent's hands to any SSH host or
+container — without installing the agent there, without exposing your API key,
+and without a filesystem mount that hangs on a flaky link.
 
 ```console
-$ waldo up ssh://client-box/srv/app --untrusted
-$ waldo claude
+$ reach up ssh://client-box/srv/app --untrusted
+$ reach claude
 ```
 
 Claude Code is now working on `client-box`. It is using its **own `Bash` tool**,
@@ -23,18 +24,18 @@ key never leaves your laptop.
 ## See it
 
 ```console
-$ waldo up ssh://client-box/srv/app
+$ reach up ssh://client-box/srv/app
 session "default" -> ssh://client-box/srv/app
   target   Linux x86_64
   fileops  pipe (negotiated; nothing written to the target)
   search   grep (no ripgrep on target)
   connect  multiplexed (one authenticated connection, reused)
 
-$ waldo exec -- 'hostname; whoami'
+$ reach exec -- 'hostname; whoami'
 client-box                      # ← the server, not your laptop
 deploy
 
-$ waldo claude
+$ reach claude
 > what's eating disk on this box?
 ```
 
@@ -42,7 +43,7 @@ The agent runs `df`, reads logs, greps the codebase, edits a config — all of i
 on `client-box`. Then:
 
 ```console
-$ waldo log                      # everything it did over there
+$ reach log                      # everything it did over there
 WHEN      ACTION  STATUS  DETAIL
 14:02:11  exec    ok      df -h /
 14:02:19  exec    ok      du -sh /var/log/*
@@ -59,13 +60,13 @@ WHEN      ACTION  STATUS  DETAIL
 | **SSHFS / FUSE mount** | Needs a kernel extension and a reboot on macOS. On a flaky link it hangs in uninterruptible sleep — the agent freezes mid-call with no error to reason about |
 | **`ssh` in the agent's terminal** | Now `cd` doesn't persist, paths are wrong, and the agent's file tools still edit your laptop |
 
-waldo's governing rule:
+reach's governing rule:
 
 > **Every failure must be a value the agent can reason about, never a process
 > that stops responding.**
 
 A timeout becomes a tool error the model retries or routes around. That single
-property is why waldo is request/response over SSH and not a mount.
+property is why reach is request/response over SSH and not a mount.
 
 ## The undocumented things this had to find out
 
@@ -77,23 +78,23 @@ wrapper ends with `pwd -P >| /tmp/claude-<rand>-cwd`. That is how the harness
 remembers what directory you're in between tool calls — it writes the path
 locally and reads it back. Forward that line to a remote host and it gets
 written *there*, while Claude Code reads *here*, so `cd /srv/app` silently stops
-persisting. waldo strips the line, tracks the directory itself, and writes the
+persisting. reach strips the line, tracks the directory itself, and writes the
 local file the harness is expecting. Get it wrong and nothing errors; the agent
 just quietly starts running every command in the wrong place.
 
 **You cannot monkey-patch Claude Code.** It ships as a Node SEA with V8
 statically linked. `NODE_OPTIONS=--require` is ignored — verified, not assumed.
 So `Read`/`Edit`/`Write` cannot be re-pointed from inside the process, which is
-why waldo either denies them or materialises real files for them.
+why reach either denies them or materialises real files for them.
 
 **Harnesses want a program, not a command line.** `CLAUDE_CODE_SHELL_PREFIX` is
-`stat`ed directly, so `"waldo shell-prefix"` is looked up as one filename and
-fails. waldo installs an alias of itself and dispatches on `argv[0]`.
+`stat`ed directly, so `"reach shell-prefix"` is looked up as one filename and
+fails. reach installs an alias of itself and dispatches on `argv[0]`.
 
 **Codex ≤ 0.147 resolves its shell through `execvp`**, so a `bash` earlier on
 `PATH` intercepts it — no fork, no config file, no cooperation from the
 harness. Codex 0.148 switched to the account database (`getpwuid_r`) and an
-absolute shell path, which no `PATH` entry can intercept; waldo detects this
+absolute shell path, which no `PATH` entry can intercept; reach detects this
 behaviourally and refuses to launch an affected version rather than let the
 agent operate on the wrong machine.
 
@@ -117,12 +118,12 @@ reading of its docs.
   runs a non-interactive shell, whose PATH on a real host was missing five
   directories the login shell had — including `~/.cargo/bin`, where
   `cargo install ripgrep` puts `rg`.
-- **waldo runs as the operator on macOS and on Linux**, with the whole suite —
+- **reach runs as the operator on macOS and on Linux**, with the whole suite —
   unit and integration — passing on both, including the control-socket path that
   only exists when `XDG_RUNTIME_DIR` is set.
 - **NUL bytes, invalid UTF-8, CRLF, empty files, 5 MiB payloads, filenames with
   quotes and spaces** survive every tier intact.
-- **waldo refuses SSH agent forwarding even when your own ssh config enables it
+- **reach refuses SSH agent forwarding even when your own ssh config enables it
   for that host** — verified against a host configured that way, by watching no
   agent socket appear on the target.
 - **A target with no shell is refused in about a second, with an explanation** —
@@ -133,18 +134,18 @@ reading of its docs.
   machine.
 
 Not verified end to end with a live model, and said so: Codex and Kimi (their
-seams are instead measured offline by `waldo harness verify`, which drives a
+seams are instead measured offline by `reach harness verify`, which drives a
 real harness turn against a mock model — no API key, no tokens), and opencode.
 Each limitation is stated precisely in [docs/harnesses/](docs/harnesses/).
 
 ## Install
 
 ```console
-go install github.com/bojieli/waldo/cmd/waldo@latest
+go install github.com/bojieli/agentreach/cmd/reach@latest
 ```
 
-Or grab a [release](https://github.com/bojieli/waldo/releases), or
-`git clone && make install`. Needs the `ssh` you already have — waldo shells out
+Or grab a [release](https://github.com/bojieli/agentreach/releases), or
+`git clone && make install`. Needs the `ssh` you already have — reach shells out
 to it on purpose, so `ProxyJump`, `IdentityFile`, `Match` blocks, hardware
 tokens and 2FA all keep working exactly as they do today.
 
@@ -154,13 +155,13 @@ Runs on **Linux, macOS and Windows**. Targets any POSIX host over
 ## Use
 
 ```console
-waldo up ssh://build-box/srv/app     # bind a session to a target
-waldo exec -- go test ./...          # run something there
-waldo fs read /srv/app/main.go       # or work with files directly
-waldo claude                         # launch an agent wired to it
-waldo log                            # what did it do over there?
-waldo doctor                         # what does this host support?
-waldo down                           # close it, leave no trace
+reach up ssh://build-box/srv/app     # bind a session to a target
+reach exec -- go test ./...          # run something there
+reach fs read /srv/app/main.go       # or work with files directly
+reach claude                         # launch an agent wired to it
+reach log                            # what did it do over there?
+reach doctor                         # what does this host support?
+reach down                           # close it, leave no trace
 ```
 
 ## How it works
@@ -172,7 +173,7 @@ harness (claude · codex · kimi · opencode)
     │  native tool calls — the model sees no new tools
 adapter          per harness · no fork · config or plugin
     │
-waldo            session state · cwd · capability probe
+reach            session state · cwd · capability probe
     │            fileops tier: posix · pipe · helper
     │  ssh · docker · podman · local
 target           stock sshd only
@@ -184,9 +185,9 @@ reconnecting, against real hosts — so a daemon would add a lifecycle, a socket
 crash recovery and orphaned processes in exchange for nothing.
 
 **Nothing is installed on your target.** Two of the three file-operation tiers
-write nothing at all, and those are the only ones waldo picks on its own. The
+write nothing at all, and those are the only ones reach picks on its own. The
 third installs a small helper, only when you ask for it by name, and
-`waldo doctor` will tell you it's there.
+`reach doctor` will tell you it's there.
 
 | tier | needs on target | writes | picked automatically |
 |---|---|---|---|
@@ -205,13 +206,13 @@ tools are **denied**, because they would keep acting on your laptop while the
 agent believes otherwise. The agent uses the shell, which is transparently
 remote.
 
-**`mirror`** — additionally makes `Read`/`Write`/`Edit` work. waldo fetches each
+**`mirror`** — additionally makes `Read`/`Write`/`Edit` work. reach fetches each
 file the moment a tool opens it and writes it back when it changes, guarded by a
 content digest so a file that changed on the target in between is refused rather
 than clobbered.
 
 This is deliberately **not** a sync engine. Nothing is mirrored until a tool
-asks for it. A sync engine would have to answer questions waldo has no good
+asks for it. A sync engine would have to answer questions reach has no good
 answer to — both sides changed, deleted or never fetched — and getting those
 wrong loses your work.
 
@@ -220,10 +221,10 @@ wrong loses your work.
 - **Not a filesystem mount.** See the governing rule.
 - **Not a sync engine.** See above.
 - **Not protection against prompt injection.** Output from the target flows into
-  the context of an agent holding your credentials. waldo makes this *more*
+  the context of an agent holding your credentials. reach makes this *more*
   relevant, not less, because the whole point is pointing agents at machines you
   don't control. [The threat model says so plainly](docs/SECURITY.md).
-- **Not a way to run agents on Windows targets.** waldo's floor is a POSIX
+- **Not a way to run agents on Windows targets.** reach's floor is a POSIX
   shell. Windows is supported as the machine you sit at, not the one you point
   at.
 
@@ -243,8 +244,8 @@ hosts, three tiers, three userlands and a fuzzer.
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | how it fits together, and what was rejected |
 | [TRANSPORTS.md](docs/TRANSPORTS.md) | the three tiers, measured on real links |
 | [RESEARCH.md](docs/RESEARCH.md) | what each harness actually does, with transcripts |
-| [SECURITY.md](docs/SECURITY.md) | threat model, and what waldo does not protect you from |
-| [WINDOWS.md](docs/WINDOWS.md) | running waldo from Windows |
+| [SECURITY.md](docs/SECURITY.md) | threat model, and what reach does not protect you from |
+| [WINDOWS.md](docs/WINDOWS.md) | running reach from Windows |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | the standard of evidence, and the design rules |
 
 ## Development
@@ -253,12 +254,12 @@ hosts, three tiers, three userlands and a fuzzer.
 make check        # vet + unit tests. No network, no API key, no tokens.
 make integration  # every tier against a real sshd
 make bench        # what each tier actually costs
-make conformance  # do the harness seams still have the shape waldo expects?
+make conformance  # do the harness seams still have the shape reach expects?
 ```
 
 `make integration` starts an sshd owned by your user on a high port — no root,
 no Docker, no network. Point either at a host you already have with
-`WALDO_TEST_SSH_HOST=my-box`.
+`REACH_TEST_SSH_HOST=my-box`.
 
 ## License
 

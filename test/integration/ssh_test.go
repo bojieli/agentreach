@@ -1,6 +1,6 @@
 //go:build integration
 
-// Package integration exercises waldo against a real sshd rather than a mock.
+// Package integration exercises reach against a real sshd rather than a mock.
 //
 // Mocks cannot catch the failures that actually happen here: shell quoting that
 // works locally but not through ssh's own re-parsing, exit statuses lost to
@@ -16,14 +16,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bojieli/waldo/internal/fileops"
-	"github.com/bojieli/waldo/internal/transport"
-	"github.com/bojieli/waldo/internal/waldo"
+	"github.com/bojieli/agentreach/internal/fileops"
+	"github.com/bojieli/agentreach/internal/transport"
+	"github.com/bojieli/agentreach/internal/reach"
 )
 
 func TestSSHExecOverRealServer(t *testing.T) {
 	tr := newTransport(t)
-	res, err := tr.Run(context.Background(), waldo.ExecRequest{Command: "echo hello; echo err >&2; exit 3"})
+	res, err := tr.Run(context.Background(), reach.ExecRequest{Command: "echo hello; echo err >&2; exit 3"})
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestSSHExecOverRealServer(t *testing.T) {
 // still be reported as the command's status, not as a broken connection.
 func TestSSHDoesNotConfuseItsOwn255(t *testing.T) {
 	tr := newTransport(t)
-	res, err := tr.Run(context.Background(), waldo.ExecRequest{Command: "exit 255"})
+	res, err := tr.Run(context.Background(), reach.ExecRequest{Command: "exit 255"})
 	if err != nil {
 		t.Fatalf("remote exit 255 misreported as transport failure: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestSSHQuotingSurvivesRemoteReparse(t *testing.T) {
 		"plain", "with space", "it's", `"double"`, "$(hostname)", "`id`",
 		"semi;colon", "pipe|char", "{brace}", "*glob*", "new\nline", "tab\there",
 	} {
-		res, err := tr.Run(context.Background(), waldo.ExecRequest{
+		res, err := tr.Run(context.Background(), reach.ExecRequest{
 			Command: "printf '%s' " + transport.ShellQuote(s),
 		})
 		if err != nil {
@@ -103,7 +103,7 @@ func TestFileOpsOverRealSSH(t *testing.T) {
 	}
 
 	// A payload larger than one read chunk, to exercise chunked reassembly.
-	big := bytes.Repeat([]byte("waldo"), 400_000) // 2 MB
+	big := bytes.Repeat([]byte("reach"), 400_000) // 2 MB
 	bp := dir + "/big.dat"
 	if err := fo.Write(ctx, bp, big, 0o644); err != nil {
 		t.Fatalf("write big: %v", err)
@@ -148,7 +148,7 @@ func TestSearchRunsOnTarget(t *testing.T) {
 	if err := fo.Write(ctx, dir+"/b.txt", []byte("nothing\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	m, err := fo.Search(ctx, waldo.SearchRequest{Pattern: "NEEDLE", Root: dir})
+	m, err := fo.Search(ctx, reach.SearchRequest{Pattern: "NEEDLE", Root: dir})
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestSearchRunsOnTarget(t *testing.T) {
 // TestAgentForwardingIsRefused is a security guarantee under test rather than
 // under documentation.
 //
-// SECURITY.md promises that waldo never forwards an SSH agent, *including* when
+// SECURITY.md promises that reach never forwards an SSH agent, *including* when
 // the operator's own ssh config enables it for that host — because on a machine
 // with a hostile root, a forwarded agent socket lets that host authenticate as
 // the operator against every other system they can reach. It converts one
@@ -174,7 +174,7 @@ func TestAgentForwardingIsRefused(t *testing.T) {
 		t.Skip("no ssh-agent running locally, so there is nothing that could be forwarded")
 	}
 	// Ask for forwarding as loudly as possible: the operator's config saying
-	// yes is exactly the case waldo has to override.
+	// yes is exactly the case reach has to override.
 	tr, err := transport.NewSSH(transport.SSHConfig{
 		Host:         sshHostAlias,
 		BatchMode:    true,
@@ -185,7 +185,7 @@ func TestAgentForwardingIsRefused(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = tr.Close() })
 
-	res, err := tr.Run(context.Background(), waldo.ExecRequest{
+	res, err := tr.Run(context.Background(), reach.ExecRequest{
 		Command: `printf '%s' "${SSH_AUTH_SOCK:-}"`,
 	})
 	if err != nil {
@@ -193,7 +193,7 @@ func TestAgentForwardingIsRefused(t *testing.T) {
 	}
 	if sock := strings.TrimSpace(string(res.Stdout)); sock != "" {
 		t.Fatalf("an agent socket reached the target at %q.\n"+
-			"waldo must refuse agent forwarding even when asked for it: a target with a "+
+			"reach must refuse agent forwarding even when asked for it: a target with a "+
 			"hostile root can use a forwarded socket to authenticate as the operator "+
 			"everywhere else they can reach.", sock)
 	}
