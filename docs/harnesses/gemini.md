@@ -14,6 +14,17 @@ controlled `bash` binary earlier on PATH, so the shim intercepts every
 This is the cleanest possible seam: the interception point is PATH itself, a
 standard POSIX guarantee that every process respects.
 
+It also has a failure mode worth naming, because reach hit it. Gemini is often
+installed behind a wrapper script — npm writes one, and so do asdf, pyenv and
+nvm — and those wrappers begin `#!/usr/bin/env bash`. With the shim first on
+PATH, `env` resolves that `bash` to the shim, so reach is asked to run the
+wrapper. reach hands it to the real shell, which is right; what mattered was
+that it used to hand it over with its own shim directory stripped from PATH and
+`REACH_IN_SHELL_SHIM` set, and gemini inherited both. Every `run_shell_command`
+after that ran on the operator's machine while being reported as remote. The
+pass-through now changes nothing about the environment, and
+`TestShimPassthroughLeavesTheSeamArmed` fails if that regresses.
+
 ## File tools: excluded via settings.json
 
 Gemini CLI exposes a large set of built-in tools that call Node's `fs` module

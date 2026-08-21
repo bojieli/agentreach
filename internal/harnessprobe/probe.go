@@ -193,6 +193,13 @@ func Verify(ctx context.Context, opts Options) Result {
 	if spec.workingDir != "" {
 		cmd.Dir = spec.workingDir
 	}
+	// The launchers set REACH_EXEC_WORKSPACE to the directory they were run
+	// in, and the shim needs it to rewrite the `cd '<local-cwd>' && …` prefix
+	// Kimi wraps every command in. The probe left it unset, so the probe was
+	// measuring a seam nothing ships: kimi's commands reached the target and
+	// then failed on `cd /tmp`, and the probe called that inconclusive rather
+	// than reporting the interception that had plainly worked.
+	cmd.Env = append(cmd.Env, "REACH_EXEC_WORKSPACE="+probeWorkspace(cmd.Dir))
 	// Output is captured rather than inherited: a failing probe needs the
 	// tail of it as evidence, and a succeeding one has nothing worth the
 	// operator's screen.
@@ -320,6 +327,20 @@ func baseProbeEnv(sessName, shimDir string, strip func(key string) bool) []strin
 		env = append(env, kv)
 	}
 	return append(env, "REACH_SESSION="+sessName)
+}
+
+// probeWorkspace is the directory the probe process will treat as its project
+// root — cmd.Dir when the spec pins one, and this process's own working
+// directory otherwise, which is what exec.Cmd itself falls back to.
+func probeWorkspace(dir string) string {
+	if dir != "" {
+		return dir
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return cwd
 }
 
 // codexPrepare writes the environments.toml that routes the probe's codex to

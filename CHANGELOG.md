@@ -11,6 +11,35 @@ project makes without a version attached.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A harness installed behind a wrapper script ran every command on the
+  operator's own machine.** npm, asdf, pyenv and nvm all install binaries
+  behind a small wrapper, and those wrappers start `#!/usr/bin/env bash`. With
+  reach's shim first on PATH — which is the seam for Gemini CLI, Goose and
+  Kimi — `env` resolved that `bash` to the shim, so reach was asked to run the
+  wrapper itself. Handing it to the real shell is correct. Handing it over with
+  reach's shim directory stripped from PATH and `REACH_IN_SHELL_SHIM` set was
+  not: the real shell passed both to the harness it went on to launch, and the
+  seam was switched off for the rest of the session. The agent's commands ran
+  locally while being reported as remote, which is the one failure reach exists
+  to prevent, arrived at by reach's own doing. The pass-through now leaves the
+  environment exactly as it found it. Recursion — the reason the stripping was
+  there — is prevented where it can actually happen: `findRealShell` refuses to
+  return this executable, by identity rather than by path, so a shim reached
+  through some other PATH entry cannot send the process back into itself.
+
+- **The seam probe measured a seam nothing ships.** `reach harness verify` did
+  not set `REACH_EXEC_WORKSPACE`, which every launcher sets and which the shim
+  needs to rewrite the `cd '<local-cwd>' && …` prefix Kimi wraps around every
+  command. Kimi's probes reached the target and then failed on a `cd` into a
+  directory that only exists on the operator's machine, and the probe called
+  that inconclusive rather than reporting the interception that had plainly
+  worked. All twelve pinned harness probes — Gemini 0.1.9, Kimi 0.36.0 and
+  0.37.2, across exec, read-only and read-write — now report that commands
+  reach the target.
+
+
 ## [0.1.0] - 2026-08-21
 
 The first tagged release, and the first artefacts anyone can download. A

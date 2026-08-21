@@ -25,12 +25,16 @@ import (
 // local shell rather than failing.
 const bashShimName = "bash"
 
-// shimGuardEnv stops a shim from invoking itself.
+// shimGuardEnv makes the shim pass everything through to the local shell.
 //
-// The shim directory is prepended to PATH for the harness, and that PATH is
-// inherited by everything the harness spawns — including reach's own ssh
-// subprocess. Without a guard, any `bash` invoked underneath reach would route
-// back into reach and recurse until the machine ran out of processes.
+// reach used to set this itself whenever it handed an invocation to the real
+// shell, which disarmed the seam for every process started after that one —
+// see execRealShell for what that cost. Recursion is now prevented where it
+// can actually happen, in findRealShell, and nothing in reach sets this.
+//
+// It remains as an operator escape hatch: exporting it makes a shim on PATH
+// behave as an ordinary shell, which is the quickest way to take reach out of
+// the picture while diagnosing something without unpicking PATH.
 const shimGuardEnv = "REACH_IN_SHELL_SHIM"
 
 // shimmedShellNames are the shell names reach installs on PATH and answers to.
@@ -185,39 +189,93 @@ func splitCdPrefix(command string) (dir, rest string, ok bool) {
 	return dir, rest, true
 }
 
-// execRealShell replaces this process with the genuine shell, with reach's shim
-// directory removed from PATH so the real binary is found.
+// execRealShell replaces this process with the genuine shell, passing the
+// environment through untouched.
+//
+// Untouched is the whole point, and it was not always so. reach used to strip
+// its shim directory from PATH here and set shimGuardEnv, and the real shell
+// then handed both to everything it started. That is harmless for the case it
+// was written for — unrelated tooling running `bash somescript.sh` — and
+// catastrophic for the case that is indistinguishable from here: a harness
+// launched through a `#!/usr/bin/env bash` wrapper, which is how npm, asdf,
+// pyenv and nvm all install their binaries. `env` resolves `bash` on PATH,
+// finds this shim, and reach hands the wrapper to the real shell with the seam
+// switched off — so the harness underneath ran every one of the agent's
+// commands on the operator's own machine while reporting them as remote. That
+// is the exact failure reach exists to prevent, arrived at by reach's own
+// doing.
+//
+// Recursion is prevented by construction instead: findRealShell returns an
+// absolute path that is not this executable, and exec of an absolute path
+// cannot come back here.
 func execRealShell(args []string) int {
 	shell, err := findRealShell()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "reach: cannot locate a real shell:", err)
 		return 127
 	}
-	env := append(sanitisedEnv(), shimGuardEnv+"=1")
 	argv := append([]string{shell}, args...)
-	return replaceProcess(context.Background(), shell, argv, env)
+	return replaceProcess(context.Background(), shell, argv, os.Environ())
 }
 
 // findRealShell locates a shell that is not one of reach's shims.
+//
+// Two tests, not one. The shim directory is skipped by name, which covers
+// reach's own installation; every candidate is then checked for being this
+// executable, which covers a shim reached by another route — a second PATH
+// entry pointing at the same directory, a symlink someone else made, a copy in
+// a version manager's bin. Exec'ing one of those would put this process
+// straight back where it started, and with nothing in the environment to break
+// the loop it would not stop.
 func findRealShell() (string, error) {
 	shimDir, _ := shimBinDir()
+	self, selfErr := selfPath()
+	isSelf := func(p string) bool {
+		if selfErr != nil {
+			return false
+		}
+		return sameFile(p, self)
+	}
 	for _, dir := range filepath.SplitList(pathEnvValue()) {
 		if dir == "" || sameDir(dir, shimDir) {
 			continue
 		}
 		for _, name := range shellCandidateNames() {
 			p := filepath.Join(dir, name)
-			if isExecutableFile(p) {
+			if isExecutableFile(p) && !isSelf(p) {
 				return p, nil
 			}
 		}
 	}
 	for _, p := range fallbackShellPaths() {
-		if isExecutableFile(p) {
+		if isExecutableFile(p) && !isSelf(p) {
 			return p, nil
 		}
 	}
 	return "", fmt.Errorf("no shell found on PATH")
+}
+
+// sameFile reports whether two paths are the same file on disk, following
+// symlinks. A byte comparison would miss reach's shim, which is a symlink to
+// the binary rather than a copy of it on every platform that has them.
+func sameFile(a, b string) bool {
+	ra, err := filepath.EvalSymlinks(a)
+	if err != nil {
+		ra = a
+	}
+	rb, err := filepath.EvalSymlinks(b)
+	if err != nil {
+		rb = b
+	}
+	fa, err := os.Stat(ra)
+	if err != nil {
+		return false
+	}
+	fb, err := os.Stat(rb)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(fa, fb)
 }
 
 // sameDir compares two directory paths for identity.
@@ -230,22 +288,6 @@ func sameDir(a, b string) bool {
 		return false
 	}
 	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
-}
-
-// sanitisedEnv returns the environment with reach's shim directory removed
-// from PATH, so subprocesses find real binaries.
-func sanitisedEnv() []string {
-	shimDir, err := shimBinDir()
-	if err != nil {
-		return os.Environ()
-	}
-	var kept []string
-	for _, d := range filepath.SplitList(pathEnvValue()) {
-		if !sameDir(d, shimDir) {
-			kept = append(kept, d)
-		}
-	}
-	return setPathEnv(os.Environ(), strings.Join(kept, string(filepath.ListSeparator)))
 }
 
 // shimBinDir is the directory holding the PATH-based shell shims. It is kept
