@@ -92,8 +92,8 @@ func TestSSHArgsMultiplexOnlyWhenEnabled(t *testing.T) {
 	if v, _ := argValue(on, "ControlMaster"); v != "auto" {
 		t.Errorf("ControlMaster=%q, want auto", v)
 	}
-	if v, _ := argValue(on, "ControlPath"); v != tr.controlPath {
-		t.Errorf("ControlPath=%q, want %q", v, tr.controlPath)
+	if v, _ := argValue(on, "ControlPath"); v != tr.controlPath() {
+		t.Errorf("ControlPath=%q, want %q", v, tr.controlPath())
 	}
 	if v, _ := argValue(on, "ControlPersist"); v != "90" {
 		t.Errorf("ControlPersist=%q, want 90 (seconds, not a Go duration)", v)
@@ -159,7 +159,7 @@ func TestControlPathsDifferPerDestination(t *testing.T) {
 
 	seen := map[string]string{}
 	for name, cfg := range variants {
-		p, err := controlPathFor(cfg)
+		p, err := controlBaseFor(cfg)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -175,11 +175,11 @@ func TestControlPathsDifferPerDestination(t *testing.T) {
 // and multiplexing buys nothing.
 func TestControlPathIsStableForOneDestination(t *testing.T) {
 	cfg := SSHConfig{Host: "a.example", User: "alice", Port: 22}
-	first, err := controlPathFor(cfg)
+	first, err := controlBaseFor(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := controlPathFor(cfg)
+	second, err := controlBaseFor(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +192,7 @@ func TestControlPathIsStableForOneDestination(t *testing.T) {
 // fails opaquely when it overruns. The hash exists to bound it; this is the
 // test that the bound actually holds for a destination long enough to matter.
 func TestControlPathStaysWithinTheSocketLimit(t *testing.T) {
-	p, err := controlPathFor(SSHConfig{
+	base, err := controlBaseFor(SSHConfig{
 		Host: strings.Repeat("very-long-hostname.", 20) + "example.com",
 		User: strings.Repeat("u", 200),
 		Port: 22,
@@ -200,6 +200,8 @@ func TestControlPathStaysWithinTheSocketLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The longest name any connection number can produce, not just the first.
+	p := (&SSHTransport{controlBase: base}).controlPathAt(maxOverflow)
 	if len(p) >= 104 {
 		t.Errorf("control path is %d bytes (%s); the macOS limit is 104 and ssh fails opaquely past it",
 			len(p), p)

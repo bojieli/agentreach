@@ -32,6 +32,17 @@ type Transport interface {
 	Close() error
 }
 
+// Overflower is a transport that can move onto a fresh connection to the same
+// target when the current one has no room for another channel.
+//
+// It is an optional interface rather than part of Transport because it only
+// means anything where one connection carries many channels. A local or
+// container transport has no such limit, and an ssh transport without
+// multiplexing already gives every command its own connection.
+type Overflower interface {
+	Overflow() bool
+}
+
 // Stream is a long-lived remote process.
 type Stream struct {
 	Stdin  io.WriteCloser

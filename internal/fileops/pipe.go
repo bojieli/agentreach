@@ -227,7 +227,13 @@ func (p *handlerOps) reopen(ctx context.Context) error {
 	// respawn a doomed process on every call only to report the same failure a
 	// round trip later. open clears proven, so one restart is all a working
 	// program earns before it has to prove itself again.
-	if !p.proven {
+	//
+	// The exception is a program that never started because the connection had
+	// no room for its channel. That is the connection's fault rather than the
+	// program's — sshd caps concurrent sessions per connection, and reach runs
+	// one channel per tool call — so it is worth one more try on another
+	// connection. Overflow is bounded, so this cannot loop.
+	if !p.proven && !p.refusedAChannel() {
 		return p.broken
 	}
 	p.closeStream()
@@ -391,6 +397,21 @@ func (p *handlerOps) roundTrip(ctx context.Context, req map[string]any, payload 
 		p.closeStream()
 		return nil, nil, p.startupError(ctx.Err())
 	}
+}
+
+// refusedAChannel reports whether this program failed to start because the
+// target would not give it a channel, and moves the transport to another
+// connection when it did. The caller holds mu.
+func (p *handlerOps) refusedAChannel() bool {
+	o, ok := p.t.(transport.Overflower)
+	if !ok {
+		return false
+	}
+	if !transport.IsChannelOpenFailure(p.stderr.String()) &&
+		(p.broken == nil || !transport.IsChannelOpenFailure(p.broken.Error())) {
+		return false
+	}
+	return o.Overflow()
 }
 
 // startupError explains a failure that happened before the program ever

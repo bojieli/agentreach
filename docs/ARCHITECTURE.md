@@ -77,6 +77,17 @@ for nothing.
 One consequence is worth stating early, because it shapes the tier design more
 than anything else: **reach runs one process per tool call.**
 
+Sharing one connection has a limit that a daemon would have had too: sshd caps
+concurrent channels per connection with `MaxSessions`, 10 by default, and reach
+runs one channel per tool call. An agent that fans out past that has its
+eleventh tool call refused — `administratively prohibited`, ssh exit 255, which
+reach used to report as "command did not complete". reach now opens a second
+connection instead, up to a small bound, and says so on stderr. The retry is
+safe in a way retrying a failed command generally is not: a refused channel
+means the remote shell was never started, so there is nothing to have
+half-happened. A connection that dropped mid-command is never retried, because
+it says nothing about whether the command ran.
+
 ## Platforms
 
 reach runs on Linux, macOS and Windows, and targets any POSIX host. The split
