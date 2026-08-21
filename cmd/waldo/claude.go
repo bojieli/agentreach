@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/bojieli/waldo/internal/harnessprobe"
 	"github.com/bojieli/waldo/internal/session"
 )
 
@@ -54,6 +55,10 @@ func cmdClaude(ctx context.Context, args []string) int {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "waldo:", err)
 		return 1
+	}
+
+	if code := guardClaudeSeam(ctx, sessName); code != 0 {
+		return code
 	}
 
 	shim, err := ensureShim()
@@ -154,6 +159,67 @@ func writeMirrorSettings(sessName string) (string, error) {
 		return "", err
 	}
 	return p, nil
+}
+
+// guardClaudeSeam decides whether the installed Claude Code version may be
+// launched under waldo. It returns 0 to proceed and 1 to refuse.
+//
+// Claude Code's seam is CLAUDE_CODE_SHELL_PREFIX rather than a PATH shim:
+// every Bash tool call is wrapped in `<prefix> -c "<envelope>"`. The probe
+// verifies that waldo's waldo-shell-prefix alias is actually invoked, and
+// therefore that shell commands reach the session target.
+//
+// The fail-open / fail-closed policy is the same as guardHarnessSeam: a
+// measured bypass refuses the launch; a probe that could not run at all only
+// warns and allows, because a failing probe says nothing about the seam.
+func guardClaudeSeam(ctx context.Context, sessName string) int {
+	version, err := harnessprobe.HarnessVersion(ctx, harnessprobe.HarnessClaudeCode)
+	if err != nil {
+		fmt.Fprintf(os.Stderr,
+			"waldo: WARNING: cannot determine the Claude Code version (%v)\n"+
+				"waldo: The shell seam is unverified. CLAUDE_CODE_SHELL_PREFIX will be set,\n"+
+				"waldo: but whether Claude Code honours it is not confirmed.\n", err)
+		return 0
+	}
+
+	entry, cached, err := harnessprobe.LoadVerdict(harnessprobe.HarnessClaudeCode, version)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "waldo: WARNING: cannot read the seam verdict cache: %v\n", err)
+	}
+	if cached {
+		d := harnessprobe.Gate(harnessprobe.HarnessClaudeCode, version, &entry)
+		if !d.RunProbe {
+			if d.Message != "" {
+				fmt.Fprint(os.Stderr, d.Message)
+			}
+			if !d.Allow {
+				return 1
+			}
+			return 0
+		}
+	}
+
+	fmt.Fprintf(os.Stderr,
+		"waldo: verifying the Claude Code %s shell seam (once per version, up to 2 min)...\n",
+		version)
+	res := harnessprobe.Verify(ctx, harnessprobe.Options{
+		Harness:           harnessprobe.HarnessClaudeCode,
+		SessionName:       sessName,
+		EnsureShellPrefix: ensureShim,
+	})
+	if res.Conclusive() {
+		if err := harnessprobe.StoreVerdict(harnessprobe.HarnessClaudeCode, version, res); err != nil {
+			fmt.Fprintf(os.Stderr, "waldo: WARNING: could not cache the seam verdict: %v\n", err)
+		}
+	}
+	d := harnessprobe.GateFromProbe(harnessprobe.HarnessClaudeCode, version, res)
+	if d.Message != "" {
+		fmt.Fprint(os.Stderr, d.Message)
+	}
+	if !d.Allow {
+		return 1
+	}
+	return 0
 }
 
 // writeDenySettings emits a Claude Code settings file denying the local file

@@ -141,22 +141,23 @@ func guardKimiSeam(ctx context.Context, sessName, binPath, shimDir string) int {
 
 // verifiableHarnesses are the harnesses `waldo harness verify` can probe.
 var verifiableHarnesses = map[string]bool{
-	harnessprobe.HarnessCodex:  true,
-	harnessprobe.HarnessKimi:   true,
-	harnessprobe.HarnessGoose:  true,
-	harnessprobe.HarnessGemini: true,
+	harnessprobe.HarnessClaudeCode: true,
+	harnessprobe.HarnessCodex:      true,
+	harnessprobe.HarnessKimi:       true,
+	harnessprobe.HarnessGoose:      true,
+	harnessprobe.HarnessGemini:     true,
 }
 
 // cmdHarness dispatches `waldo harness <op>`.
 func cmdHarness(ctx context.Context, args []string) error {
 	if len(args) < 1 || args[0] != "verify" {
-		return errors.New("usage: waldo harness verify codex|kimi|goose|gemini [--session NAME]")
+		return errors.New("usage: waldo harness verify claude|codex|kimi|goose|gemini [--session NAME]")
 	}
 	if len(args) < 2 {
-		return errors.New("usage: waldo harness verify codex|kimi|goose|gemini [--session NAME]")
+		return errors.New("usage: waldo harness verify claude|codex|kimi|goose|gemini [--session NAME]")
 	}
 	if !verifiableHarnesses[args[1]] {
-		return fmt.Errorf("unknown harness %q: codex, kimi, goose, and gemini are verifiable", args[1])
+		return fmt.Errorf("unknown harness %q: claude, codex, kimi, goose, and gemini are verifiable", args[1])
 	}
 	return cmdHarnessVerify(ctx, args[1], args[2:])
 }
@@ -212,12 +213,20 @@ func cmdHarnessVerify(ctx context.Context, harness string, args []string) error 
 	} else {
 		fmt.Printf("%s %s — probing the shell seam against the session target...\n", harness, version)
 	}
+
+	// Claude Code uses the shell-prefix alias rather than a PATH shim.
+	var ensureShellPrefixFn func() (string, error)
+	if harness == harnessprobe.HarnessClaudeCode {
+		ensureShellPrefixFn = ensureShim
+	}
+
 	res := harnessprobe.Verify(ctx, harnessprobe.Options{
-		Harness:       harness,
-		SessionName:   sessName(pos),
-		EnsureShim:    ensurePathShim,
-		BinaryPath:    binPath,
-		CommandPrefix: *taskPrefix,
+		Harness:           harness,
+		SessionName:       sessName(pos),
+		EnsureShim:        ensurePathShim,
+		EnsureShellPrefix: ensureShellPrefixFn,
+		BinaryPath:        binPath,
+		CommandPrefix:     *taskPrefix,
 	})
 
 	switch res.Verdict {
@@ -256,6 +265,13 @@ func cmdHarnessVerify(ctx context.Context, harness string, args []string) error 
 // this is the calmer, operator-initiated version.
 func printBypassedRemediation(harness string) {
 	switch harness {
+	case harnessprobe.HarnessClaudeCode:
+		fmt.Println("claude's CLAUDE_CODE_SHELL_PREFIX seam failed: the scripted command ran")
+		fmt.Println("on the local machine rather than the session's target.")
+		fmt.Println("Remediation: check that CLAUDE_CODE_SHELL_PREFIX is being honoured by this")
+		fmt.Println("version of Claude Code (`claude --version`). Run `waldo doctor` to check")
+		fmt.Println("that the waldo-shell-prefix alias is current, then re-probe with:")
+		fmt.Println("  waldo harness verify claude")
 	case harnessprobe.HarnessCodex:
 		fmt.Println("codex's exec-server seam failed: the scripted command did not run on the")
 		fmt.Println("session's target, and `waldo codex` will refuse to launch this version.")
@@ -284,6 +300,9 @@ func printBypassedRemediation(harness string) {
 	}
 }
 
+// claudeSeamNote describes the Claude Code shell seam for doctor.
+func claudeSeamNote() string { return harnessSeamNote(harnessprobe.HarnessClaudeCode) }
+
 // codexSeamNote describes the codex shell seam for doctor.
 func codexSeamNote() string { return harnessSeamNote(harnessprobe.HarnessCodex) }
 
@@ -305,6 +324,8 @@ func geminiSeamNote() string { return harnessSeamNote(harnessprobe.HarnessGemini
 func harnessSeamNote(harness string) string {
 	seam := "PATH shim"
 	switch harness {
+	case harnessprobe.HarnessClaudeCode:
+		seam = "CLAUDE_CODE_SHELL_PREFIX → waldo-shell-prefix"
 	case harnessprobe.HarnessCodex:
 		seam = "exec-server"
 	case harnessprobe.HarnessKimi:
