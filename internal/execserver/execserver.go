@@ -46,6 +46,21 @@ import (
 // not that every possible request runs at once.
 const maxFileHandlers = 4
 
+// maxFinishedProcesses is how many completed commands stay addressable.
+//
+// A process is kept after it exits so that codex can still read its output, and
+// nothing used to remove it — so a server that ran a hundred commands held a
+// hundred process records, each with up to a mebibyte of retained output, until
+// the agent quit. That is the same session-long accumulation the retained-output
+// cap exists to prevent, one level up.
+//
+// Thirty-two is chosen against how the output is actually consumed: codex
+// long-polls a process while it runs and reads the rest when it closes, so a
+// record is stale the moment the next few commands have run. Reading a process
+// dropped this long ago answers "unknown process id", which is what reading any
+// forgotten id has always answered.
+const maxFinishedProcesses = 32
+
 // JSON-RPC error codes, matching codex's own exec-server (rpc.rs).
 const (
 	codeInvalidRequest = -32600
@@ -99,10 +114,13 @@ type Server struct {
 	out     io.Writer
 	writeMu sync.Mutex
 
-	mu           sync.Mutex // guards sawInitialize, processes and handles
+	mu            sync.Mutex // guards sawInitialize, processes, finished and handles
 	sawInitialize bool
-	processes    map[string]*process
-	handles      map[string]string
+	processes     map[string]*process
+	// finished lists the ids of processes that have closed, oldest first, so
+	// the oldest can be dropped once too many have accumulated. See retire.
+	finished []string
+	handles  map[string]string
 
 	// order keeps requests about one path, handle or process in the order the
 	// client sent them, without serialising requests about different ones.
@@ -503,6 +521,19 @@ func (s *Server) record(e audit.Entry) {
 // operationContext bounds one target operation with the session's timeout.
 func (s *Server) operationContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return s.sess.OperationContext(ctx)
+}
+
+// retire records that a process has closed and drops the oldest records once
+// too many have accumulated.
+func (s *Server) retire(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.finished = append(s.finished, id)
+	for len(s.finished) > maxFinishedProcesses {
+		oldest := s.finished[0]
+		s.finished = s.finished[1:]
+		delete(s.processes, oldest)
+	}
 }
 
 // Close releases the file-operation strategies.

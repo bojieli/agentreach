@@ -15,6 +15,11 @@ import (
 	"github.com/bojieli/agentreach/internal/reach"
 )
 
+// maxRememberedWrites is how many process/write ids one process remembers for
+// deduplication. A retry follows its original within moments, so this covers
+// any realistic retry window without growing for the life of the process.
+const maxRememberedWrites = 256
+
 // retainedOutputBytes caps one process's replay buffer, matching codex's own
 // server (local_process.rs). Output older than the cap is evicted; an agent
 // that needs everything streams it through process/output notifications or
@@ -36,17 +41,22 @@ type process struct {
 	command string // the script the agent asked for, for the audit log
 	dir     string
 
-	mu         sync.Mutex
-	chunks     []outChunk
-	retained   int
-	nextSeq    uint64 // next seq to assign; starts at 1, as in codex's server
-	exited     bool
-	exitCode   int
-	closed     bool
-	failure    string
-	stdin      io.WriteCloser
-	stdinOpen  bool
+	mu        sync.Mutex
+	chunks    []outChunk
+	retained  int
+	nextSeq   uint64 // next seq to assign; starts at 1, as in codex's server
+	exited    bool
+	exitCode  int
+	closed    bool
+	failure   string
+	stdin     io.WriteCloser
+	stdinOpen bool
+	// writeIDs remembers recent writes so a retried one is acknowledged rather
+	// than applied twice, and writeOrder bounds how many are remembered. An
+	// interactive process can be written to for as long as the agent keeps
+	// talking to it, so remembering every id it ever saw grows without limit.
 	writeIDs   map[string]bool
+	writeOrder []string
 	terminated bool
 	stream     transport.Stream
 	// notify is closed and replaced on every state change, broadcasting to
@@ -238,6 +248,10 @@ func (s *Server) runProcess(p *process, st transport.Stream, sentinel string) {
 		"processId": p.id,
 		"seq":       closeSeq,
 	})
+	// The record stays addressable for a while so its output can still be read,
+	// but not forever: nothing removed it, so every command an agent ran was
+	// held with its retained output until the agent quit.
+	s.retire(p.id)
 
 	entry := audit.Entry{Action: "exec", Command: p.command, Dir: p.dir, Code: exitCode, Millis: time.Since(started).Milliseconds()}
 	if failure != "" {
@@ -283,7 +297,7 @@ func (w *chunkWriter) Write(data []byte) (int, error) {
 // --- process/read ---
 
 type readParams struct {
-	ProcessID string `json:"processId"`
+	ProcessID string  `json:"processId"`
 	AfterSeq  *uint64 `json:"afterSeq"`
 	MaxBytes  *int64  `json:"maxBytes"`
 	WaitMs    *uint64 `json:"waitMs"`
@@ -428,6 +442,11 @@ func (s *Server) handleProcessWrite(raw json.RawMessage) (any, *rpcError) {
 	}
 	p.mu.Lock()
 	p.writeIDs[params.WriteID] = true
+	p.writeOrder = append(p.writeOrder, params.WriteID)
+	for len(p.writeOrder) > maxRememberedWrites {
+		delete(p.writeIDs, p.writeOrder[0])
+		p.writeOrder = p.writeOrder[1:]
+	}
 	p.mu.Unlock()
 	return map[string]any{"status": "accepted"}, nil
 }
