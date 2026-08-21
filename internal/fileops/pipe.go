@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bojieli/agentreach/internal/transport"
@@ -81,13 +82,20 @@ func contextWithAtLeast(ctx context.Context, d time.Duration) (context.Context, 
 // framing, and the throughput win here comes from not spawning a process per
 // operation, not from overlapping requests within one session.
 type handlerOps struct {
-	stream transport.Stream
-	base   *POSIX
-	tier   reach.Tier
+	base *POSIX
+	tier reach.Tier
 	// label names the program on the other end, for error messages an operator
 	// has to act on: "the python handler died" and "the agent died" call for
 	// different next steps.
 	label string
+
+	// t, command and preamble are everything it takes to run this program again
+	// on a new channel. They are kept so that a stream broken mid-session can be
+	// replaced rather than ending file access for the rest of that session. See
+	// reopen.
+	t        transport.Transport
+	command  string
+	preamble string
 
 	// stderr collects whatever the program on the far end complains about, for
 	// the error message produced if it turns out never to have started.
@@ -106,12 +114,21 @@ type handlerOps struct {
 	first bool
 	out   io.Writer
 	id    uint32
-	// broken records that the stream can no longer be trusted to be in sync,
-	// so every later call fails fast instead of reading a stale response as the
-	// answer to a new request.
+	// broken records that the stream can no longer be trusted to be in sync, so
+	// the request that discovered it fails rather than reading a stale response
+	// as the answer to a new one. The next request starts a new program instead
+	// of inheriting the verdict; see reopen.
 	broken error
+	// proven records that the program currently on the other end has answered at
+	// least once. Only a program that has worked is worth starting again.
+	proven bool
 
-	closeOnce sync.Once
+	// streamMu guards stream alone and is never held across I/O, so Close can
+	// end a stream that a request is blocked reading.
+	streamMu sync.Mutex
+	stream   transport.Stream
+	// closed records an explicit Close, after which nothing is reopened.
+	closed atomic.Bool
 }
 
 // NewPipe starts the Python handler on the target and verifies it answers.
@@ -136,11 +153,29 @@ func NewPipe(ctx context.Context, t transport.Transport, base *POSIX) (FileOps, 
 // target where nothing started still says so, in the same words, one round trip
 // sooner.
 func startHandler(ctx context.Context, t transport.Transport, base *POSIX, tier reach.Tier, label, command, preamble string) (FileOps, error) {
+	p := &handlerOps{
+		base:         base,
+		tier:         tier,
+		label:        label,
+		t:            t,
+		command:      command,
+		preamble:     preamble,
+		startTimeout: handlerStartTimeout,
+	}
+	if err := p.open(ctx); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+// open runs the program on a fresh channel and installs it as this type's
+// protocol state. The caller holds mu, or has not yet published the value.
+func (p *handlerOps) open(ctx context.Context) error {
 	// The channel outlives this call, so it must not be tied to a context that
 	// is cancelled once this function returns.
-	stream, err := t.Open(context.WithoutCancel(ctx), command)
+	stream, err := p.t.Open(context.WithoutCancel(ctx), p.command)
 	if err != nil {
-		return nil, fmt.Errorf("start %s: %w", label, err)
+		return fmt.Errorf("start %s: %w", p.label, err)
 	}
 
 	errBuf := &safeBuffer{remaining: 8 << 10}
@@ -150,26 +185,59 @@ func startHandler(ctx context.Context, t transport.Transport, base *POSIX, tier 
 		_, _ = io.Copy(errBuf, stream.Stderr)
 	}()
 
-	p := &handlerOps{
-		stream:       stream,
-		base:         base,
-		tier:         tier,
-		label:        label,
-		stderr:       errBuf,
-		stderrDone:   errDone,
-		startTimeout: handlerStartTimeout,
-		first:        true,
-		in:           bufio.NewReaderSize(stream.Stdout, 1<<16),
-		out:          stream.Stdin,
-	}
-
-	if preamble != "" {
-		if _, err := io.WriteString(stream.Stdin, preamble); err != nil {
+	if p.preamble != "" {
+		if _, err := io.WriteString(stream.Stdin, p.preamble); err != nil {
 			_ = stream.Close()
-			return nil, fmt.Errorf("send %s: %w", label, err)
+			return fmt.Errorf("send %s: %w", p.label, err)
 		}
 	}
-	return p, nil
+
+	p.streamMu.Lock()
+	p.stream = stream
+	p.streamMu.Unlock()
+
+	p.stderr, p.stderrDone = errBuf, errDone
+	p.in = bufio.NewReaderSize(stream.Stdout, 1<<16)
+	p.out = stream.Stdin
+	p.first, p.id, p.broken, p.proven = true, 0, nil, false
+	return nil
+}
+
+// reopen replaces a stream that broke mid-session with the same program started
+// again on a new channel. The caller holds mu.
+//
+// Breaking the stream on an abandoned or half-written request is what stops a
+// stale response from being read as the answer to the next one, but that
+// verdict used to be permanent. Under `reach exec-server`, where one handler
+// serves an entire agent session, a single cancelled file operation ended file
+// access until the harness was restarted — the error said "must be restarted"
+// and nothing restarted it.
+//
+// The request that discovered the break still fails. Whether it reached the far
+// end is genuinely unknown, and a `rename` retried on a guess is applied twice.
+// Only the requests after it are spared, and they are safe because the protocol
+// is stateless: every request carries its own path and offset, and nothing on
+// the far end survives between them, so a newly started program is
+// indistinguishable from the one it replaced.
+func (p *handlerOps) reopen(ctx context.Context) error {
+	if p.closed.Load() {
+		return p.broken
+	}
+	// A program that never answered is not worth starting again: it would
+	// respawn a doomed process on every call only to report the same failure a
+	// round trip later. open clears proven, so one restart is all a working
+	// program earns before it has to prove itself again.
+	if !p.proven {
+		return p.broken
+	}
+	p.closeStream()
+
+	broken := p.broken
+	if err := p.open(ctx); err != nil {
+		p.broken = broken
+		return fmt.Errorf("%w; starting it again failed too: %v", broken, err)
+	}
+	return nil
 }
 
 // safeBuffer is a bounded buffer written by one goroutine and read by another.
@@ -213,10 +281,27 @@ func firstLine(s string) string {
 // Tier implements FileOps.
 func (p *handlerOps) Tier() reach.Tier { return p.tier }
 
-// Close implements FileOps, ending the handler process.
+// Close implements FileOps, ending the handler process. It also bars reopen, so
+// a Close racing an in-flight request cannot be undone by that request's
+// recovery path.
 func (p *handlerOps) Close() error {
-	p.closeOnce.Do(func() { _ = p.stream.Close() })
+	if p.closed.Swap(true) {
+		return nil
+	}
+	p.closeStream()
 	return nil
+}
+
+// closeStream ends whichever stream is current. It takes only streamMu and
+// never holds it across I/O, so it can end a stream that a request is blocked
+// reading — which is how Close unblocks one.
+func (p *handlerOps) closeStream() {
+	p.streamMu.Lock()
+	stream := p.stream
+	p.streamMu.Unlock()
+	if stream.Close != nil {
+		_ = stream.Close()
+	}
 }
 
 // roundTrip sends one request and waits for its response, honouring ctx.
@@ -233,7 +318,9 @@ func (p *handlerOps) roundTrip(ctx context.Context, req map[string]any, payload 
 	defer p.mu.Unlock()
 
 	if p.broken != nil {
-		return nil, nil, p.broken
+		if err := p.reopen(ctx); err != nil {
+			return nil, nil, err
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
@@ -277,8 +364,13 @@ func (p *handlerOps) roundTrip(ctx context.Context, req map[string]any, payload 
 		err     error
 	}
 	done := make(chan response, 1)
+	// The reader is captured rather than read from the field inside the
+	// goroutine. A request abandoned on cancellation leaves this goroutine
+	// blocked on the old stream, and reopen replaces the field underneath it;
+	// reading it there would be a data race against that replacement.
+	in := p.in
 	go func() {
-		hdr, body, err := p.readFrame()
+		hdr, body, err := p.readFrame(in)
 		done <- response{hdr, body, err}
 	}()
 
@@ -288,15 +380,15 @@ func (p *handlerOps) roundTrip(ctx context.Context, req map[string]any, payload 
 			p.broken = r.err
 			return nil, nil, p.startupError(r.err)
 		}
-		p.first = false
+		p.first, p.proven = false, true
 		if ok, _ := r.hdr["ok"].(bool); !ok {
 			return nil, nil, pipeError(r.hdr, req)
 		}
 		return r.hdr, r.payload, nil
 	case <-ctx.Done():
-		p.broken = fmt.Errorf("the %s was abandoned mid-operation (%w); this session's file access must be restarted",
+		p.broken = fmt.Errorf("the %s was abandoned mid-operation (%w); the next file operation starts a new one",
 			p.label, ctx.Err())
-		_ = p.stream.Close()
+		p.closeStream()
 		return nil, nil, p.startupError(ctx.Err())
 	}
 }
@@ -343,17 +435,17 @@ func (p *handlerOps) startupError(cause error) error {
 // record. A frame that was partly written leaves the far end waiting for the
 // rest of it, so the next request would be read as this one's tail and answered
 // against the wrong header — a read returning another file's bytes, which is
-// the failure this type is arranged throughout to prevent. Later calls now fail
-// fast instead.
+// the failure this type is arranged throughout to prevent. The stream is taken
+// out of service instead, and reopen gives the next request a new one.
 func (p *handlerOps) writeFailed(cause error) error {
 	err := p.startupError(cause)
-	p.broken = fmt.Errorf("the %s stream was left mid-request (%w); this session's file access must be restarted",
+	p.broken = fmt.Errorf("the %s stream was left mid-request (%w); the next file operation starts a new one",
 		p.label, cause)
 	return err
 }
 
-func (p *handlerOps) readFrame() (map[string]any, []byte, error) {
-	hdrLen, err := p.readUint32()
+func (p *handlerOps) readFrame(in *bufio.Reader) (map[string]any, []byte, error) {
+	hdrLen, err := p.readUint32(in)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -361,14 +453,14 @@ func (p *handlerOps) readFrame() (map[string]any, []byte, error) {
 		return nil, nil, fmt.Errorf("handler sent a %d-byte header, above the %d-byte limit", hdrLen, maxFrame)
 	}
 	hdrBuf := make([]byte, hdrLen)
-	if _, err := io.ReadFull(p.in, hdrBuf); err != nil {
+	if _, err := io.ReadFull(in, hdrBuf); err != nil {
 		return nil, nil, fmt.Errorf("read response header: %w", err)
 	}
 	var hdr map[string]any
 	if err := json.Unmarshal(hdrBuf, &hdr); err != nil {
 		return nil, nil, fmt.Errorf("parse response header: %w", err)
 	}
-	payloadLen, err := p.readUint32()
+	payloadLen, err := p.readUint32(in)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -377,16 +469,16 @@ func (p *handlerOps) readFrame() (map[string]any, []byte, error) {
 	}
 	payload := make([]byte, payloadLen)
 	if payloadLen > 0 {
-		if _, err := io.ReadFull(p.in, payload); err != nil {
+		if _, err := io.ReadFull(in, payload); err != nil {
 			return nil, nil, fmt.Errorf("read response payload: %w", err)
 		}
 	}
 	return hdr, payload, nil
 }
 
-func (p *handlerOps) readUint32() (uint32, error) {
+func (p *handlerOps) readUint32(in *bufio.Reader) (uint32, error) {
 	var buf [4]byte
-	if _, err := io.ReadFull(p.in, buf[:]); err != nil {
+	if _, err := io.ReadFull(in, buf[:]); err != nil {
 		if err == io.EOF {
 			return 0, fmt.Errorf("the %s on the target exited", p.label)
 		}
