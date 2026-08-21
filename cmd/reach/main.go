@@ -12,7 +12,7 @@ import (
 
 const usage = `reach — teleoperation for coding agents
 
-The agent stays on your machine. Its tools act somewhere else.
+Point your agent at any box you can SSH into. The box never gets your agent.
 
 USAGE
   reach <command> [arguments]

@@ -1,41 +1,60 @@
 # AgentReach
 
-**Your coding agent stays on your laptop. Its hands work on the server.**
+**Point your coding agent at any box you can SSH into. The server never gets your agent.**
 
 [![CI](https://github.com/bojieli/agentreach/actions/workflows/ci.yml/badge.svg)](https://github.com/bojieli/agentreach/actions/workflows/ci.yml)
 [![Go 1.25.8+](https://img.shields.io/badge/go-1.25.8%2B-00ADD8)](https://go.dev)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Zero dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)](go.mod)
 
----
+Claude Code keeps running on your laptop, logged in the way it already is. Only
+its shell and its file tools move. The target needs nothing but the `sshd` it's
+already running: nothing gets installed there, no credential of yours goes there,
+and closing the session leaves nothing to clean up.
 
-## The problem
+## Why this exists
 
-Two situations come up constantly when you work with coding agents:
+Think about the last time you SSHed somewhere to fix something. A build box, a
+client's staging VM, a container you spun up this morning and will throw away
+tonight. You'd get through it faster with an agent riding along.
 
-**Working on a remote server.** You SSH into a build box, a cloud VM, a client's staging environment. You want an agent to help. The obvious move — install Claude Code or Codex there — takes five minutes and leaves your API key on a machine you may not fully control. On a shared server, that key is visible to whoever has root. On a client's machine, it's on a machine someone else administers. Even on your own VM, a compromised server means a compromised key.
+So you install one there. That's a 300 MB Node binary on a machine that isn't
+yours, plus an API key pasted in so the thing can actually do anything. Now your
+key lives on a box where other people have root, in a shell history you won't
+clear, in an env file you'll forget about by Friday. If that server gets popped
+next month, your key goes with it.
 
-**Working in dev containers.** You spin up a fresh container for every project, every branch, every experiment. Installing Claude Code — a 300 MB Node binary — inside each one is slow and doesn't belong in a Dockerfile. Installing it on the host and doing something clever with mounts is fiddly and fragile.
+Dev containers are the same story on repeat. New branch, new container, and each
+one wants its own copy of the agent. Baking it into the Dockerfile bloats an
+image that should have stayed small. Mounting it in from the host works right up
+until the morning it doesn't.
 
-AgentReach (`reach`) solves both: the agent runs on your machine, where your credentials live, and its tools act on the remote host as if it were local. Nothing is installed on the server. Your API key never leaves your laptop.
+reach turns the arrangement around. The agent runs where it already lives and
+where its credentials already are. Only the commands travel. The target gets
+those commands over SSH and nothing else: no runtime, no key, no files left
+sitting there after you're done.
 
----
-
-## See it
+## What it looks like
 
 ```console
 $ reach up ssh://build-box/srv/app
-session "default" → ssh://build-box/srv/app
+probing ssh://build-box/srv/app ...
+session "default" -> ssh://build-box/srv/app
   target   Linux x86_64
   fileops  pipe (negotiated; nothing written to the target)
-  search   ripgrep (rg)
+  search   ripgrep (fast, structured)
   connect  multiplexed (one authenticated connection, reused)
 
 $ reach claude
 > what's eating disk on this box?
 ```
 
-Claude Code runs on your laptop. The commands it issues — `df`, `du`, `grep` — run on `build-box`. Files it reads come from `build-box`. When it writes a config, the change lands on `build-box`. It never touches your local filesystem unless you ask it to.
+Claude Code is running locally. The `df` and `du` and `grep` it decides to run
+happen on `build-box`. Files it reads come from `build-box`. If it rewrites a
+config, the new bytes land on `build-box`. Your own filesystem is untouched
+unless you specifically ask for something local.
+
+Everything it did is on the record:
 
 ```console
 $ reach log
@@ -46,31 +65,14 @@ WHEN      ACTION  STATUS  DETAIL
 14:02:31  exec    exit 1  systemctl reload rsyslog
 ```
 
----
-
-## Supported agents
-
-| Agent | Command | Status |
-|---|---|---|
-| [Claude Code](docs/harnesses/claude-code.md) | `reach claude` | ✓ verified end-to-end (2.1.233) |
-| [Codex](docs/harnesses/codex.md) | `reach codex` | ✓ verified end-to-end (0.148.0) |
-| [Kimi Code](docs/harnesses/kimi.md) | `reach kimi` | ✓ verified (0.37.2) |
-| [opencode](docs/harnesses/opencode.md) | `reach opencode` | ✓ verified (1.18.18) |
-| [Goose](docs/harnesses/goose.md) | `reach goose` | ✓ verified |
-| [Crush](docs/harnesses/crush.md) | `reach crush` | ✓ verified |
-| [Gemini CLI](docs/harnesses/gemini.md) | `reach gemini` | ✓ verified |
-
-Each agent's existing authentication stays untouched — subscription logins, OAuth tokens, and API keys all continue to work exactly as they do today.
-
----
-
 ## Install
 
 ```console
 go install github.com/bojieli/agentreach/cmd/reach@latest
 ```
 
-Or grab a pre-built binary from [Releases](https://github.com/bojieli/agentreach/releases), or build from source:
+Pre-built binaries are on the [releases page](https://github.com/bojieli/agentreach/releases).
+From source:
 
 ```console
 git clone https://github.com/bojieli/agentreach
@@ -78,180 +80,220 @@ cd agentreach
 make install
 ```
 
-**Requirements:** The `ssh` binary you already have on your system. No other runtime dependency. reach shells out to your existing `ssh` so that `ProxyJump`, `IdentityFile`, `Match` blocks, hardware tokens, and 2FA all keep working exactly as they do today.
+The only thing reach needs is the `ssh` binary you already have. It shells out
+to that rather than speaking SSH itself, so `ProxyJump`, `IdentityFile`, `Match`
+blocks, hardware tokens and 2FA all keep working the way you've configured them.
 
-Runs on **Linux, macOS, and Windows** (as the machine you sit at). Targets any POSIX host over `ssh://`, `docker://`, `podman://`, or the familiar `user@host:/path` shorthand.
-
----
+You can sit in front of Linux, macOS or Windows. Targets can be anything POSIX
+you can reach over `ssh://`, `docker://`, `podman://`, or the usual
+`user@host:/path` shorthand.
 
 ## Quick start
 
-**Step 1: Point reach at a target.**
+Point reach at something:
 
 ```console
-# A server you own and trust:
-reach up ssh://build-box/srv/app
-
-# A shared or client-owned server:
-reach up ssh://client-box/srv/app --untrusted
+reach up ssh://build-box/srv/app                     # a server you own
+reach up ssh://client-box/srv/app --untrusted        # somebody else's server
 ```
 
-`--untrusted` adds an extra guarantee: the optional helper binary is never installed on that host under any circumstances. Both forms leave nothing on the server otherwise.
+This opens one multiplexed SSH connection and asks the host what it can do.
+`--untrusted` promises that the optional helper binary will never be installed
+there, no matter what. Either way, `reach doctor` will tell you exactly what was
+found, which tier got picked, and whether anything is sitting on the target.
 
-This opens a multiplexed SSH connection and probes the host for what it supports. `reach doctor` shows you the full result — what was found, what tier was negotiated, and what (if anything) reach has placed there.
-
-**Step 2: Run your agent.**
+Then start your agent:
 
 ```console
 reach claude       # Claude Code
 reach codex        # Codex
 reach goose        # Goose
-# ... any supported agent
 ```
 
-The agent launches on your machine with its shell silently redirected to the remote host. You interact with it normally. Commands run there; your API key stays here.
+It launches locally, with its shell quietly redirected to the remote host, and
+you talk to it like you always do.
 
-**Step 3: Clean up.**
+When you're finished:
 
 ```console
 reach down
 ```
 
-Closes the connection and leaves nothing behind.
+That closes the connection and leaves nothing behind.
 
----
+## Agents that work today
+
+| Agent | Command | Status |
+|---|---|---|
+| [Claude Code](docs/harnesses/claude-code.md) | `reach claude` | verified end-to-end (2.1.233) |
+| [Codex](docs/harnesses/codex.md) | `reach codex` | verified end-to-end (0.148.0) |
+| [Kimi Code](docs/harnesses/kimi.md) | `reach kimi` | verified (0.37.2) |
+| [opencode](docs/harnesses/opencode.md) | `reach opencode` | verified (1.18.18) |
+| [Goose](docs/harnesses/goose.md) | `reach goose` | verified |
+| [Crush](docs/harnesses/crush.md) | `reach crush` | verified |
+| [Gemini CLI](docs/harnesses/gemini.md) | `reach gemini` | verified |
+
+Nobody has to log in again. Subscription logins, OAuth tokens and API keys keep
+working exactly as they do now, because reach never touches them.
 
 ## Commands
 
 ```console
-reach up <target>       bind a session to a target and probe its capabilities
+reach up <target>       bind a session to a target and probe what it supports
 reach down [session]    close a session and leave no trace
 reach status            show active sessions
-reach doctor            diagnose what a target supports and why
-reach log               audit log — what reach ran and changed on the target
-reach exec -- <cmd>     run a one-off command on the target
-reach fs read <path>    work with files on the target directly
-reach helper uninstall  remove anything reach placed on the target
+reach doctor            explain what a target supports, and why
+reach log               what reach has run and changed on the target
+reach exec -- <cmd>     run a one-off command there
+reach fs read <path>    work with remote files directly
+reach helper uninstall  remove anything reach put on the target
 ```
 
-**Target formats:**
+Targets look like this:
+
 ```
 ssh://user@host/path/to/work
 user@host:/path/to/work        (scp-style shorthand)
 docker://container/path
 podman://container/path
+local:///path                  (this machine, mostly for testing)
 ```
 
----
+## Things that look like they should work
 
-## Why not just…
-
-| | what goes wrong |
+| | what actually happens |
 |---|---|
-| **Install the agent on the server** | A 300 MB Node binary, and your API key is now on a machine you don't control |
-| **SSHFS / FUSE mount** | Needs a kernel extension and a reboot on macOS. On a flaky link it hangs in uninterruptible sleep — the agent freezes mid-call with no error to reason about |
-| **Add an MCP file server** | The model sees `mcp__remote__read_file` instead of `Read`. You didn't move the agent; you retrained it |
-| **SSH in the agent's terminal** | Now `cd` doesn't persist across calls, paths are wrong, and the agent's file tools still edit your laptop |
+| **Install the agent on the server** | 300 MB of Node, and your API key is now on a machine you don't administer |
+| **SSHFS or a FUSE mount** | macOS wants a kernel extension and a reboot. Worse, on a flaky link the mount hangs in uninterruptible sleep and the agent freezes mid-call with no error it can see |
+| **An MCP file server** | The model now sees `mcp__remote__read_file` where it expected `Read`. You didn't relocate the agent, you retrained it |
+| **Just SSH inside the agent's terminal** | `cd` stops persisting between calls, relative paths drift, and the agent's file tools are still happily editing your laptop |
 
-reach's governing rule:
+There's one rule underneath all of this:
 
-> **Every failure must be a value the agent can reason about, never a process that stops responding.**
+> Every failure has to arrive as a value the agent can reason about, never as a
+> process that stops answering.
 
-A timeout becomes a tool error the model retries or routes around. That single property is why reach is built on request/response over SSH rather than a filesystem mount.
-
----
+A timeout should show up as a tool error the model can retry or route around.
+That's the reason reach is request/response over SSH instead of a filesystem
+mount, and it's the thing most of the design falls out of.
 
 ## How it works
 
-Three layers. Only the top layer knows which agent you're using.
+Three layers, and only the top one knows which agent you're running.
 
 ```
 harness  (claude · codex · kimi · opencode · goose · crush · gemini)
-    │     native tool calls — the model sees no new tools
-adapter   per harness · no fork · config or plugin
+    │     native tool calls, no new tools in the model's view
+adapter   one per harness, config or plugin, never a fork
     │
 reach     session state · cwd · capability probe
     │     file-op tier: posix · pipe · helper
     │  ssh · docker · podman · local
-target    stock sshd only — nothing installed
+target    stock sshd, nothing installed
 ```
 
-**No daemon.** Session state is a file. SSH's `ControlMaster` multiplexes the connection at 4–5× the speed of reconnecting, so a daemon would add lifecycle complexity in exchange for nothing.
+There's no daemon. A session is just a file on disk. SSH's `ControlMaster`
+already multiplexes the connection at four to five times the speed of
+reconnecting, so a daemon would buy lifecycle complexity and nothing else.
 
-**Nothing installed on the target** (by default). Two of the three file-operation tiers write nothing at all, and those are the only ones reach picks automatically. The third installs a small helper only when you explicitly ask for it.
+By default nothing gets written to the target. Two of the three file-operation
+tiers touch its disk zero times, and those two are the only ones reach will
+choose on its own. The third uploads a small helper, and only if you ask for it
+by name.
 
-| tier | needs on target | writes to target | picked automatically |
+| tier | needs on target | writes to target | chosen automatically |
 |---|---|---|---|
-| `posix` | a POSIX shell | nothing | yes (fallback) |
-| `pipe` | `python3` | nothing | yes (preferred) |
-| `helper` | can run an uploaded binary | one cached binary | **never** |
+| `posix` | a POSIX shell | nothing | yes, as fallback |
+| `pipe` | `python3` | nothing | yes, preferred |
+| `helper` | can run an uploaded binary | one cached binary | never |
 
----
+[TRANSPORTS.md](docs/TRANSPORTS.md) has the numbers, measured over real links
+rather than loopback.
 
 ## Two modes
 
-**`exec`** (default) — commands run on the target. The agent's native file tools (`Read`, `Edit`, `Write`) are denied, because they have no way to be redirected and would silently act on your laptop. The agent uses its shell tool, which is transparently remote.
+**exec** is the default. Commands run on the target, and the agent's own file
+tools (`Read`, `Edit`, `Write`) are denied, because there's no way to redirect
+them and they'd quietly edit your laptop instead. The agent works through its
+shell tool, which is remote whether it knows it or not.
 
-**`mirror`** — additionally wires Claude Code's native `Read`/`Write`/`Edit` to work against the target. Each file is fetched the moment a tool opens it, and written back when it changes, guarded by a content digest so a file that changed on the server in between is refused rather than clobbered.
+**mirror** additionally wires Claude Code's native `Read`, `Write` and `Edit` to
+the target. A file is fetched the moment a tool opens it and written back when it
+changes, with a content digest in between, so if the file changed underneath you
+on the server the write is refused instead of clobbered.
 
 ```console
 reach up ssh://build-box/srv/app --mode mirror
 reach claude
 ```
 
-Mirror is useful for heavy edit sessions where you want to use Claude Code's native file tools rather than shell redirects. Use it with eyes open: reads can be slightly stale, and it's a copy-on-demand mechanism, not a sync engine. For shell-shaped work, `exec` mode is simpler and has no staleness window.
-
----
+Mirror earns its keep during heavy editing sessions where you'd rather use the
+native file tools than shell redirects. Go in knowing what it is: reads can be a
+little stale, and it copies on demand rather than syncing. For shell-shaped work,
+exec is simpler and has no staleness window at all.
 
 ## Security
 
-reach is built for untrusted targets, and the security model reflects that.
+reach assumes the target might be hostile, and the design reflects that.
 
-- **No credential reaches the target.** The agent, its API key, and its conversation stay on your machine.
-- **SSH agent forwarding is off, unconditionally.** A forwarded agent socket on a hostile server lets that server authenticate as you everywhere else you can reach. There is no flag to re-enable this.
-- **Nothing is installed by default.** Tier 0 requires only a POSIX shell and writes nothing.
-- **The agent's shell snapshot is stripped** from forwarded commands. Claude Code's command envelope sources a file from your home directory; forwarding it would disclose your username and directory layout to the server for no benefit.
+Your credentials never make the trip. The agent, its API key and the whole
+conversation stay on your machine.
 
-What reach does not protect against: prompt injection. Content from the target flows into the agent's context. A compromised server can try to instruct the agent. Keep secrets out of the agent's local environment, and review any writes the agent makes to your local disk during a remote session. Full threat model: [docs/SECURITY.md](docs/SECURITY.md).
+SSH agent forwarding is off and stays off. A forwarded agent socket on a hostile
+server lets whoever controls that server authenticate as you everywhere else you
+can reach, which is a much bigger blast radius than the session you thought you
+were opening. reach never enables it and there is no flag that does.
 
----
+Nothing is installed by default. Tier 0 needs a POSIX shell and writes nothing at
+all.
+
+The agent's shell snapshot gets stripped out of forwarded commands. Claude Code's
+command envelope sources a file from your home directory, and shipping that to
+the server would hand over your username and directory layout for no benefit.
+
+What reach can't do anything about is prompt injection. Content from the target
+flows into the agent's context, and a compromised server can absolutely try to
+talk to your agent. Keep secrets out of the agent's local environment, and read
+anything it writes to your local disk during a remote session. The full threat
+model is in [docs/SECURITY.md](docs/SECURITY.md).
 
 ## Docs
 
 | | |
 |---|---|
-| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | how it fits together, and what was rejected |
-| [TRANSPORTS.md](docs/TRANSPORTS.md) | the three file-operation tiers, measured on real links |
-| [RESEARCH.md](docs/RESEARCH.md) | what each agent actually does internally, with transcripts |
-| [SECURITY.md](docs/SECURITY.md) | threat model and what reach does not protect you from |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | how the pieces fit, and which alternatives got thrown out |
+| [TRANSPORTS.md](docs/TRANSPORTS.md) | the three file-operation tiers, benchmarked on real links |
+| [RESEARCH.md](docs/RESEARCH.md) | what each agent does internally, with transcripts |
+| [SECURITY.md](docs/SECURITY.md) | threat model, and what reach won't save you from |
 | [WINDOWS.md](docs/WINDOWS.md) | running reach from Windows |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | the standard of evidence and the design rules |
-| [harnesses/](docs/harnesses/) | per-agent notes: seam, verified versions, known limits |
-
----
+| [CONTRIBUTING.md](CONTRIBUTING.md) | the standard of evidence, and the design rules |
+| [harnesses/](docs/harnesses/) | per-agent notes: the seam, verified versions, known limits |
 
 ## Development
 
 ```console
-make check        # vet + unit tests. No network, no API key.
+make check        # vet plus unit tests. No network, no API key.
 make integration  # every file-operation tier against a real sshd
-make bench        # what each tier actually costs, measured
+make bench        # what each tier actually costs
 make conformance  # do the agent seams still have the shape reach expects?
 make e2e          # real agents against a real target (spends tokens)
 ```
 
-`make integration` starts an sshd owned by your user on a high port — no root, no Docker, no external network. Set `REACH_TEST_SSH_HOST=my-box` to run against a host you already have.
-
----
+`make integration` starts an sshd owned by your own user on a high port. No root,
+no Docker, no outbound network. If you'd rather test against a box you already
+have, set `REACH_TEST_SSH_HOST=my-box`.
 
 ## Status
 
-The Claude Code path is verified end-to-end against a real agent, against real hosts on three continents. The file-operation layer — three tiers, six real hosts, three userlands, a fuzzer — is solid. The other agents are at the stage each of [their notes](docs/harnesses/) says they are.
+The Claude Code path is verified end-to-end against a real agent on real hosts
+across three continents. The file-operation layer has been through three tiers,
+six hosts, three userlands and a fuzzer, and it's solid. Every other agent is
+exactly as far along as [its notes](docs/harnesses/) say it is.
 
-Interfaces may change before 1.0. What is *not* changing: the file-operation protocol, the session format, and the principle that nothing lands on your server without you asking for it.
-
----
+Interfaces may still move before 1.0. Three things won't: the file-operation
+protocol, the session format, and the promise that nothing lands on your server
+unless you asked for it.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
