@@ -116,8 +116,8 @@ func cmdDoctor(ctx context.Context, args []string) error {
 
 	fmt.Println("\nLOCAL HARNESSES")
 	reportHarness("claude", "Claude Code", "CLAUDE_CODE_SHELL_PREFIX")
-	reportHarness("codex", "Codex", "PATH shim")
-	reportHarness("kimi", "Kimi Code", "PATH shim")
+	reportHarness("codex", "Codex", codexSeamNote())
+	reportHarness("kimi", "Kimi Code", kimiSeamNote())
 	reportHarness("opencode", "opencode", "tool shadowing plugin")
 	return nil
 }

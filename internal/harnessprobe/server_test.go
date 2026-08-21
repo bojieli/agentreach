@@ -1,0 +1,360 @@
+package harnessprobe
+
+import (
+	"bytes"
+	"encoding/json"
+	"io"
+	"net/http"
+	"strings"
+	"testing"
+	"time"
+)
+
+// These tests pin the mock's wire shape, which is a contract with the real
+// codex: the SSE event sequence here is the minimal one established against
+// the real binary by test/e2e/seam_test.sh, and drifting from it makes
+// the probe measure its own server rather than the seam.
+
+// postResponses issues one handcrafted Responses-API call and returns the raw
+// SSE body.
+func postResponses(t *testing.T, m *Mock, body string) string {
+	t.Helper()
+	resp, err := http.Post(m.BaseURL()+"/responses", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /responses: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /responses: status %d", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Fatalf("Content-Type = %q, want text/event-stream", ct)
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	return string(data)
+}
+
+func TestMockScriptsOneToolCallAndRecordsItsOutput(t *testing.T) {
+	m := StartMock("WALDO_TEST_MARKER", DialectResponses)
+	defer m.Close()
+
+	// Turn one: the harness opens a turn, advertising its tools. The mock must
+	// answer with the scripted function call, naming exec_command — first in
+	// preference order — with the canary embedded in the arguments.
+	turn1 := postResponses(t, m, `{
+		"input": [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "go"}]}],
+		"tools": [
+			{"type": "function", "name": "shell_command"},
+			{"type": "function", "name": "exec_command"}
+		]
+	}`)
+	for _, want := range []string{
+		"event: response.created\n",
+		"event: response.output_item.done\n",
+		`"type":"function_call"`,
+		`"call_id":"call_waldo_1"`,
+		`"name":"exec_command"`,
+		"echo WALDO_TEST_MARKER; hostname",
+		"event: response.completed\n",
+		`"total_tokens":0`,
+	} {
+		if !strings.Contains(turn1, want) {
+			t.Errorf("turn-1 stream is missing %q:\n%s", want, turn1)
+		}
+	}
+	// Arguments must be a JSON *string* holding an object, per the Responses
+	// function_call shape — not an inline object.
+	var ev struct {
+		Item struct {
+			Arguments string `json:"arguments"`
+		} `json:"item"`
+	}
+	for _, line := range strings.Split(turn1, "\n") {
+		if !strings.HasPrefix(line, "data: ") || !strings.Contains(line, "output_item.done") {
+			continue
+		}
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &ev); err != nil {
+			t.Fatalf("output_item.done data is not JSON: %v", err)
+		}
+	}
+	var args map[string]any
+	if err := json.Unmarshal([]byte(ev.Item.Arguments), &args); err != nil {
+		t.Fatalf("function_call arguments are not a JSON string holding an object: %v", err)
+	}
+	if args["cmd"] != "echo WALDO_TEST_MARKER; hostname" {
+		t.Fatalf("arguments cmd = %v, want the scripted command", args["cmd"])
+	}
+
+	if _, observed := m.Result(); observed {
+		t.Fatal("no tool output should be recorded after turn one")
+	}
+
+	// Turn two: the harness reports the tool's output back as a
+	// function_call_output item. The mock must store it verbatim and close the
+	// turn with a plain assistant message.
+	turn2 := postResponses(t, m, `{
+		"input": [{"type": "function_call_output", "call_id": "call_waldo_1",
+			"output": "WALDO_TEST_MARKER\nremote-box"}]
+	}`)
+	for _, want := range []string{
+		`"type":"message"`,
+		`"role":"assistant"`,
+		`"type":"output_text"`,
+		"OBSERVED: WALDO_TEST_MARKER",
+		"event: response.completed\n",
+	} {
+		if !strings.Contains(turn2, want) {
+			t.Errorf("turn-2 stream is missing %q:\n%s", want, turn2)
+		}
+	}
+
+	out, observed := m.Result()
+	if !observed {
+		t.Fatal("the tool output was not recorded")
+	}
+	if out != "WALDO_TEST_MARKER\nremote-box" {
+		t.Fatalf("recorded output = %q", out)
+	}
+}
+
+func TestMockWaitUnblocksOnResult(t *testing.T) {
+	m := StartMock("M", DialectResponses)
+	defer m.Close()
+	ctx := make(chan struct{})
+	finished := make(chan struct{})
+	go func() { m.Wait(ctx); close(finished) }()
+
+	postResponses(t, m, `{"input": [], "tools": [{"type":"function","name":"shell"}]}`)
+	postResponses(t, m, `{"input": [{"type":"function_call_output","output":"M\nbox"}]}`)
+
+	select {
+	case <-finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Wait did not return after the tool output arrived")
+	}
+}
+
+func TestMockAdaptiveToolSelection(t *testing.T) {
+	cases := []struct {
+		name     string
+		tools    string
+		wantName string
+	}{
+		{"exec_command preferred", `[{"type":"function","name":"exec_command"},{"type":"function","name":"shell"}]`, "exec_command"},
+		{"shell_command over shell", `[{"type":"function","name":"shell"},{"type":"function","name":"shell_command"}]`, "shell_command"},
+		{"plain shell", `[{"type":"function","name":"shell"}]`, "shell"},
+		{"unknown falls back to first function tool", `[{"type":"function","name":"weird_shell"}]`, "weird_shell"},
+		{"no tools falls back to shell", `[]`, "shell"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := StartMock("M", DialectResponses)
+			defer m.Close()
+			body := postResponses(t, m, `{"input": [], "tools": `+tc.tools+`}`)
+			if !strings.Contains(body, `"name":"`+tc.wantName+`"`) {
+				t.Fatalf("called the wrong tool, want %q:\n%s", tc.wantName, body)
+			}
+		})
+	}
+}
+
+func TestMockToolOutputAsJSONValue(t *testing.T) {
+	// Codex may report the tool output as a JSON value wrapping the real
+	// string rather than as a plain string; the evidence must survive either
+	// encoding.
+	m := StartMock("M", DialectResponses)
+	defer m.Close()
+	postResponses(t, m, `{"input": [], "tools": [{"type":"function","name":"shell"}]}`)
+	postResponses(t, m, `{"input": [{"type":"function_call_output","output":{"content":"M\nbox"}}]}`)
+	out, observed := m.Result()
+	if !observed || !strings.Contains(out, "box") {
+		t.Fatalf("structured tool output was not preserved: %q observed=%v", out, observed)
+	}
+}
+
+func TestMockRejectsUnexpectedRequests(t *testing.T) {
+	m := StartMock("M", DialectResponses)
+	defer m.Close()
+	resp, err := http.Post(m.BaseURL()+"/chat/completions", "application/json", bytes.NewReader(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404 for a dialect the mock does not speak", resp.StatusCode)
+	}
+}
+
+// postChat issues one handcrafted chat-completions call and returns the raw
+// SSE body.
+func postChat(t *testing.T, m *Mock, body string) string {
+	t.Helper()
+	resp, err := http.Post(m.BaseURL()+"/chat/completions", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /chat/completions: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /chat/completions: status %d", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Fatalf("Content-Type = %q, want text/event-stream", ct)
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	return string(data)
+}
+
+// chatChunks splits an SSE body into the JSON payload of each data: line,
+// skipping the [DONE] sentinel.
+func chatChunks(t *testing.T, body string) []map[string]any {
+	t.Helper()
+	var out []map[string]any
+	for _, line := range strings.Split(body, "\n") {
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := strings.TrimPrefix(line, "data: ")
+		if data == "[DONE]" {
+			continue
+		}
+		var chunk map[string]any
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			t.Fatalf("chunk data is not JSON: %v\n%s", err, data)
+		}
+		out = append(out, chunk)
+	}
+	return out
+}
+
+func TestMockChatDialectScriptsOneToolCall(t *testing.T) {
+	m := StartMock("WALDO_CHAT_MARKER", DialectChat)
+	defer m.Close()
+
+	// Turn one: kimi advertises its tools in the chat-completions shape —
+	// nested under "function" — and the mock must prefer "Bash".
+	turn1 := postChat(t, m, `{
+		"messages": [{"role": "user", "content": "go"}],
+		"tools": [
+			{"type": "function", "function": {"name": "ReadFile"}},
+			{"type": "function", "function": {"name": "Bash"}}
+		]
+	}`)
+	if !strings.HasSuffix(strings.TrimSpace(turn1), "data: [DONE]") {
+		t.Errorf("chat stream must end with the [DONE] sentinel:\n%s", turn1)
+	}
+	chunks := chatChunks(t, turn1)
+	if len(chunks) != 4 {
+		t.Fatalf("turn-1 stream has %d chunks, want 4 (role, tool name, arguments, finish):\n%s",
+			len(chunks), turn1)
+	}
+	// Every chunk carries the fixed envelope the reference mock established.
+	for i, c := range chunks {
+		if c["object"] != "chat.completion.chunk" || c["id"] != "chatcmpl-waldo" {
+			t.Errorf("chunk %d has the wrong envelope: %v", i, c)
+		}
+	}
+	delta := func(i int) map[string]any {
+		choices, _ := chunks[i]["choices"].([]any)
+		c0, _ := choices[0].(map[string]any)
+		d, _ := c0["delta"].(map[string]any)
+		return d
+	}
+	finish := func(i int) any {
+		choices, _ := chunks[i]["choices"].([]any)
+		c0, _ := choices[0].(map[string]any)
+		return c0["finish_reason"]
+	}
+	if delta(0)["role"] != "assistant" {
+		t.Errorf("chunk 0 should open the assistant turn: %v", delta(0))
+	}
+	// Name and arguments arrive in separate chunks, as real OpenAI streams
+	// deliver them; the name chunk's arguments are empty.
+	tcs, _ := delta(1)["tool_calls"].([]any)
+	tc, _ := tcs[0].(map[string]any)
+	fn, _ := tc["function"].(map[string]any)
+	if tc["id"] != "call_waldo_1" || fn["name"] != "Bash" || fn["arguments"] != "" {
+		t.Errorf("chunk 1 should name Bash with empty arguments: %v", delta(1))
+	}
+	tcs2, _ := delta(2)["tool_calls"].([]any)
+	tc2, _ := tcs2[0].(map[string]any)
+	fn2, _ := tc2["function"].(map[string]any)
+	args, _ := fn2["arguments"].(string)
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(args), &parsed); err != nil {
+		t.Fatalf("chunk 2 arguments are not a JSON string holding an object: %v", err)
+	}
+	if parsed["command"] != "echo WALDO_CHAT_MARKER; hostname" {
+		t.Errorf("arguments command = %v, want the scripted command", parsed["command"])
+	}
+	if finish(2) != nil || finish(3) != "tool_calls" {
+		t.Errorf("finish_reason sequence = %v then %v, want null then tool_calls", finish(2), finish(3))
+	}
+
+	if _, observed := m.Result(); observed {
+		t.Fatal("no tool output should be recorded after turn one")
+	}
+
+	// Turn two: kimi reports the tool result as a role:"tool" message.
+	turn2 := postChat(t, m, `{
+		"messages": [
+			{"role": "user", "content": "go"},
+			{"role": "tool", "tool_call_id": "call_waldo_1", "content": "WALDO_CHAT_MARKER\nremote-box"}
+		]
+	}`)
+	chunks2 := chatChunks(t, turn2)
+	// "OBSERVED: " and the tool output stream as separate content chunks, as
+	// the reference mock emits them.
+	if !strings.Contains(turn2, `"OBSERVED: "`) || !strings.Contains(turn2, `WALDO_CHAT_MARKER\nremote-box`) {
+		t.Errorf("turn-2 stream should echo the observed output:\n%s", turn2)
+	}
+	if got := finishOfLast(chunks2); got != "stop" {
+		t.Errorf("turn-2 final finish_reason = %v, want stop", got)
+	}
+	if !strings.HasSuffix(strings.TrimSpace(turn2), "data: [DONE]") {
+		t.Errorf("turn-2 stream must end with [DONE]:\n%s", turn2)
+	}
+
+	out, observed := m.Result()
+	if !observed || out != "WALDO_CHAT_MARKER\nremote-box" {
+		t.Fatalf("recorded output = %q observed=%v", out, observed)
+	}
+}
+
+func finishOfLast(chunks []map[string]any) any {
+	choices, _ := chunks[len(chunks)-1]["choices"].([]any)
+	c0, _ := choices[0].(map[string]any)
+	return c0["finish_reason"]
+}
+
+func TestMockChatToolResultAsParts(t *testing.T) {
+	// A tool message's content may be a list of text parts rather than a
+	// plain string; the evidence must survive either encoding.
+	m := StartMock("M", DialectChat)
+	defer m.Close()
+	postChat(t, m, `{"messages": [{"role":"user","content":"go"}],
+		"tools": [{"type":"function","function":{"name":"Bash"}}]}`)
+	postChat(t, m, `{"messages": [{"role":"tool","content":[{"type":"text","text":"M\nbox"}]}]}`)
+	out, observed := m.Result()
+	if !observed || out != "M\nbox" {
+		t.Fatalf("part-list tool content was not preserved: %q observed=%v", out, observed)
+	}
+}
+
+func TestMockChatDialectRejectsResponsesEndpoint(t *testing.T) {
+	m := StartMock("M", DialectChat)
+	defer m.Close()
+	resp, err := http.Post(m.BaseURL()+"/responses", "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404: a chat mock must not answer the responses endpoint", resp.StatusCode)
+	}
+}

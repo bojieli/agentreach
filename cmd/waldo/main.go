@@ -37,6 +37,7 @@ HARNESSES
   kimi [args...]    launch Kimi Code wired to the session
   opencode install  install tools that shadow opencode's built-ins
   env               print the environment a harness needs
+  harness verify codex|kimi   probe whether this harness version's shell routes through waldo
 
 TARGETS
   ssh://[user@]host[:port]/abs/path    a remote host over SSH
@@ -111,6 +112,8 @@ func main() {
 		os.Exit(cmdKimi(ctx, os.Args[2:]))
 	case "opencode":
 		err = cmdOpencode(ctx, os.Args[2:])
+	case "harness":
+		err = cmdHarness(ctx, os.Args[2:])
 	case "helper":
 		err = cmdHelper(ctx, os.Args[2:])
 	case "agent":

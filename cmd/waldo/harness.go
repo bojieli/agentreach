@@ -64,9 +64,30 @@ func cmdCodex(ctx context.Context, args []string) int {
 	name := fs.String("session", "", "session name (default $WALDO_SESSION)")
 	fullAccess := fs.Bool("danger-full-access", false,
 		"disable Codex's local sandbox entirely instead of only allowing network")
+	force := fs.Bool("force", false,
+		"launch without verifying the shell seam (the agent's commands may run LOCALLY)")
 	pos, err := parseFlags(fs, args)
 	if err != nil {
 		return 2
+	}
+
+	sessName := sessionNameFromEnv(*name)
+
+	// Fail-closed seam guard. Codex >= 0.148 resolves its shell by absolute
+	// path (getpwuid_r -> /bin/zsh -lc) instead of by name, which no PATH shim
+	// can intercept: every command it ran would execute on the local machine
+	// while the agent believed it was acting on the target. There is no
+	// config, env or hook seam to change that, so waldo verifies the behaviour
+	// once per codex version and refuses versions measured broken. --force is
+	// the operator's explicit escape hatch, and it says so on stderr.
+	if *force {
+		fmt.Fprintln(os.Stderr,
+			"waldo: WARNING: --force skips the codex seam verification.\n"+
+				"waldo: If this codex version resolves its shell by absolute path, every\n"+
+				"waldo: command the agent runs will execute on the LOCAL machine while the\n"+
+				"waldo: agent believes it is acting on the target.")
+	} else if rc := guardHarnessSeam(ctx, "codex", sessName); rc != 0 {
+		return rc
 	}
 
 	// Codex sandboxes the commands it runs, and that sandbox blocks network
@@ -86,7 +107,7 @@ func cmdCodex(ctx context.Context, args []string) int {
 		sandbox = []string{"-c", "sandbox_mode=\"danger-full-access\""}
 	}
 
-	return launchWithPathShim(ctx, "codex", "Codex", sessionNameFromEnv(*name),
+	return launchWithPathShim(ctx, "codex", "Codex", sessName,
 		nil, append(sandbox, pos...))
 }
 
@@ -99,12 +120,31 @@ func cmdCodex(ctx context.Context, args []string) int {
 func cmdKimi(ctx context.Context, args []string) int {
 	fs := newFlagSet("kimi")
 	name := fs.String("session", "", "session name (default $WALDO_SESSION)")
+	force := fs.Bool("force", false,
+		"launch without verifying the shell seam (the agent's commands may run LOCALLY)")
 	pos, err := parseFlags(fs, args)
 	if err != nil {
 		return 2
 	}
+
+	sessName := sessionNameFromEnv(*name)
+
+	// The same fail-closed seam guard as codex: Kimi Code 0.37.2 spawns its
+	// shell by absolute path, which no PATH shim can intercept, so every
+	// command its Bash tool ran would execute on the local machine while the
+	// agent believed it was acting on the target.
+	if *force {
+		fmt.Fprintln(os.Stderr,
+			"waldo: WARNING: --force skips the kimi seam verification.\n"+
+				"waldo: If this kimi version spawns its shell by absolute path, every\n"+
+				"waldo: command the agent runs will execute on the LOCAL machine while the\n"+
+				"waldo: agent believes it is acting on the target.")
+	} else if rc := guardHarnessSeam(ctx, "kimi", sessName); rc != 0 {
+		return rc
+	}
+
 	fmt.Fprintln(os.Stderr,
 		"waldo: note — Kimi's native file tools (read_file, write_file, multi_edit)\n"+
 			"       still act on the LOCAL filesystem. Use shell commands for file access.")
-	return launchWithPathShim(ctx, "kimi", "Kimi Code", sessionNameFromEnv(*name), nil, pos)
+	return launchWithPathShim(ctx, "kimi", "Kimi Code", sessName, nil, pos)
 }
