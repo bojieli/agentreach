@@ -6,7 +6,7 @@
 // (/bin/bash, /usr/bin/bash, /usr/local/bin/bash, else /bin/sh) and spawns it
 // by absolute path. KIMI_SHELL_PATH exists in the source but is only consulted
 // on Windows (locateWindowsGitBash). No config key, env var, hook, or plugin
-// can redirect the shell on POSIX, which strands tools like waldo that need
+// can redirect the shell on POSIX, which strands tools like reach that need
 // the harness's shell to be a program of their choosing.
 //
 // The upstream-shaped fix is a two-file change:

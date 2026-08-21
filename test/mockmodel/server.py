@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A minimal OpenAI-compatible model server that drives a scripted tool call.
 
-waldo's hardest claim to verify is that a harness's *own* tools end up acting on
+reach's hardest claim to verify is that a harness's *own* tools end up acting on
 the target. Proving that normally needs a real model, which means an API key,
 which means the test cannot run in CI and cannot run for a contributor who has
 no account.
@@ -53,10 +53,10 @@ def chunk(payload):
 
 def base(delta, finish=None):
     return {
-        "id": "chatcmpl-waldo",
+        "id": "chatcmpl-reach",
         "object": "chat.completion.chunk",
         "created": int(time.time()),
-        "model": "waldo-mock",
+        "model": "reach-mock",
         "choices": [{"index": 0, "delta": delta, "finish_reason": finish}],
     }
 
@@ -68,7 +68,7 @@ def sse(event_type, payload):
 def resp_created():
     return sse("response.created", {
         "type": "response.created",
-        "response": {"id": "resp_waldo_1"},
+        "response": {"id": "resp_reach_1"},
     })
 
 
@@ -76,7 +76,7 @@ def resp_completed():
     return sse("response.completed", {
         "type": "response.completed",
         "response": {
-            "id": "resp_waldo_1",
+            "id": "resp_reach_1",
             "usage": {
                 "input_tokens": 0,
                 "input_tokens_details": None,
@@ -120,7 +120,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.rstrip("/").endswith("/models"):
             body = json.dumps({
                 "object": "list",
-                "data": [{"id": "waldo-mock", "object": "model", "owned_by": "waldo"}],
+                "data": [{"id": "reach-mock", "object": "model", "owned_by": "reach"}],
             }).encode()
             self._send_json(body)
             return
@@ -165,7 +165,7 @@ class Handler(BaseHTTPRequestHandler):
         if first_turn:
             self.wfile.write(chunk(base({"role": "assistant", "content": ""})))
             self.wfile.write(chunk(base({"tool_calls": [{
-                "index": 0, "id": "call_waldo_1", "type": "function",
+                "index": 0, "id": "call_reach_1", "type": "function",
                 "function": {"name": ARGS.tool, "arguments": ""},
             }]})))
             self.wfile.write(chunk(base({"tool_calls": [{
@@ -214,7 +214,7 @@ class Handler(BaseHTTPRequestHandler):
                 "type": "response.output_item.done",
                 "item": {
                     "type": "function_call",
-                    "call_id": "call_waldo_1",
+                    "call_id": "call_reach_1",
                     "name": name,
                     "arguments": args,
                 },
@@ -252,7 +252,7 @@ def main():
     ap.add_argument("--dialect", choices=["chat", "responses"], default="chat")
     ap.add_argument("--tool", help="tool name (required for chat; overrides auto-selection in responses)")
     ap.add_argument("--args", help="JSON arguments for the tool call (required for chat)")
-    ap.add_argument("--command", default="echo WALDO_MOCK_MARKER; hostname",
+    ap.add_argument("--command", default="echo REACH_MOCK_MARKER; hostname",
                     help="command embedded in the tool call (responses dialect)")
     ap.add_argument("--timeout", type=float, default=120.0)
     ap.add_argument("--debug-dump", default="", help="append each  request's messages to this file")

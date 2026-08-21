@@ -9,5 +9,5 @@
 # The one that matters: handler.py is embedded into the binary and executed by
 # python3 on a target, and the shell fragments beside it are sent to a POSIX
 # shell. A Windows operator building from source would otherwise ship CRLF onto
-# somebody else's machine, which is a footprint waldo promises not to leave.
+# somebody else's machine, which is a footprint reach promises not to leave.
 * text=auto eol=lf

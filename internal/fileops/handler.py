@@ -1,6 +1,6 @@
-# waldo tier-2 handler.
+# reach tier-2 handler.
 #
-# This program is never written to the target's disk. waldo base64-encodes it,
+# This program is never written to the target's disk. reach base64-encodes it,
 # sends it as the first line of stdin, and a one-line bootstrap execs it; the
 # handler then speaks a framed protocol over the *rest* of stdin. It exists only
 # in the memory of a process that dies with the session, which is what lets this
@@ -110,7 +110,14 @@ def op_write(req, payload):
     path = req["path"]
     mode = int(req.get("mode", 0o644) or 0o644)
     directory = os.path.dirname(path) or "."
-    tmp = os.path.join(directory, ".waldo.tmp.%d.%d" % (os.getpid(), req.get("id", 0)))
+    # The `.reach.tmp.` prefix is a contract shared with every other tier, not a
+    # local choice: anything an interrupted write leaves behind has to be
+    # identifiable as reach's, and the conformance suite proves no tier leaves
+    # debris by looking for exactly this prefix. This handler spelled it
+    # `.waldo.tmp.` — reach's former name — so its leftovers were unattributable
+    # and that assertion could never fail for the tier reach negotiates by
+    # default. See internal/reach/tempfile.go, which states the contract.
+    tmp = os.path.join(directory, ".reach.tmp.%d.%d" % (os.getpid(), req.get("id", 0)))
     try:
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
         try:

@@ -3,6 +3,7 @@ package fileops_test
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/bojieli/agentreach/internal/fileops"
@@ -123,4 +124,38 @@ func localTransport(t *testing.T) transport.Transport {
 		t.Skipf("this machine cannot host a local:// target: %v", err)
 	}
 	return tr
+}
+
+// Every tier writes through a same-directory temporary named `.reach.tmp.*`.
+// internal/reach/tempfile.go states the rule and explains why it cannot be
+// shared as code: the pipe handler is Python and the helper is a separate
+// binary, so the prefix is a contract between three implementations rather than
+// one constant.
+//
+// A contract nothing checks is a comment. The pipe handler spelled the prefix
+// `.waldo.tmp.` — reach's former name — which made its leftovers unattributable
+// to reach and, worse, invisible to the conformance suite's own "nothing may be
+// left behind" assertion, which looks for `.reach.tmp.`. That assertion could
+// never have failed for the tier reach negotiates by default.
+func TestEveryTierUsesTheAgreedTemporaryPrefix(t *testing.T) {
+	for _, src := range []string{
+		"handler.py",
+		"../../cmd/reach-helper/main.go",
+	} {
+		data, err := os.ReadFile(src)
+		if err != nil {
+			t.Fatalf("read %s: %v", src, err)
+		}
+		body := string(data)
+		if !strings.Contains(body, `".reach.tmp.`) {
+			t.Errorf("%s does not build its temporary name from the agreed `.reach.tmp.` prefix", src)
+		}
+		// The former name must not come back, in the handler or anywhere it
+		// might be copied from.
+		for _, line := range strings.Split(body, "\n") {
+			if strings.Contains(line, `".waldo.tmp.`) {
+				t.Errorf("%s still writes the pre-rename temporary name: %s", src, strings.TrimSpace(line))
+			}
+		}
+	}
 }
