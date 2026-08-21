@@ -112,12 +112,52 @@ project makes without a version attached.
 - **`waldo status` accepted and ignored arguments**, so `waldo status --name
   prod` printed every session while looking like it printed one.
 
+- **Codex 0.148 and Kimi Code 0.37 bypassed the shell shim, and nothing
+  noticed.** Both harnesses stopped resolving their shell by name: Codex
+  0.148.0 reads the login shell from the account database (`getpwuid_r`) and
+  spawns it by absolute path (`/bin/zsh -lc …` on stock macOS), and Kimi Code
+  0.37.2 does likewise. No `PATH` entry can intercept an absolute path, so
+  every command the agent ran executed on the operator's own machine while the
+  agent believed — and reported — that it acted on the target: the failure
+  waldo exists to prevent, failing silently. The conformance suite missed it
+  because its Codex check probed `codex sandbox`, which resolves the
+  *user-supplied* program via execvp and kept passing while the shell tool's
+  own resolution changed underneath it. waldo now measures the seam
+  behaviourally (see `waldo harness verify` below), caches the verdict per
+  harness version, and **refuses to launch a harness version measured to
+  bypass the shim**; `--force` overrides, with a warning, for operators who
+  accept local execution. Codex ≤ 0.147 resolves its shell by name and is
+  unaffected. There is no config key, environment variable, or hook in either
+  harness that restores name resolution; the Codex macOS binary's hardened
+  runtime also rules out `DYLD_INSERT_LIBRARIES` interposition, so refusal
+  plus detection is the honest floor until upstream offers a seam.
+
+- **The PATH shim now answers to `zsh` as well as `bash` and `sh`.** zsh is
+  the default login shell on macOS, and harnesses that resolve the login
+  shell by name (rather than hard-coding `bash`) otherwise slipped past the
+  shim on a stock macOS install.
+
 ### Added
 
 - **`waldo fs mv <from> <to>`.** Every tier implemented Rename and the
   conformance suite covered it; the CLI just never exposed it, so the one file
   operation an agent could not express through `waldo fs` was the most ordinary
   one there is.
+
+- **`waldo harness verify codex|kimi`** measures a harness's shell seam instead
+  of assuming it. The command points the installed harness at a mock model
+  server embedded in waldo — the Responses API for Codex, chat completions for
+  Kimi, both offline, so no API key and no tokens — scripts one shell tool call
+  that echoes a marker and the hostname, and checks whether the command ran on
+  the session's target or on the local machine. The verdict is cached per
+  harness version and consulted by the launch guard, and the whole probe runs
+  in `make conformance` via `test/e2e/seam_test.sh`, so a harness upgrade that
+  breaks the seam turns the suite red in seconds rather than surfacing as an
+  agent quietly operating on the wrong machine. The mock-model server used by
+  the harness tests learned the Responses dialect for the same reason.
+
+- **`waldo doctor`** reports the cached seam verdict next to each harness, so
+  "this Codex bypasses waldo" is visible before a session, not during one.
 
 - **`waldo status NAME`** shows one session, which the help had always said it
   did. It reads local state only and never contacts the target, so it still

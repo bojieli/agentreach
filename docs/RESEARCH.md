@@ -205,6 +205,20 @@ rewrite a command, and the adapter uses shell-level substitution instead.
 
 See `docs/harnesses/codex.md`.
 
+### Codex CLI 0.148.0 (update)
+
+The seam above is gone in 0.148.0. Session rollouts record the shell tool's
+argv as `["/bin/zsh", "-lc", …]` — an absolute path. The tagged source
+(`codex-rs/shell-command/src/shell_detect.rs`) resolves the login shell via
+`getpwuid_r` and only falls back to `which` (PATH) when the account shell is
+missing or unrecognised, so the PATH shim never runs. No config key, env var,
+or hook changes this (`zsh_path` is internal to the under-development zsh-fork
+backend; `PreToolUse` remains deny-only; `wire_api = "chat"` was removed, which
+is why the offline probe speaks the Responses API). The macOS build is
+hardened-runtime signed without `disable-library-validation`, so
+`DYLD_INSERT_LIBRARIES` is blocked as well. waldo therefore measures the seam
+(`waldo harness verify codex`) and refuses versions that bypass it.
+
 ## Kimi Code CLI 0.34.0
 
 Distribution: 169 MB Mach-O on macOS arm64 (Bun-compiled TypeScript), MIT;
@@ -218,6 +232,13 @@ Re-checked against 0.34.0 after the version this was first written for (0.31.1)
 went stale: all four still hold. That re-check is the reason this document
 carries versions at all — a claim about a closed binary is a claim about one
 build of it.
+
+Re-checked again against 0.37.2 and the seam claim no longer holds: the Bash
+tool spawns its shell by absolute path, so the PATH shim is never invoked. The
+documented hooks honour allow/deny only and cannot rewrite a tool call's
+input. Measured by `waldo harness verify kimi`, which drives 0.37.2 against an
+offline mock over the chat-completions wire (`KIMI_MODEL_*` env vars point it
+at the mock) and watches a scripted command run on the local machine.
 
 See `docs/harnesses/kimi.md`.
 

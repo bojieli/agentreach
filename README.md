@@ -90,8 +90,12 @@ why waldo either denies them or materialises real files for them.
 `stat`ed directly, so `"waldo shell-prefix"` is looked up as one filename and
 fails. waldo installs an alias of itself and dispatches on `argv[0]`.
 
-**Codex resolves its shell through `execvp`**, so a `bash` earlier on `PATH`
-intercepts it — no fork, no config file, no cooperation from the harness.
+**Codex ≤ 0.147 resolves its shell through `execvp`**, so a `bash` earlier on
+`PATH` intercepts it — no fork, no config file, no cooperation from the
+harness. Codex 0.148 switched to the account database (`getpwuid_r`) and an
+absolute shell path, which no `PATH` entry can intercept; waldo detects this
+behaviourally and refuses to launch an affected version rather than let the
+agent operate on the wrong machine.
 
 Every one of these is pinned by a conformance test that fails loudly when a
 harness upgrade changes the shape, so breakage surfaces in seconds instead of
@@ -128,10 +132,10 @@ reading of its docs.
   Code's native `Read` and `Edit` changed a file that existed only on the remote
   machine.
 
-Not verified, and said so: a live Codex run (the install here points at a
-provider that rejects its token), a live Kimi run (no OAuth login), and opencode
-end to end. Each limitation is stated precisely in
-[docs/harnesses/](docs/harnesses/).
+Not verified end to end with a live model, and said so: Codex and Kimi (their
+seams are instead measured offline by `waldo harness verify`, which drives a
+real harness turn against a mock model — no API key, no tokens), and opencode.
+Each limitation is stated precisely in [docs/harnesses/](docs/harnesses/).
 
 ## Install
 

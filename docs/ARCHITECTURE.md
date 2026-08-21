@@ -257,9 +257,14 @@ one.
 | harness | seam | verified |
 |---|---|---|
 | Claude Code | `CLAUDE_CODE_SHELL_PREFIX` → whole command as one argv element | yes, 2.1.233 |
-| Codex | `bash` shim on `PATH` (`execvp`) + sandbox network allowance | see [harnesses/codex.md](harnesses/codex.md) |
-| Kimi Code | `PATH` shim | see [harnesses/kimi.md](harnesses/kimi.md) |
+| Codex | `bash` shim on `PATH` (`execvp`) + sandbox network allowance | ≤ 0.147; bypassed by 0.148, launch refused — see [harnesses/codex.md](harnesses/codex.md) |
+| Kimi Code | `PATH` shim | 0.34.0; bypassed by 0.37.2, launch refused — see [harnesses/kimi.md](harnesses/kimi.md) |
 | opencode | generated tools shadowing built-ins by name | see [harnesses/opencode.md](harnesses/opencode.md) |
+
+For Codex and Kimi the verdict per installed version is measured, not assumed:
+`waldo harness verify` drives the harness against an embedded offline mock
+model and checks where a scripted command actually ran, and the launch guard
+refuses versions measured to bypass the shim.
 
 No harness is forked. Claude Code and Codex keep their own authentication, so
 subscription logins continue to work and no key is introduced anywhere.
