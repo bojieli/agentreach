@@ -28,6 +28,9 @@ const (
 	// DialectGemini is Google's Gemini API format
 	// (POST /v1beta/models/{model}:streamGenerateContent).
 	DialectGemini Dialect = "gemini"
+	// DialectAnthropic is the Anthropic Messages API streaming format that
+	// Claude Code speaks via its @anthropic-ai/sdk client.
+	DialectAnthropic Dialect = "anthropic"
 )
 
 // Mock is a minimal OpenAI model server that scripts exactly one tool call
@@ -120,7 +123,7 @@ func StartMock(marker string, dialect Dialect) *Mock {
 // For the Gemini dialect it is the raw server URL; the SDK appends its own
 // version path (/v1beta/models/{model}:streamGenerateContent).
 func (m *Mock) BaseURL() string {
-	if m.dialect == DialectGemini {
+	if m.dialect == DialectGemini || m.dialect == DialectAnthropic {
 		return m.srv.URL
 	}
 	return m.srv.URL + "/v1"
@@ -165,6 +168,8 @@ func (m *Mock) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && m.dialect == DialectGemini &&
 		(strings.HasSuffix(path, ":streamGenerateContent") || strings.HasSuffix(path, ":generateContent")):
 		m.serveGemini(w, r)
+	case r.Method == http.MethodPost && m.dialect == DialectAnthropic && r.URL.Path == "/v1/messages":
+		m.serveAnthropic(w, r)
 	default:
 		http.Error(w, "waldo harnessprobe mock: unexpected request", http.StatusNotFound)
 	}
@@ -617,6 +622,175 @@ func (m *Mock) writeGeminiChunk(w http.ResponseWriter, f http.Flusher, payload a
 	if f != nil {
 		f.Flush()
 	}
+}
+
+// anthropicRequest is the slice of an Anthropic Messages API request the
+// mock reads. Tool results arrive as user-role messages whose content is an
+// array containing {type: "tool_result", content: "..."} blocks.
+type anthropicRequest struct {
+	Messages []struct {
+		Role    string          `json:"role"`
+		Content json.RawMessage `json:"content"`
+	} `json:"messages"`
+	Tools []struct {
+		Name string `json:"name"`
+	} `json:"tools"`
+}
+
+// serveAnthropic implements the Anthropic Messages API streaming dialect.
+//
+// Claude Code uses the @anthropic-ai/sdk TypeScript client, which sends POST
+// /v1/messages with SSE streaming. The ANTHROPIC_BASE_URL env var redirects
+// it to the mock; the SDK appends /v1/messages to the base URL.
+//
+// Wire format: each event is "event: <type>\ndata: <json>\n\n". Turn one
+// emits a tool_use block for the scripted Bash call. The harness sends the
+// tool output back as a user-role message with a tool_result content block;
+// turn two records that output and emits a text response so the harness
+// exits cleanly.
+func (m *Mock) serveAnthropic(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 16<<20))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var req anthropicRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		http.Error(w, "waldo harnessprobe mock: malformed request: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Scan user messages for tool_result content blocks. The content field is
+	// either a plain string or a list of text/tool_result parts.
+	for _, msg := range req.Messages {
+		if msg.Role != "user" {
+			continue
+		}
+		var parts []struct {
+			Type    string          `json:"type"`
+			Content json.RawMessage `json:"content"`
+		}
+		if err := json.Unmarshal(msg.Content, &parts); err != nil {
+			continue
+		}
+		for _, p := range parts {
+			if p.Type != "tool_result" || len(p.Content) == 0 {
+				continue
+			}
+			// Content may be a plain string or an array of {type, text} parts.
+			var out string
+			if err := json.Unmarshal(p.Content, &out); err != nil {
+				var textParts []struct {
+					Text string `json:"text"`
+				}
+				if err := json.Unmarshal(p.Content, &textParts); err == nil {
+					var sb strings.Builder
+					for _, tp := range textParts {
+						sb.WriteString(tp.Text)
+					}
+					out = sb.String()
+				}
+			}
+			m.record(out)
+		}
+	}
+
+	_, hasResult := m.Result()
+	firstTurn := !hasResult
+
+	flusher := startStream(w)
+
+	m.writeEvent(w, flusher, "message_start", map[string]any{
+		"type": "message_start",
+		"message": map[string]any{
+			"id": "msg_waldo_1", "type": "message", "role": "assistant",
+			"content": []any{}, "model": "claude-waldo",
+			"stop_reason": nil, "stop_sequence": nil,
+			"usage": map[string]any{"input_tokens": 0, "output_tokens": 0},
+		},
+	})
+	m.writeEvent(w, flusher, "ping", map[string]any{"type": "ping"})
+
+	if firstTurn {
+		name := m.pickAnthropicTool(req.Tools)
+		command := m.command
+		if command == "" {
+			command = "echo " + m.marker + "; hostname"
+		}
+		argJSON, _ := json.Marshal(map[string]any{"command": command})
+
+		m.writeEvent(w, flusher, "content_block_start", map[string]any{
+			"type": "content_block_start", "index": 0,
+			"content_block": map[string]any{
+				"type": "tool_use", "id": "toolu_waldo_1",
+				"name": name, "input": map[string]any{},
+			},
+		})
+		m.writeEvent(w, flusher, "content_block_delta", map[string]any{
+			"type": "content_block_delta", "index": 0,
+			"delta": map[string]any{
+				"type": "input_json_delta", "partial_json": string(argJSON),
+			},
+		})
+		m.writeEvent(w, flusher, "content_block_stop", map[string]any{
+			"type": "content_block_stop", "index": 0,
+		})
+		m.writeEvent(w, flusher, "message_delta", map[string]any{
+			"type":  "message_delta",
+			"delta": map[string]any{"stop_reason": "tool_use", "stop_sequence": nil},
+			"usage": map[string]any{"output_tokens": 0},
+		})
+	} else {
+		out, _ := m.Result()
+		if len(out) > 4000 {
+			out = out[:4000]
+		}
+		m.writeEvent(w, flusher, "content_block_start", map[string]any{
+			"type": "content_block_start", "index": 0,
+			"content_block": map[string]any{"type": "text", "text": ""},
+		})
+		m.writeEvent(w, flusher, "content_block_delta", map[string]any{
+			"type": "content_block_delta", "index": 0,
+			"delta": map[string]any{"type": "text_delta", "text": "OBSERVED: " + out},
+		})
+		m.writeEvent(w, flusher, "content_block_stop", map[string]any{
+			"type": "content_block_stop", "index": 0,
+		})
+		m.writeEvent(w, flusher, "message_delta", map[string]any{
+			"type":  "message_delta",
+			"delta": map[string]any{"stop_reason": "end_turn", "stop_sequence": nil},
+			"usage": map[string]any{"output_tokens": 0},
+		})
+		m.doneOnce.Do(func() { close(m.done) })
+	}
+	m.writeEvent(w, flusher, "message_stop", map[string]any{"type": "message_stop"})
+}
+
+// pickAnthropicTool chooses which tool to call in the Anthropic dialect.
+// Claude Code's shell tool is "Bash" with a {"command": ...} argument.
+func (m *Mock) pickAnthropicTool(tools []struct {
+	Name string `json:"name"`
+}) string {
+	advertised := map[string]bool{}
+	var first string
+	for _, t := range tools {
+		if t.Name == "" {
+			continue
+		}
+		advertised[t.Name] = true
+		if first == "" {
+			first = t.Name
+		}
+	}
+	for _, known := range []string{"Bash", "bash", "shell"} {
+		if advertised[known] {
+			return known
+		}
+	}
+	if first != "" {
+		return first
+	}
+	return "Bash"
 }
 
 // pickGeminiTool chooses which function tool to call in the Gemini dialect.

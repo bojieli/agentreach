@@ -24,10 +24,11 @@ const DefaultTimeout = 120 * time.Second
 
 // Harnesses the probe knows how to drive.
 const (
-	HarnessCodex  = "codex"
-	HarnessKimi   = "kimi"
-	HarnessGoose  = "goose"
-	HarnessGemini = "gemini"
+	HarnessClaudeCode = "claude"
+	HarnessCodex      = "codex"
+	HarnessKimi       = "kimi"
+	HarnessGoose      = "goose"
+	HarnessGemini     = "gemini"
 )
 
 // Options configures one Verify run.
@@ -50,6 +51,10 @@ type Options struct {
 	// harness binary that will actually be launched (e.g. a patched npm
 	// bundle under ~/.waldo/) is not the one that appears first on PATH.
 	BinaryPath string
+	// EnsureShellPrefix creates the waldo-shell-prefix alias and returns its
+	// absolute path. Required for HarnessClaudeCode; ignored by all other
+	// harnesses. Injected from the main package where alias installation lives.
+	EnsureShellPrefix func() (string, error)
 	// CommandPrefix, when set, is prepended to the default probe command
 	// ("echo <marker>; hostname") with " && " as separator. Use it to verify
 	// that a specific type of operation — file read, file write, or program
@@ -80,10 +85,11 @@ type harnessSpec struct {
 }
 
 var harnessSpecs = map[string]harnessSpec{
-	HarnessCodex:  {dialect: DialectResponses, args: codexArgs, env: codexEnv, prepare: codexPrepare},
-	HarnessKimi:   {dialect: DialectChat, args: kimiArgs, env: kimiEnv, workingDir: "/tmp"},
-	HarnessGoose:  {dialect: DialectChat, args: gooseArgs, env: gooseEnv},
-	HarnessGemini: {dialect: DialectGemini, args: geminiArgs, env: geminiEnv},
+	HarnessClaudeCode: {dialect: DialectAnthropic, args: claudeCodeArgs, env: claudeCodeEnv, prepare: claudeCodePrepare},
+	HarnessCodex:      {dialect: DialectResponses, args: codexArgs, env: codexEnv, prepare: codexPrepare},
+	HarnessKimi:       {dialect: DialectChat, args: kimiArgs, env: kimiEnv, workingDir: "/tmp"},
+	HarnessGoose:      {dialect: DialectChat, args: gooseArgs, env: gooseEnv},
+	HarnessGemini:     {dialect: DialectGemini, args: geminiArgs, env: geminiEnv},
 }
 
 // Verify observes where the installed harness actually runs a shell command.
@@ -137,12 +143,23 @@ func Verify(ctx context.Context, opts Options) Result {
 		return Result{Verdict: VerdictError, Detail: fmt.Sprintf(
 			"target and local hostnames are both %q; the probe cannot tell them apart", remoteHost)}
 	}
-	if opts.EnsureShim == nil {
-		return Result{Verdict: VerdictError, Detail: "no shim installer configured"}
-	}
-	shimDir, err := opts.EnsureShim()
-	if err != nil {
-		return Result{Verdict: VerdictError, Detail: "install the PATH shim: " + err.Error()}
+	var shimDir string
+	if opts.Harness == HarnessClaudeCode {
+		if opts.EnsureShellPrefix == nil {
+			return Result{Verdict: VerdictError, Detail: "no shell-prefix installer configured"}
+		}
+		shimDir, err = opts.EnsureShellPrefix()
+		if err != nil {
+			return Result{Verdict: VerdictError, Detail: "install the shell-prefix alias: " + err.Error()}
+		}
+	} else {
+		if opts.EnsureShim == nil {
+			return Result{Verdict: VerdictError, Detail: "no shim installer configured"}
+		}
+		shimDir, err = opts.EnsureShim()
+		if err != nil {
+			return Result{Verdict: VerdictError, Detail: "install the PATH shim: " + err.Error()}
+		}
 	}
 	binPath := opts.BinaryPath
 	if binPath == "" {
@@ -447,6 +464,75 @@ func geminiEnv(sessName, shimDir, home, baseURL string) []string {
 		"GOOGLE_GEMINI_BASE_URL="+baseURL,
 		"GEMINI_TELEMETRY_OPT_OUT=1",
 	)
+}
+
+// claudeCodeArgs builds the argument vector for the Claude Code probe.
+//
+// --dangerously-skip-permissions prevents the permission prompt that would
+// otherwise block a headless (no-TTY) probe run from making tool calls. -p
+// runs a single non-interactive turn with the given prompt. HOME is managed
+// by claudeCodeEnv so the probe never touches the operator's real ~/.claude.
+func claudeCodeArgs(_ string) []string {
+	return []string{
+		"--dangerously-skip-permissions",
+		"-p", "Follow the tool-call instructions exactly.",
+	}
+}
+
+// claudeCodeEnv builds the environment for the probe's claude process.
+//
+// HOME is redirected to a throwaway directory so ~/.claude (settings, auth
+// cache, history) is isolated from the operator's real home. All ANTHROPIC_*
+// and CLAUDE_* variables are stripped: a live ANTHROPIC_API_KEY or OAuth
+// session could reach the real API and consume quota; a CLAUDE_* config
+// could interfere with the probe's headless run. The probe replaces them with
+// a dummy key (accepted by the mock without authenticating), the mock's base
+// URL, and telemetry disabled.
+//
+// The second parameter (shimDir in the shared signature) carries the
+// waldo-shell-prefix alias path for Claude Code — it is the seam under test:
+// every Bash tool call the harness makes will invoke that alias, and waldo
+// routes it to the session's target.
+func claudeCodeEnv(sessName, shellPrefixPath, home, baseURL string) []string {
+	var env []string
+	for _, kv := range os.Environ() {
+		key, _, _ := strings.Cut(kv, "=")
+		if key == "HOME" ||
+			strings.HasPrefix(key, "ANTHROPIC_") ||
+			strings.HasPrefix(key, "CLAUDE_") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	return append(env,
+		"HOME="+home,
+		"ANTHROPIC_API_KEY=dummy",
+		"ANTHROPIC_BASE_URL="+baseURL,
+		"CLAUDE_CODE_SHELL_PREFIX="+shellPrefixPath,
+		"CLAUDE_TELEMETRY_OPT_OUT=1",
+		"DO_NOT_TRACK=1",
+		"WALDO_SESSION="+sessName,
+	)
+}
+
+// claudeCodePrepare creates the minimal ~/.claude skeleton the harness
+// expects. Without it Claude Code may attempt interactive first-run setup
+// that blocks a headless probe.
+func claudeCodePrepare(home, _ string) error {
+	claudeDir := filepath.Join(home, ".claude")
+	if err := os.MkdirAll(claudeDir, 0o700); err != nil {
+		return fmt.Errorf("create .claude directory: %w", err)
+	}
+	// A settings file with an empty permissions block prevents Claude Code from
+	// prompting about tool permissions even before --dangerously-skip-permissions
+	// takes effect in some versions.
+	settingsPath := filepath.Join(claudeDir, "settings.json")
+	if _, err := os.Stat(settingsPath); os.IsNotExist(err) {
+		if err := os.WriteFile(settingsPath, []byte(`{"permissions":{}}`+"\n"), 0o600); err != nil {
+			return fmt.Errorf("write .claude/settings.json: %w", err)
+		}
+	}
+	return nil
 }
 
 // versionRE extracts the semver from a version line: codex prints "codex-cli

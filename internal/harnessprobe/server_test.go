@@ -519,3 +519,89 @@ func TestMockGeminiDialectRejectsChatEndpoint(t *testing.T) {
 		t.Fatalf("status = %d, want 404: a Gemini mock must not answer the chat endpoint", resp.StatusCode)
 	}
 }
+
+// postAnthropic issues one Anthropic Messages API call and returns the raw SSE
+// body and HTTP status code.
+func postAnthropic(t *testing.T, url string, body any) (string, int) {
+	t.Helper()
+	data, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	resp, err := http.Post(url, "application/json", strings.NewReader(string(data)))
+	if err != nil {
+		t.Fatalf("POST %s: %v", url, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	raw, _ := io.ReadAll(resp.Body)
+	return string(raw), resp.StatusCode
+}
+
+func TestMockAnthropicDialectScriptsOneToolCall(t *testing.T) {
+	mock := StartMock("PROBE_MARKER", DialectAnthropic)
+	defer mock.Close()
+
+	// Turn 1: first request should produce a tool_use response for Bash.
+	body1, status1 := postAnthropic(t, mock.BaseURL()+"/v1/messages", map[string]any{
+		"model":      "claude-waldo",
+		"max_tokens": 1024,
+		"messages":   []map[string]any{{"role": "user", "content": "run a command"}},
+		"tools":      []map[string]any{{"name": "Bash", "description": "run bash", "input_schema": map[string]any{}}},
+	})
+	if status1 != 200 {
+		t.Fatalf("turn 1: expected 200, got %d; body: %s", status1, body1)
+	}
+	if !strings.Contains(body1, "tool_use") {
+		t.Fatalf("turn 1: expected tool_use in response, got: %s", body1)
+	}
+	if !strings.Contains(body1, "PROBE_MARKER") {
+		t.Fatalf("turn 1: expected marker in tool arguments, got: %s", body1)
+	}
+	if !strings.Contains(body1, "Bash") {
+		t.Fatalf("turn 1: expected Bash tool name, got: %s", body1)
+	}
+	if _, observed := mock.Result(); observed {
+		t.Fatal("no tool output should be recorded after turn one")
+	}
+
+	// Turn 2: send tool_result, expect a text response echoing the output.
+	body2, status2 := postAnthropic(t, mock.BaseURL()+"/v1/messages", map[string]any{
+		"model":      "claude-waldo",
+		"max_tokens": 1024,
+		"messages": []map[string]any{
+			{"role": "user", "content": "run a command"},
+			{"role": "assistant", "content": []map[string]any{
+				{"type": "tool_use", "id": "toolu_waldo_1", "name": "Bash", "input": map[string]any{"command": "echo PROBE_MARKER; hostname"}},
+			}},
+			{"role": "user", "content": []map[string]any{
+				{"type": "tool_result", "tool_use_id": "toolu_waldo_1", "content": "PROBE_MARKER\nremote-host\n"},
+			}},
+		},
+		"tools": []map[string]any{{"name": "Bash", "description": "run bash", "input_schema": map[string]any{}}},
+	})
+	if status2 != 200 {
+		t.Fatalf("turn 2: expected 200, got %d; body: %s", status2, body2)
+	}
+	if !strings.Contains(body2, "OBSERVED") {
+		t.Fatalf("turn 2: expected OBSERVED in response, got: %s", body2)
+	}
+
+	out, observed := mock.Result()
+	if !observed {
+		t.Fatal("mock.Result(): expected observed=true after turn 2")
+	}
+	if !strings.Contains(out, "PROBE_MARKER") {
+		t.Fatalf("mock.Result(): expected marker in output, got: %q", out)
+	}
+}
+
+func TestMockAnthropicDialectRejectsChatEndpoint(t *testing.T) {
+	mock := StartMock("MARKER", DialectAnthropic)
+	defer mock.Close()
+	_, status := postAnthropic(t, mock.BaseURL()+"/v1/chat/completions", map[string]any{
+		"model": "waldo-mock",
+	})
+	if status != 404 {
+		t.Errorf("anthropic mock should 404 the chat endpoint, got %d", status)
+	}
+}
