@@ -172,6 +172,14 @@ changelog:
     exclude: ['^docs:', '^test:', '^chore:', Merge pull request]
 
 release:
+  # The generated list below is every commit in the range, which for a first
+  # release is 77 of them. CHANGELOG.md is the version written for someone
+  # deciding whether to upgrade, so point at it before the wall of subjects.
+  header: |
+    [CHANGELOG.md](https://github.com/bojieli/agentreach/blob/{{ .Tag }}/CHANGELOG.md)
+    is the readable account of what changed and why. The commit list below is
+    the complete one.
+
   footer: |
     ## Verifying this release
 
