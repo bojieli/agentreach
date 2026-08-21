@@ -81,13 +81,22 @@ func (m *Mirror) Target(localPath string) (string, bool) {
 }
 
 // Fetch copies a target file into the mirror and records the digest it had.
+//
+// A file the mirror already holds unchanged is not transferred again. An agent
+// reads the same file several times in a turn — before an edit, after it, while
+// following a reference — and each of those used to pull the whole file across
+// the network to produce bytes the mirror already had. Asking the target for a
+// digest costs one round trip and the answer is 64 bytes.
 func (m *Mirror) Fetch(ctx context.Context, targetPath string) (string, error) {
-	data, err := m.fo.Read(ctx, targetPath, 0, 0)
-	if err != nil {
-		return "", err
-	}
 	local := m.Local(targetPath)
 	if err := m.checkContained(local); err != nil {
+		return "", err
+	}
+	if m.alreadyHave(ctx, targetPath, local) {
+		return local, nil
+	}
+	data, err := m.fo.Read(ctx, targetPath, 0, 0)
+	if err != nil {
 		return "", err
 	}
 	if err := os.MkdirAll(filepath.Dir(local), 0o700); err != nil {
@@ -111,6 +120,9 @@ func (m *Mirror) Prepare(ctx context.Context, targetPath string) (string, error)
 	}
 	if err := os.MkdirAll(filepath.Dir(local), 0o700); err != nil {
 		return "", err
+	}
+	if m.alreadyHave(ctx, targetPath, local) {
+		return local, nil
 	}
 	if data, err := m.fo.Read(ctx, targetPath, 0, 0); err == nil {
 		if err := os.WriteFile(local, data, 0o600); err != nil {
@@ -142,9 +154,9 @@ func (m *Mirror) Push(ctx context.Context, targetPath string) error {
 	}
 
 	if expected, known := m.expectedDigest(targetPath); known {
-		current, readErr := m.fo.Read(ctx, targetPath, 0, 0)
+		got, readErr := m.targetDigest(ctx, targetPath)
 		if readErr == nil {
-			if got := digestOf(current); got != expected {
+			if got != expected {
 				if expected == "" {
 					return fmt.Errorf("refusing to overwrite %s: it did not exist when this edit began, "+
 						"but something else has created it since. Re-read the file and redo the change.", targetPath)
@@ -167,6 +179,58 @@ func (m *Mirror) Push(ctx context.Context, targetPath string) error {
 		return err
 	}
 	return m.recordDigest(targetPath, digestOf(data))
+}
+
+// targetDigest asks the target what a file hashes to.
+//
+// Verifying a write used to read the whole file back to hash it locally, so
+// every edit in mirror mode moved the file across the network three times: once
+// to fetch it, once to verify it, once to write it. Hash exists for exactly
+// this — the FileOps interface says so — and the digest is computed where the
+// file already is.
+//
+// A target that cannot hash is not a failure. Tier 0 needs a sha256 utility and
+// some hosts have none, so the read is still there as the fallback, which also
+// covers a tier reporting a missing file as something other than NotFound.
+func (m *Mirror) targetDigest(ctx context.Context, targetPath string) (string, error) {
+	digest, err := m.fo.Hash(ctx, targetPath)
+	// An empty digest is not an answer, whatever it was returned alongside.
+	// Believing one would compare it against the recorded digest and refuse the
+	// write as "something else modified it" — a refusal naming a cause that did
+	// not happen, for a file nothing had touched.
+	if err == nil && digest != "" {
+		return digest, nil
+	}
+	var nf *reach.NotFoundError
+	if errors.As(err, &nf) {
+		return "", err
+	}
+	data, readErr := m.fo.Read(ctx, targetPath, 0, 0)
+	if readErr != nil {
+		return "", readErr
+	}
+	return digestOf(data), nil
+}
+
+// alreadyHave reports whether the mirror's copy is byte-for-byte what the
+// target holds, so the file need not be transferred.
+//
+// Both sides are checked against the digest recorded at fetch time. The local
+// copy matters because the agent edits it: a mirrored file that has been
+// changed and not yet pushed must be refetched, not assumed current. When
+// anything is unknown or unreadable the answer is no, and the caller transfers
+// the file as it always did.
+func (m *Mirror) alreadyHave(ctx context.Context, targetPath, local string) bool {
+	expected, known := m.expectedDigest(targetPath)
+	if !known || expected == "" {
+		return false
+	}
+	localData, err := os.ReadFile(local)
+	if err != nil || digestOf(localData) != expected {
+		return false
+	}
+	remote, err := m.fo.Hash(ctx, targetPath)
+	return err == nil && remote != "" && remote == expected
 }
 
 func digestOf(b []byte) string {

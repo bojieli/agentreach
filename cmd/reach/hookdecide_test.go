@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io/fs"
 	"os"
@@ -58,6 +60,20 @@ func (f *fakeOps) Write(_ context.Context, p string, data []byte, _ fs.FileMode)
 	f.writes++
 	f.files[p] = append([]byte(nil), data...)
 	return nil
+}
+
+// Hash is what the mirror asks for instead of reading a whole file back to
+// compare it. A broken transport fails it the same way it fails a read.
+func (f *fakeOps) Hash(_ context.Context, p string) (string, error) {
+	if f.readErr != nil {
+		return "", f.readErr
+	}
+	data, ok := f.files[p]
+	if !ok {
+		return "", &reach.NotFoundError{Path: p}
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 func (f *fakeOps) Close() error { return nil }
