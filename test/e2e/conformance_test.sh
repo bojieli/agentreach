@@ -103,9 +103,15 @@ exec /bin/bash "$@"
 SH
   chmod +x "$PROBE/pathshim/bash"
 
+  # NOTE: `codex sandbox` resolves the *user-supplied* program via execvp, which
+  # says nothing about how the shell TOOL resolves its shell. Codex >= 0.148
+  # spawns the login shell by absolute path (getpwuid_r -> /bin/zsh -lc), and
+  # this check stayed green while the real seam broke. The behavioral probe in
+  # seam_test.sh below is the check that cannot lie; this one only tracks the
+  # execvp-era path Codex <= 0.147 relied on.
   out="$(PATH="$PROBE/pathshim:$PATH" timeout 60 codex sandbox -- bash -c 'echo inner' 2>&1)"
   assert_contains "$out" "CODEX_PATHSHIM_HIT" \
-    "Codex still resolves bash through PATH (execvp), so a shim intercepts it"
+    "codex sandbox still resolves commands through PATH (execvp)"
 
   if codex features list >/dev/null 2>&1; then
     feats="$(codex features list 2>/dev/null)"
@@ -119,9 +125,25 @@ fi
 # ------------------------------------------------------------------- Kimi Code
 if command -v kimi >/dev/null 2>&1; then
   info "Kimi Code: $(kimi --version 2>/dev/null | head -1)"
-  ok "Kimi present (adapter in progress)"
+  ok "Kimi present (shell seam measured by the behavioral probe below)"
 else
   info "Kimi Code not installed — skipping"
+fi
+
+# --------------------------------------------------- behavioral seam probes
+# Static checks above only detect shape changes in what waldo hooks into; they
+# cannot see a harness switching from execvp("bash") to an absolute shell path,
+# which is exactly the Codex 0.148 regression. The behavioral probe drives each
+# installed harness against an offline mock model and a real SSH target and
+# measures where a scripted command actually ran. It fails on known-broken
+# harness versions — that red is the point.
+info "Behavioral seam probes (offline mock model + docker sshd)"
+if ./seam_test.sh; then
+  ok "harness seam probes (see seam_test.sh output above)"
+else
+  bad "harness seam probes" \
+      "see seam_test.sh output above — a BYPASSED verdict means the installed
+      harness version runs commands locally while appearing remote"
 fi
 
 summary
