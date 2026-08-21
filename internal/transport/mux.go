@@ -29,6 +29,11 @@ import (
 // terminate: an unanswerable question is a value reach records, not a wait.
 const muxProbeTimeout = 20 * time.Second
 
+// interactiveProbeTimeout bounds a probe that may put a prompt in front of an
+// operator. Twenty seconds is generous for a machine and short for a person
+// finding a hardware token.
+const interactiveProbeTimeout = 3 * time.Minute
+
 // DetectMultiplexing reports whether the local ssh client can hold a
 // multiplexed master connection to this destination, and why not when it
 // cannot.
@@ -38,18 +43,37 @@ const muxProbeTimeout = 20 * time.Second
 // compiled in, not what a `Match` block, a hardened configuration or a
 // restricted socket directory will permit at run time.
 func DetectMultiplexing(ctx context.Context, cfg SSHConfig) (bool, string) {
-	ctx, cancel := context.WithTimeout(ctx, muxProbeTimeout)
+	// cfg.BatchMode is the caller's to set. The probe used to force it on, which
+	// made it unanswerable on exactly the hosts multiplexing matters most for:
+	// a password or a hardware token cannot be supplied in batch mode, so the
+	// probe failed, reach recorded "no multiplexing", and every later tool call
+	// opened its own connection — in batch mode, and so failed too. `reach up`
+	// and `reach doctor` both run with an operator present, and both let the
+	// probe prompt.
+	timeout := muxProbeTimeout
+	if !cfg.BatchMode {
+		timeout = interactiveProbeTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	cfg.Multiplex = true
-	cfg.BatchMode = true
 	probe, err := NewSSH(cfg)
 	if err != nil {
 		return false, err.Error()
 	}
-	// Whatever happens, do not leave a master behind that the caller did not
-	// ask for and will not know to close.
-	defer func() { _ = probe.Close() }()
+	// A master that could not be proved working is torn down; one that was is
+	// kept. It is this destination's connection, now authenticated, and every
+	// connection after this one runs in batch mode — so closing it would throw
+	// away the one authentication an operator was present to complete, and hand
+	// the first tool call a reconnect it cannot perform. `reach down` ends it,
+	// which is what `reach down` is for.
+	keep := false
+	defer func() {
+		if !keep {
+			_ = probe.Close()
+		}
+	}()
 
 	if _, err := probe.Run(ctx, reach.ExecRequest{Command: "true"}); err != nil {
 		return false, "the ssh client rejected the multiplexing options: " + err.Error()
@@ -57,6 +81,7 @@ func DetectMultiplexing(ctx context.Context, cfg SSHConfig) (bool, string) {
 	if !probe.Alive(ctx) {
 		return false, "the ssh client accepted the multiplexing options but no master is running"
 	}
+	keep = true
 	return true, ""
 }
 

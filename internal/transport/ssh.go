@@ -28,8 +28,12 @@ type SSHConfig struct {
 	Port int
 
 	// ControlPersist is how long the multiplexed master outlives its last
-	// channel. Zero uses a sensible default.
+	// channel. Zero takes the value from REACH_CONTROL_PERSIST, or the default.
 	ControlPersist time.Duration
+
+	// ControlPersistForever keeps the master alive until something explicitly
+	// ends it, which for reach means `reach down`.
+	ControlPersistForever bool
 
 	// ConnectTimeout bounds the initial TCP/handshake phase.
 	ConnectTimeout time.Duration
@@ -107,8 +111,12 @@ func NewSSH(cfg SSHConfig) (*SSHTransport, error) {
 	if cfg.Binary == "" {
 		cfg.Binary = "ssh"
 	}
-	if cfg.ControlPersist == 0 {
-		cfg.ControlPersist = 10 * time.Minute
+	if cfg.ControlPersist == 0 && !cfg.ControlPersistForever {
+		d, forever, err := controlPersistFromEnv()
+		if err != nil {
+			return nil, err
+		}
+		cfg.ControlPersist, cfg.ControlPersistForever = d, forever
 	}
 	if cfg.ConnectTimeout == 0 {
 		cfg.ConnectTimeout = 15 * time.Second
@@ -118,6 +126,71 @@ func NewSSH(cfg SSHConfig) (*SSHTransport, error) {
 		return nil, err
 	}
 	return &SSHTransport{cfg: cfg, controlBase: cb}, nil
+}
+
+// ControlPersistEnv sets how long an authenticated connection outlives its last
+// command. It takes a Go duration, or "yes" to keep it until `reach down`.
+const ControlPersistEnv = "REACH_CONTROL_PERSIST"
+
+// defaultControlPersist is how long an idle connection is kept.
+//
+// It used to be ten minutes, which is shorter than the gaps an agent session
+// actually has: a model thinking, a colleague at the door, a long test run
+// watched from another window. Expiring in that gap costs a full reconnect, and
+// because every connection after `reach up` runs in batch mode, on a host that
+// wants a password or a hardware token it costs the tool call outright.
+//
+// An hour covers those gaps without leaving a connection to someone else's
+// server open all day because a session was forgotten. An operator who would
+// rather tie the connection's life to the session's — which is what reach's
+// up/down lifecycle already describes — sets REACH_CONTROL_PERSIST=yes.
+const defaultControlPersist = time.Hour
+
+// controlPersistFromEnv reads the connection lifetime an operator asked for.
+//
+// A value reach cannot understand is an error rather than a fallback to the
+// default. Silently ignoring it would mean an operator who set five minutes
+// getting an hour, discovering it only by noticing a connection outliving what
+// they configured.
+func controlPersistFromEnv() (time.Duration, bool, error) {
+	raw := strings.TrimSpace(os.Getenv(ControlPersistEnv))
+	switch strings.ToLower(raw) {
+	case "":
+		return defaultControlPersist, false, nil
+	case "yes", "forever":
+		return 0, true, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, false, fmt.Errorf("%s=%q is not a duration or \"yes\": %w", ControlPersistEnv, raw, err)
+	}
+	if d <= 0 {
+		return 0, false, fmt.Errorf("%s=%q must be positive, or \"yes\" to keep the connection until `reach down`",
+			ControlPersistEnv, raw)
+	}
+	return d, false, nil
+}
+
+// ControlPersistDescription says in words how long an authenticated connection
+// is kept, for `reach doctor`.
+func ControlPersistDescription() string {
+	d, forever, err := controlPersistFromEnv()
+	switch {
+	case err != nil:
+		return err.Error()
+	case forever:
+		return "until `reach down` (" + ControlPersistEnv + "=yes)"
+	default:
+		return d.String() + " idle, then it is reconnected on the next command"
+	}
+}
+
+// controlPersistValue renders the ControlPersist option ssh is given.
+func (c SSHConfig) controlPersistValue() string {
+	if c.ControlPersistForever {
+		return "yes"
+	}
+	return strconv.Itoa(int(c.ControlPersist.Seconds()))
 }
 
 // controlBaseFor derives a short, unique control socket path for a destination,
@@ -237,7 +310,7 @@ func (t *SSHTransport) baseArgsAt(controlPath string) []string {
 		args = append(args,
 			"-o", "ControlMaster=auto",
 			"-o", "ControlPath="+controlPath,
-			"-o", "ControlPersist="+strconv.Itoa(int(c.ControlPersist.Seconds())),
+			"-o", "ControlPersist="+c.controlPersistValue(),
 		)
 	}
 	args = append(args,
@@ -329,7 +402,21 @@ func (t *SSHTransport) run(ctx context.Context, req reach.ExecRequest) (reach.Ex
 
 	start := time.Now()
 	so, se, code, trunc, err := runLocalProcess(ctx, append([]string{t.cfg.Binary}, args...), req.Stdin, req.MaxOutput)
-	return finishExec(start, so, se, code, trunc, sentinel, err, "ssh "+t.cfg.Host)
+	res, execErr := finishExec(start, so, se, code, trunc, sentinel, err, "ssh "+t.cfg.Host)
+	if execErr != nil {
+		if advice := t.Advise(execErr.Error()); advice != "" {
+			return res, fmt.Errorf("%w%s", execErr, advice)
+		}
+	}
+	return res, execErr
+}
+
+// Advise implements Adviser.
+func (t *SSHTransport) Advise(failure string) string {
+	if t.cfg.BatchMode && IsAuthFailure(failure) {
+		return BatchAuthAdvice()
+	}
+	return ""
 }
 
 // Open implements Transport, starting a long-lived remote process.

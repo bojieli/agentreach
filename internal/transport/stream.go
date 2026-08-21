@@ -112,8 +112,9 @@ func runStreamOnce(ctx context.Context, t Transport, req reach.ExecRequest, stdo
 	// The marker never arrived, so the command did not run to completion. This
 	// is a transport failure and must not be reported to the agent as a plain
 	// non-zero exit, which would send it debugging a command that never ran.
-	return 0, wrote, fmt.Errorf("%s: connection closed before the command completed (status %d)%s",
+	failure := fmt.Sprintf("%s: connection closed before the command completed (status %d)%s",
 		t.Describe(), waitCode, complaint(tap.String()))
+	return 0, wrote, fmt.Errorf("%s%s", failure, advise(t, failure))
 }
 
 // complaint renders the target's own explanation as a suffix, when there is one.

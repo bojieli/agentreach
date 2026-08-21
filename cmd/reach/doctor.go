@@ -152,6 +152,7 @@ func reportConnectionReuse(ctx context.Context, s *session.Session) {
 		fmt.Println("    sshd caps concurrent channels per connection (MaxSessions, 10 by")
 		fmt.Println("    default). Past that, reach opens another connection rather than")
 		fmt.Println("    failing the tool call, and says so on stderr when it does.")
+		fmt.Printf("    Kept: %s\n", transport.ControlPersistDescription())
 		return
 	}
 	fmt.Println("  Connection reuse: NO — every command opens and authenticates its own")

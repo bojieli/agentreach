@@ -43,6 +43,24 @@ type Overflower interface {
 	Overflow() bool
 }
 
+// Adviser is a transport that can add guidance to one of its own failures.
+//
+// It exists because the useful advice depends on how the transport is
+// configured — an authentication failure means something different to a
+// connection that could have prompted and one that could not — and only the
+// transport knows that.
+type Adviser interface {
+	Advise(failure string) string
+}
+
+// advise returns whatever the transport can add to a failure of its own.
+func advise(t Transport, failure string) string {
+	if a, ok := t.(Adviser); ok {
+		return a.Advise(failure)
+	}
+	return ""
+}
+
 // Stream is a long-lived remote process.
 type Stream struct {
 	Stdin  io.WriteCloser

@@ -271,6 +271,42 @@ func finishExec(start time.Time, rawOut, rawErr []byte, procCode int, truncated 
 	}, nil
 }
 
+// authFailures are what ssh says when it could not authenticate.
+var authFailures = []string{
+	"permission denied",
+	"no such identity",
+	"too many authentication failures",
+	"could not open a connection to your authentication agent",
+}
+
+// IsAuthFailure reports whether ssh's output describes a connection that failed
+// to authenticate, rather than a command that failed.
+func IsAuthFailure(s string) bool {
+	lower := strings.ToLower(s)
+	for _, sig := range authFailures {
+		if strings.Contains(lower, sig) {
+			return true
+		}
+	}
+	return false
+}
+
+// BatchAuthAdvice explains an authentication failure in the one context where
+// it is not self-explanatory: a tool call, which runs in batch mode and cannot
+// ask for anything.
+//
+// The connection `reach up` authenticated is the only one an operator was
+// present to complete. When it expires, the next tool call reconnects — and a
+// reconnect that cannot prompt for a password, a passphrase or a hardware token
+// does not hang, it fails, with ssh's own "Permission denied" and nothing about
+// what actually happened or what to do.
+func BatchAuthAdvice() string {
+	return "\n\nEvery connection after `reach up` runs in batch mode, so it cannot ask for a\n" +
+		"password, a passphrase or a hardware token. If the connection `reach up`\n" +
+		"authenticated has expired, run `reach up` again to authenticate a new one, or\n" +
+		"set " + ControlPersistEnv + "=yes to keep it alive until `reach down`."
+}
+
 // shellDiagnosis explains the two exit statuses that mean "there is no shell
 // here", which otherwise arrive as a bare number with no stderr at all.
 //
