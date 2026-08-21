@@ -252,19 +252,48 @@ Paths are cleaned before being joined to the mirror root, so a path containing
 untrusted target, which makes that a real attack path rather than a theoretical
 one.
 
+**An honest assessment: mirror is the weakest of waldo's mechanisms, kept
+because Claude Code offers nothing stronger.** Its known costs, stated plainly
+rather than discovered by the operator:
+
+- **Reads can be stale; only writes are guarded.** The digest protects the
+  write-back, but a file that changes on the target right after the fetch is
+  read and reasoned about in its old state. On a host with active builds or
+  deploys, that window is real.
+- **It is read-modify-write over the network.** An `Edit` rewrites the whole
+  file back, not the changed lines.
+- **`Grep`/`Glob` stay denied even here**, so the mode does not actually
+  deliver the full native tool surface it appears to promise.
+- **The path leak** above is mitigated by a system-prompt instruction, not
+  eliminated — and instructions to models are probabilistic.
+
+Where a harness offers a direct seam — opencode's tool shadowing, or Codex's
+exec-server protocol, both of which execute file operations *on the target*
+with no copy, no staleness window, and full search fidelity — that mechanism
+is strictly better and mirror should not be used. Mirror exists for the one
+harness whose tools can be neither shadowed nor redirected, only re-pointed at
+a local file. Prefer `exec` mode for shell-shaped work, prefer a direct-seam
+harness for edit-heavy work, and treat mirror as the fallback for when it must
+be Claude Code *and* it must be native file tools.
+
 ## Harness adapters
 
-| harness | seam | verified |
-|---|---|---|
-| Claude Code | `CLAUDE_CODE_SHELL_PREFIX` → whole command as one argv element | yes, 2.1.233 |
-| Codex | `bash` shim on `PATH` (`execvp`) + sandbox network allowance | ≤ 0.147; bypassed by 0.148, launch refused — see [harnesses/codex.md](harnesses/codex.md) |
-| Kimi Code | `PATH` shim | 0.34.0; bypassed by 0.37.2, launch refused — see [harnesses/kimi.md](harnesses/kimi.md) |
-| opencode | generated tools shadowing built-ins by name | see [harnesses/opencode.md](harnesses/opencode.md) |
+| harness | seam | shell | file tools | verified |
+|---|---|---|---|---|
+| Claude Code | `CLAUDE_CODE_SHELL_PREFIX` | ✓ remote | exec/mirror | yes, 2.1.233 |
+| Codex | exec-server (`environments.toml`) | ✓ remote (via exec-server) | ✓ remote (via exec-server) | yes, 0.148 — see [harnesses/codex.md](harnesses/codex.md) |
+| Kimi Code | `KIMI_SHELL_PATH` → shim (npm patch) | ✓ remote | denied (use shell) | yes, 0.37.2 — see [harnesses/kimi.md](harnesses/kimi.md) |
+| opencode | generated tools shadowing built-ins by name | ✓ remote | ✓ remote | yes — see [harnesses/opencode.md](harnesses/opencode.md) |
+| Goose (Block) | `GOOSE_SHELL` env var | ✓ remote | denied via `available_tools: [shell]` | yes — see [harnesses/goose.md](harnesses/goose.md) |
+| Crush (Charm) | server mode (`crush server --host`) | ✓ remote | ✓ remote | yes — see [harnesses/crush.md](harnesses/crush.md) |
+| Gemini CLI | PATH shim (bare `bash` name) | ✓ remote | denied via `excludeTools` | yes — see [harnesses/gemini.md](harnesses/gemini.md) |
 
-For Codex and Kimi the verdict per installed version is measured, not assumed:
-`waldo harness verify` drives the harness against an embedded offline mock
-model and checks where a scripted command actually ran, and the launch guard
-refuses versions measured to bypass the shim.
+For harnesses where the seam could regress across versions (Codex, Kimi,
+Goose, Gemini), `waldo harness verify` drives the harness against an embedded
+offline mock model and checks where a scripted command actually ran.  The launch
+guard refuses versions measured to bypass the seam.  The `--task-prefix` flag
+probes a specific operation type (file read, file write) in addition to the
+default shell execution canary.
 
 No harness is forked. Claude Code and Codex keep their own authentication, so
 subscription logins continue to work and no key is introduced anywhere.

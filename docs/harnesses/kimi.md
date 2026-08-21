@@ -1,34 +1,73 @@
 # Kimi Code
 
-Probed against **0.34.0** (PATH shim) and re-measured against **0.37.2**
-(bypassed — see below). MIT-licensed, Bun-compiled TypeScript.
+Probed against **0.34.0** and **0.37.2**. MIT-licensed, npm-bundled TypeScript.
 
-## Seam
+## The seam
 
-`PATH` shim, same as Codex. No shell-override environment variable was found in
-the binary; the documented `KIMI_SHELL_PATH` overrides only the Git Bash path
-on Windows.
+Kimi Code 0.37.2 spawns its shell by absolute path — it probes `/bin/bash`,
+`/usr/bin/bash`, `/usr/local/bin/bash` in that order, ignoring `PATH`.  A
+plain PATH shim cannot intercept this.
 
-## Status
+Kimi is open source, so waldo patches the npm bundle directly.
+`contrib/kimi-shell-path-patch.mjs` rewrites both probe sites inside Kimi's
+compiled bundle to prepend `process.env.KIMI_SHELL_PATH` to the candidate
+list, when set.  `waldo kimi` sets `KIMI_SHELL_PATH` to the PATH shim's
+`bash` entry, so every `Bash` tool call the model issues routes through the
+shim and runs on the session's target.
 
-**Command execution: broken on 0.37.2, guarded.** Against 0.34.0 the shim
-intercepted Kimi's shell. On 0.37.2 Kimi spawns its shell by absolute path,
-so the shim never runs and every command executes locally while the agent
-believes it acts on the target — the same regression class as Codex 0.148.
-`waldo harness verify kimi` measures this offline (mock model over the
-OpenAI chat-completions wire, one scripted `Bash` tool call, hostname check),
-caches the verdict per Kimi version, and `waldo kimi` refuses to launch a
-version measured to bypass the shim. `--force` overrides for operators who
-accept local execution.
+The managed binary lives under `~/.waldo/kimi-<version>/node_modules/.bin/kimi`
+(installed once, patched in-place, never updated by Kimi's own updater).
+`waldo kimi` resolves the newest waldo-managed binary first, then falls back to
+whatever `kimi` is on PATH.  The seam guard measures the chosen binary before
+launch and caches the verdict — an unpatched binary is refused.
 
-Kimi's `PreToolUse` hook honours only allow/deny — it cannot rewrite a tool
-call's input — so a hook cannot reroute `Bash` commands either.
+## Kimi's cd-prefix injection
 
-**File tools: not redirected.** Kimi's native `read_file`, `write_file` and
-`multi_edit` act on the local filesystem regardless of the shell seam.
-`waldo kimi` prints a warning saying so, and the agent should use shell
-commands for file access until an adapter exists.
+Kimi wraps every Bash call with `cd '<local-cwd>' && <command>`.  Forwarded
+verbatim, this cd fails on the target (the path does not exist there) and the
+command never runs.
 
-Because Kimi is open source, upstreaming a proper execution seam is realistic
-rather than hypothetical — unlike the closed harnesses, where waldo must work
-with whatever the binary happens to expose.
+`waldo kimi` sets `WALDO_EXEC_WORKSPACE` to the operator's current directory.
+The PATH shim reads this variable and rewrites the cd prefix:
+`cd '<local-cwd>'` becomes `cd '<session-target-workspace>'`.  The agent's
+working directory on the target is correct, with no visible seam.
+
+## File tools: denied via config
+
+Kimi's native `read_file`, `write_file`, `edit`, `glob`, `grep`, and
+`read_media_file` tools use Node's `fs` API directly.  There is no seam that
+redirects them to the target.
+
+`waldo kimi` builds a managed `KIMI_CODE_HOME` whose `config.toml` adds a
+deny rule for all six tools.  The agent reaches the remote filesystem through
+the `Bash` tool instead (which does run on the target), using shell commands
+like `cat`, `find`, `grep`, `sed`, and `patch`.
+
+This costs one tool call per file operation versus zero for native tools, but
+it is correct: every file read and write lands on the target, never on the
+operator's machine.
+
+## Seam coverage
+
+| Tool surface | Mechanism | Status |
+|---|---|---|
+| `Bash` (shell commands) | KIMI_SHELL_PATH → shim | **✓ remote** |
+| `read_file` | config.toml deny | **denied** (use shell) |
+| `write_file` | config.toml deny | **denied** (use shell) |
+| `edit` | config.toml deny | **denied** (use shell) |
+| `glob` | config.toml deny | **denied** (use shell) |
+| `grep` | config.toml deny | **denied** (use shell) |
+| `read_media_file` | config.toml deny | **denied** |
+
+## The guard
+
+`waldo harness verify kimi` drives one offline scripted turn (mock model over
+the OpenAI chat-completions wire) against the resolved kimi binary with
+`KIMI_SHELL_PATH` set.  The probe instructs a `Bash` tool call of
+`echo <marker>; hostname` and reads the hostname from the tool output.  A match
+with the session target's hostname caches a VerdictOK; a local hostname caches
+VerdictBypassed and `waldo kimi` refuses to launch.
+
+Cache is keyed on the kimi binary's version string and invalidated when the
+binary changes — re-running `waldo harness verify kimi` after a patch or
+version upgrade re-measures from scratch.
