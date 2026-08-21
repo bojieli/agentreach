@@ -267,16 +267,29 @@ func Verify(ctx context.Context, opts Options) Result {
 // echoedMarker reports whether the canary appears as output rather than as part
 // of a command quoted back.
 //
-// The probe's command ends `echo <marker>; hostname`, so a command that really
-// ran puts the marker on a line of its own. A harness that refuses the command
-// prints the command in its error, marker and all — and substring matching
-// cannot tell the two apart, which is how a refusal came to be read as proof
-// the command ran.
+// The probe's command ends `echo <marker>; hostname`, so wherever the marker
+// was actually printed it ends a line. Where it was merely quoted back it does
+// not: a refusal carries the rest of the command after it —
+// `… && echo <marker>; hostname'` — and so does the header some harnesses print
+// before the output, `Command: echo <marker>; hostname`. Substring matching
+// could not tell the two apart, which is how codex declining `rm -f` came to be
+// recorded as reach failing to intercept it.
+//
+// Requiring the marker to be alone on its line is too strict in the other
+// direction: Gemini frames tool output as `Stdout: <marker>`, and a real pass
+// was rejected for having a label in front of it. The rule is therefore that
+// the marker ends the line and was not the argument of the echo that would have
+// printed it.
 func echoedMarker(output, marker string) bool {
 	for _, line := range strings.Split(output, "\n") {
-		if strings.TrimSpace(line) == marker {
-			return true
+		before, ok := strings.CutSuffix(strings.TrimRight(line, " \t\r"), marker)
+		if !ok {
+			continue
 		}
+		if strings.HasSuffix(strings.TrimRight(before, " \t"), "echo") {
+			continue
+		}
+		return true
 	}
 	return false
 }

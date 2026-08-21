@@ -11,6 +11,12 @@ project makes without a version attached.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-08-22
+
+Every entry here is reach disarming its own shell seam. The Seam job had been
+reporting it since the day it was added — Gemini and Kimi as `BYPASSED`, codex
+as a timeout — and it was read as harnesses changing under us. It was not.
+
 ### Fixed
 
 - **A harness installed behind a wrapper script ran every command on the
@@ -46,8 +52,10 @@ project makes without a version attached.
   anywhere. The distinction is not pedantic: the verdict is cached, and
   `reach codex` refuses to launch any version carrying a `BYPASSED`, so a
   harness policy would have permanently condemned a seam that works. The canary
-  now counts only when it appears as output on a line of its own, and a command
-  that did not run is reported as inconclusive.
+  now counts only where it ends a line and was not the argument of the echo that
+  would have printed it — printed output ends the line, a command quoted back
+  carries the rest of itself after it — and a command that did not run is
+  reported as inconclusive rather than as a bypass.
 
 - **A probe that timed out reported nothing but the timeout.** Whether the
   harness had reached the mock at all, and what it last printed, were exactly
@@ -68,7 +76,12 @@ project makes without a version attached.
 
 ## [0.1.0] - 2026-08-21
 
-The first tagged release, and the first artefacts anyone can download. A
+Prepared but never tagged: the seam bugs listed under 0.1.1 were found before it
+was published, and shipping a release whose shell seam silently ran the agent's
+commands on the operator's own machine was not worth the tidier version number.
+0.1.1 is the first release, and contains everything below.
+
+A
 changelog this long under a first version is not an accident: reach started as
 tier-0 file operations over SSH with adapters for a handful of harnesses (see
 "Where this started" at the end), and everything below was built on that before
