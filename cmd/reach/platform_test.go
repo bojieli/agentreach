@@ -175,31 +175,6 @@ func TestSetPathEnvPreservesTheKeySpelling(t *testing.T) {
 	}
 }
 
-// TestSanitisedEnvRemovesTheShimDirectory stops the shim from recursing into
-// itself, which without a guard runs the machine out of processes.
-func TestSanitisedEnvRemovesTheShimDirectory(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("REACH_HOME", home)
-	shimDir, err := shimBinDir()
-	if err != nil {
-		t.Fatal(err)
-	}
-	sep := string(filepath.ListSeparator)
-	t.Setenv("PATH", shimDir+sep+filepath.Join(home, "real"))
-
-	for _, kv := range sanitisedEnv() {
-		if k, v, ok := strings.Cut(kv, "="); ok && isPathEnvKey(k) {
-			for _, dir := range filepath.SplitList(v) {
-				if sameDir(dir, shimDir) {
-					t.Fatalf("the shim directory survived sanitisation: %q", v)
-				}
-			}
-			return
-		}
-	}
-	t.Fatal("sanitisedEnv returned no search path at all")
-}
-
 // TestSameDirIsCaseInsensitiveOnWindows: comparing shim directories by bytes
 // would fail to recognise reach's own directory when the case differs, sending
 // the shim back into itself.

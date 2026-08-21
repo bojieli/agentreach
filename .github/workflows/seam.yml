@@ -11,7 +11,9 @@ name: Seam
 # Why a separate job from CI:
 #   - CI's unit tests catch code regressions; this catches harness regressions —
 #     a new release of codex, kimi, or gemini that silently changes how it
-#     resolves its shell.
+#     resolves its shell. It catches reach's own regressions too: every failure
+#     this job has ever reported turned out to be reach disarming its own seam,
+#     not a harness defeating it.
 #   - Docker is required for the sshd container; Docker is available on
 #     ubuntu-latest but not reliably on macos-latest.
 #   - Installing multiple npm harness versions is slow (~2 min) and should not
@@ -54,13 +56,20 @@ env:
   #
   # Format: space-separated semver strings.
   #
-  # codex 0.147.x: last known-good PATH-shim era.
-  # codex 0.148.0: switched to getpwuid_r + absolute path → bypasses shim.
-  #                reach refuses to launch it (fail-closed), so the probe
-  #                returns verdict "BYPASSED" and the step is expected to fail.
-  DEFAULT_CODEX_VERSIONS:  '0.1.0 0.147.5 0.148.0'
-  # kimi 0.37.2: resolves shell by absolute path without the KIMI_SHELL_PATH patch.
-  #              reach's managed patched binary honours KIMI_SHELL_PATH → ok.
+  # codex 0.148 was where codex stopped resolving its shell by name, which no
+  # PATH shim can intercept. The same release gained environments.toml, and
+  # reach routes codex through `reach exec-server` there instead — so 0.148 is
+  # the first version of the seam that replaced the shim, not a version that
+  # defeats it. This job asserted the opposite for as long as it existed, and
+  # nobody saw it, because the probe could not run codex at all.
+  #
+  # 0.1.0 and 0.147.5 were pinned here too and have since been unpublished from
+  # npm; the install step skipped them with a warning every run. Two versions
+  # that exist and are verified are worth more than three that are not.
+  DEFAULT_CODEX_VERSIONS:  '0.148.0 0.149.0'
+  # kimi resolves its shell by absolute path in both of these. reach's managed
+  # patched binary honours KIMI_SHELL_PATH, which is what the patch step below
+  # applies and what this probes.
   DEFAULT_KIMI_VERSIONS:   '0.36.0 0.37.2'
   # gemini: PATH shim; add newer versions as they are released.
   DEFAULT_GEMINI_VERSIONS: '0.1.9'

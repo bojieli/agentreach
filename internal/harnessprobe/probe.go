@@ -193,6 +193,13 @@ func Verify(ctx context.Context, opts Options) Result {
 	if spec.workingDir != "" {
 		cmd.Dir = spec.workingDir
 	}
+	// The launchers set REACH_EXEC_WORKSPACE to the directory they were run
+	// in, and the shim needs it to rewrite the `cd '<local-cwd>' && …` prefix
+	// Kimi wraps every command in. The probe left it unset, so the probe was
+	// measuring a seam nothing ships: kimi's commands reached the target and
+	// then failed on `cd /tmp`, and the probe called that inconclusive rather
+	// than reporting the interception that had plainly worked.
+	cmd.Env = append(cmd.Env, "REACH_EXEC_WORKSPACE="+probeWorkspace(cmd.Dir))
 	// Output is captured rather than inherited: a failing probe needs the
 	// tail of it as evidence, and a succeeding one has nothing worth the
 	// operator's screen.
@@ -207,8 +214,18 @@ func Verify(ctx context.Context, opts Options) Result {
 	toolOutput, observed := mock.Result()
 
 	if ctx.Err() == context.DeadlineExceeded {
+		// The evidence matters most here and used to be dropped. A probe that
+		// hangs says nothing about the seam on its own, and the CI logs for one
+		// contained a single line: whether the harness had reached the mock at
+		// all, and what it last printed, were the two things needed to tell a
+		// slow turn from a harness stuck before it ever made a request.
+		reached := "the harness never made the scripted tool call"
+		if observed {
+			reached = "the tool call was made; the harness did not finish afterwards"
+		}
 		return Result{Verdict: VerdictError, Detail: fmt.Sprintf(
-			"%s did not finish the scripted turn within %s", opts.Harness, timeout)}
+			"%s did not finish the scripted turn within %s (%s). Output tail: %s",
+			opts.Harness, timeout, reached, out.Tail())}
 	}
 	if runErr != nil && !observed {
 		return Result{Verdict: VerdictError, Detail: fmt.Sprintf(
@@ -221,11 +238,20 @@ func Verify(ctx context.Context, opts Options) Result {
 	}
 
 	trimmed := strings.TrimSpace(toolOutput)
-	if !strings.Contains(trimmed, marker) {
-		// A tool call happened, but not this probe's command — the harness ran
-		// something of its own. That says nothing about the seam.
+	if !echoedMarker(trimmed, marker) {
+		// A tool call happened, but this probe's command did not produce
+		// output. Either the harness ran something of its own, or it refused
+		// to run what it was told: codex declines `rm -f` by policy and reports
+		// the refusal with the whole command quoted back, marker included.
+		//
+		// Neither says anything about the seam, and the difference from a
+		// bypass matters more than it looks. A command that never ran did not
+		// run locally, and calling it a bypass is not a cautious error — the
+		// verdict is cached and `reach codex` refuses to launch any version
+		// carrying it, so a harness policy would have permanently condemned a
+		// seam that works.
 		return Result{Verdict: VerdictError, Detail: "a tool call ran, but its output does not contain the probe's canary; " +
-			opts.Harness + " ignored the scripted instruction. Output: " + trimmed}
+			opts.Harness + " did not run the scripted command (it may have refused it). Output: " + trimmed}
 	}
 	if strings.Contains(trimmed, remoteHost) {
 		return Result{Verdict: VerdictOK,
@@ -236,6 +262,23 @@ func Verify(ctx context.Context, opts Options) Result {
 		Detail: fmt.Sprintf("tool output does not contain the target's hostname %q; "+
 			"the command ran somewhere else (locally). Observed output: %q", remoteHost, trimmed),
 		ToolOutput: trimmed}
+}
+
+// echoedMarker reports whether the canary appears as output rather than as part
+// of a command quoted back.
+//
+// The probe's command ends `echo <marker>; hostname`, so a command that really
+// ran puts the marker on a line of its own. A harness that refuses the command
+// prints the command in its error, marker and all — and substring matching
+// cannot tell the two apart, which is how a refusal came to be read as proof
+// the command ran.
+func echoedMarker(output, marker string) bool {
+	for _, line := range strings.Split(output, "\n") {
+		if strings.TrimSpace(line) == marker {
+			return true
+		}
+	}
+	return false
 }
 
 // targetHostname asks the session's target for its hostname through the same
@@ -320,6 +363,20 @@ func baseProbeEnv(sessName, shimDir string, strip func(key string) bool) []strin
 		env = append(env, kv)
 	}
 	return append(env, "REACH_SESSION="+sessName)
+}
+
+// probeWorkspace is the directory the probe process will treat as its project
+// root — cmd.Dir when the spec pins one, and this process's own working
+// directory otherwise, which is what exec.Cmd itself falls back to.
+func probeWorkspace(dir string) string {
+	if dir != "" {
+		return dir
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return cwd
 }
 
 // codexPrepare writes the environments.toml that routes the probe's codex to

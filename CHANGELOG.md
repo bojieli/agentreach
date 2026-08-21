@@ -11,6 +11,61 @@ project makes without a version attached.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A harness installed behind a wrapper script ran every command on the
+  operator's own machine.** npm, asdf, pyenv and nvm all install binaries
+  behind a small wrapper, and those wrappers start `#!/usr/bin/env bash`. With
+  reach's shim first on PATH — which is the seam for Gemini CLI, Goose and
+  Kimi — `env` resolved that `bash` to the shim, so reach was asked to run the
+  wrapper itself. Handing it to the real shell is correct. Handing it over with
+  reach's shim directory stripped from PATH and `REACH_IN_SHELL_SHIM` set was
+  not: the real shell passed both to the harness it went on to launch, and the
+  seam was switched off for the rest of the session. The agent's commands ran
+  locally while being reported as remote, which is the one failure reach exists
+  to prevent, arrived at by reach's own doing. The pass-through now leaves the
+  environment exactly as it found it. Recursion — the reason the stripping was
+  there — is prevented where it can actually happen: `findRealShell` refuses to
+  return this executable, by identity rather than by path, so a shim reached
+  through some other PATH entry cannot send the process back into itself.
+
+- **A harness's own flags were run as commands on the target.** The shim looked
+  for `-c` anywhere in its arguments. In `bash <script> <the script's args>`
+  everything after the script path belongs to the script, and a harness behind
+  a wrapper is started exactly that way — with codex's flags, which begin
+  `-c model_providers.reach.name="reach"`. reach took the TOML config override
+  for a command and ran it on somebody's server, where it arrived as
+  `bash: line 1: model_providers.reach.name=reach: command not found`, while
+  the wrapper it had been asked to run never started. Options now stop at the
+  first argument that is not one, as a shell's own parsing does.
+
+- **A harness refusing a command was recorded as reach failing to intercept
+  it.** codex declines `rm -f` by policy and reports the refusal with the whole
+  command quoted back, canary included — so the probe found its marker, found
+  no hostname, and concluded the command had run locally. It had not run
+  anywhere. The distinction is not pedantic: the verdict is cached, and
+  `reach codex` refuses to launch any version carrying a `BYPASSED`, so a
+  harness policy would have permanently condemned a seam that works. The canary
+  now counts only when it appears as output on a line of its own, and a command
+  that did not run is reported as inconclusive.
+
+- **A probe that timed out reported nothing but the timeout.** Whether the
+  harness had reached the mock at all, and what it last printed, were exactly
+  the two facts needed to tell a slow turn from one stuck before it made a
+  request — and both were discarded. This is why the seam failures took a local
+  reproduction to diagnose rather than a CI log.
+
+- **The seam probe measured a seam nothing ships.** `reach harness verify` did
+  not set `REACH_EXEC_WORKSPACE`, which every launcher sets and which the shim
+  needs to rewrite the `cd '<local-cwd>' && …` prefix Kimi wraps around every
+  command. Kimi's probes reached the target and then failed on a `cd` into a
+  directory that only exists on the operator's machine, and the probe called
+  that inconclusive rather than reporting the interception that had plainly
+  worked. All twelve pinned harness probes — Gemini 0.1.9, Kimi 0.36.0 and
+  0.37.2, across exec, read-only and read-write — now report that commands
+  reach the target.
+
+
 ## [0.1.0] - 2026-08-21
 
 The first tagged release, and the first artefacts anyone can download. A
