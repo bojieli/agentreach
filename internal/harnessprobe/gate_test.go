@@ -104,10 +104,8 @@ func TestRefusalMessageCarriesTheFacts(t *testing.T) {
 	d := Gate("codex", "0.148.0", &Entry{Verdict: VerdictBypassed, When: time.Now(), Detail: "ran locally"})
 	for _, want := range []string{
 		"0.148.0",
-		"absolute path",
+		"exec-server",
 		"THIS machine",
-		"Codex <= 0.147",
-		"on the target itself",
 		"waldo harness verify codex",
 		"--force",
 		"ran locally",

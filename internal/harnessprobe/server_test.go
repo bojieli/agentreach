@@ -3,6 +3,7 @@ package harnessprobe
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -356,5 +357,165 @@ func TestMockChatDialectRejectsResponsesEndpoint(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404: a chat mock must not answer the responses endpoint", resp.StatusCode)
+	}
+}
+
+// postGemini issues one Gemini streamGenerateContent call and returns the raw
+// SSE body. The @google/genai SDK appends /v1beta/models/{model}:streamGenerateContent
+// to the base URL; the mock's BaseURL() for DialectGemini is the raw server URL,
+// so we form the path as the SDK would.
+func postGemini(t *testing.T, m *Mock, model, body string) string {
+	t.Helper()
+	url := m.BaseURL() + "/v1beta/models/" + model + ":streamGenerateContent"
+	resp, err := http.Post(url, "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST %s: %v", url, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(resp.Body)
+		t.Fatalf("POST %s: status %d; body: %s", url, resp.StatusCode, data)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Fatalf("Content-Type = %q, want text/event-stream", ct)
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	return string(data)
+}
+
+// geminiChunks splits an SSE body into parsed JSON objects.
+func geminiChunks(t *testing.T, body string) []map[string]any {
+	t.Helper()
+	var out []map[string]any
+	for _, line := range strings.Split(body, "\n") {
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		var chunk map[string]any
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &chunk); err != nil {
+			t.Fatalf("chunk data is not JSON: %v\n%s", err, line)
+		}
+		out = append(out, chunk)
+	}
+	return out
+}
+
+func TestMockGeminiDialectScriptsOneToolCall(t *testing.T) {
+	m := StartMock("WALDO_GEMINI_MARKER", DialectGemini)
+	defer m.Close()
+
+	// The Gemini mock's BaseURL() should be the raw server URL (no /v1 suffix),
+	// because the @google/genai SDK appends the version path itself.
+	if strings.HasSuffix(m.BaseURL(), "/v1") {
+		t.Fatalf("Gemini mock BaseURL() = %q: should NOT have /v1 suffix", m.BaseURL())
+	}
+
+	// Turn one: Gemini CLI sends a request with functionDeclarations.
+	turn1 := postGemini(t, m, "waldo-mock", `{
+		"contents": [{"role":"user","parts":[{"text":"go"}]}],
+		"tools": [{
+			"functionDeclarations": [
+				{"name": "read_file", "description": "read a file"},
+				{"name": "run_shell_command", "description": "run a shell command",
+				 "parameters": {"type": "object", "properties": {"command": {"type": "string"}}}}
+			]
+		}]
+	}`)
+	chunks1 := geminiChunks(t, turn1)
+	if len(chunks1) == 0 {
+		t.Fatalf("turn-1 stream has no chunks:\n%s", turn1)
+	}
+	// Extract the functionCall from the first chunk.
+	candidates, _ := chunks1[0]["candidates"].([]any)
+	if len(candidates) == 0 {
+		t.Fatalf("turn-1 chunk has no candidates: %v", chunks1[0])
+	}
+	c0, _ := candidates[0].(map[string]any)
+	content, _ := c0["content"].(map[string]any)
+	if content["role"] != "model" {
+		t.Fatalf("content role = %v, want model", content["role"])
+	}
+	parts, _ := content["parts"].([]any)
+	if len(parts) == 0 {
+		t.Fatalf("content has no parts: %v", content)
+	}
+	part0, _ := parts[0].(map[string]any)
+	fc, _ := part0["functionCall"].(map[string]any)
+	if fc == nil {
+		t.Fatalf("first part has no functionCall: %v", part0)
+	}
+	if fc["name"] != "run_shell_command" {
+		t.Fatalf("functionCall name = %v, want run_shell_command", fc["name"])
+	}
+	fcArgs, _ := fc["args"].(map[string]any)
+	if !strings.Contains(fmt.Sprintf("%v", fcArgs["command"]), "WALDO_GEMINI_MARKER") {
+		t.Fatalf("functionCall args.command = %v, want it to contain the marker", fcArgs["command"])
+	}
+
+	if _, observed := m.Result(); observed {
+		t.Fatal("no tool output should be recorded after turn one")
+	}
+
+	// Turn two: Gemini CLI sends the tool result as functionResponse.
+	turn2 := postGemini(t, m, "waldo-mock", `{
+		"contents": [
+			{"role":"user","parts":[{"text":"go"}]},
+			{"role":"model","parts":[{"functionCall":{"name":"run_shell_command","args":{"command":"echo WALDO_GEMINI_MARKER; hostname"}}}]},
+			{"role":"user","parts":[{"functionResponse":{"id":"call_1","name":"run_shell_command","response":{"output":"WALDO_GEMINI_MARKER\nremote-box"}}}]}
+		]
+	}`)
+	chunks2 := geminiChunks(t, turn2)
+	if len(chunks2) == 0 {
+		t.Fatalf("turn-2 stream has no chunks:\n%s", turn2)
+	}
+	if !strings.Contains(turn2, "OBSERVED:") || !strings.Contains(turn2, "WALDO_GEMINI_MARKER") {
+		t.Errorf("turn-2 stream should echo the observed output:\n%s", turn2)
+	}
+
+	out, observed := m.Result()
+	if !observed {
+		t.Fatal("the tool output was not recorded")
+	}
+	if out != "WALDO_GEMINI_MARKER\nremote-box" {
+		t.Fatalf("recorded output = %q", out)
+	}
+}
+
+func TestMockGeminiAdaptiveToolSelection(t *testing.T) {
+	cases := []struct {
+		name     string
+		decls    string
+		wantName string
+	}{
+		{"run_shell_command preferred", `[{"name":"read_file"},{"name":"run_shell_command"}]`, "run_shell_command"},
+		{"shell fallback", `[{"name":"read_file"},{"name":"shell"}]`, "shell"},
+		{"first function if none known", `[{"name":"weird_tool"}]`, "weird_tool"},
+		{"no tools falls back to run_shell_command", `[]`, "run_shell_command"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := StartMock("M", DialectGemini)
+			defer m.Close()
+			body := postGemini(t, m, "waldo-mock", `{"contents":[{"role":"user","parts":[{"text":"go"}]}],"tools":[{"functionDeclarations":`+tc.decls+`}]}`)
+			if !strings.Contains(body, `"name":"`+tc.wantName+`"`) {
+				t.Fatalf("called the wrong tool, want %q:\n%s", tc.wantName, body)
+			}
+		})
+	}
+}
+
+func TestMockGeminiDialectRejectsChatEndpoint(t *testing.T) {
+	m := StartMock("M", DialectGemini)
+	defer m.Close()
+	resp, err := http.Post(m.BaseURL()+"/v1/chat/completions", "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404: a Gemini mock must not answer the chat endpoint", resp.StatusCode)
 	}
 }

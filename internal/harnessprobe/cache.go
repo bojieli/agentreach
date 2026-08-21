@@ -18,10 +18,28 @@ type Entry struct {
 	Detail  string    `json:"detail,omitempty"`
 }
 
-// cacheFile is the on-disk shape: harness name, then version, then entry.
-// Verdicts live in WALDO_HOME rather than beside the sessions because they
-// describe the local harness installation, not any target.
-type cacheFile map[string]map[string]Entry
+// cacheSchema versions the on-disk shape. Schema 1 was a bare
+// harness→version→entry map; every verdict recorded under it measured the
+// PATH-shim seam. When waldo's seam for a harness changes (Codex moved to the
+// exec-server protocol, Kimi to KIMI_SHELL_PATH), those verdicts describe a
+// mechanism waldo no longer uses, so the whole file is discarded rather than
+// trusted: a stale "bypassed" would refuse a launch the new seam would pass,
+// and a stale "ok" would be worse.
+const cacheSchema = 2
+
+// cacheFile is the on-disk shape: a schema marker, then harness name, then
+// version, then entry. Verdicts live in WALDO_HOME rather than beside the
+// sessions because they describe the local harness installation, not any
+// target.
+type cacheFile struct {
+	Schema   int                         `json:"schema"`
+	Verdicts map[string]map[string]Entry `json:"verdicts"`
+}
+
+// emptyCache returns a usable zero cache at the current schema.
+func emptyCache() cacheFile {
+	return cacheFile{Schema: cacheSchema, Verdicts: map[string]map[string]Entry{}}
+}
 
 // cachePath resolves $WALDO_HOME/harness-verdicts.json, applying the same
 // WALDO_HOME-then-~/.waldo rule as the session store. Duplicated rather than
@@ -46,21 +64,29 @@ func cachePath() (string, error) {
 func readCache() (cacheFile, error) {
 	p, err := cachePath()
 	if err != nil {
-		return nil, err
+		return cacheFile{}, err
 	}
 	data, err := os.ReadFile(p)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return cacheFile{}, nil
+			return emptyCache(), nil
 		}
-		return nil, err
+		return cacheFile{}, err
 	}
 	var c cacheFile
 	if err := json.Unmarshal(data, &c); err != nil {
 		// A corrupt cache is not fatal: verdicts are derived data, re-probed on
 		// demand. Treat it as empty rather than bricking every launch.
 		//nolint:nilerr // a corrupt cache reads as an empty cache
-		return cacheFile{}, nil
+		return emptyCache(), nil
+	}
+	if c.Schema != cacheSchema {
+		// A cache from another schema — including a newer waldo's — is not
+		// evidence about the seam this build uses. Re-probe everything.
+		return emptyCache(), nil
+	}
+	if c.Verdicts == nil {
+		c.Verdicts = map[string]map[string]Entry{}
 	}
 	return c, nil
 }
@@ -71,7 +97,7 @@ func LoadVerdict(harness, version string) (Entry, bool, error) {
 	if err != nil {
 		return Entry{}, false, err
 	}
-	e, ok := c[harness][version]
+	e, ok := c.Verdicts[harness][version]
 	return e, ok, nil
 }
 
@@ -89,10 +115,10 @@ func StoreVerdict(harness, version string, r Result) error {
 	if err != nil {
 		return err
 	}
-	if c[harness] == nil {
-		c[harness] = map[string]Entry{}
+	if c.Verdicts[harness] == nil {
+		c.Verdicts[harness] = map[string]Entry{}
 	}
-	c[harness][version] = Entry{Verdict: r.Verdict, When: time.Now(), Detail: r.Detail}
+	c.Verdicts[harness][version] = Entry{Verdict: r.Verdict, When: time.Now(), Detail: r.Detail}
 
 	p, err := cachePath()
 	if err != nil {

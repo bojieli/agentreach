@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// Dialect selects which OpenAI wire protocol the mock speaks.
+// Dialect selects which wire protocol the mock speaks.
 //
 // A mock speaks exactly one dialect, and 404s the other's endpoint: a harness
 // pointed at the wrong one should fail loudly rather than get a plausible
@@ -25,6 +25,9 @@ const (
 	// DialectChat is the chat-completions streaming protocol, which Kimi Code
 	// speaks when KIMI_MODEL_PROVIDER_TYPE=openai.
 	DialectChat Dialect = "chat"
+	// DialectGemini is Google's Gemini API format
+	// (POST /v1beta/models/{model}:streamGenerateContent).
+	DialectGemini Dialect = "gemini"
 )
 
 // Mock is a minimal OpenAI model server that scripts exactly one tool call
@@ -56,6 +59,9 @@ type Mock struct {
 	srv     *httptest.Server
 	marker  string
 	dialect Dialect
+	// command, when set, overrides the default "echo <marker>; hostname"
+	// probe command. SetCommand sets it after construction.
+	command string
 
 	mu         sync.Mutex
 	toolResult string
@@ -109,12 +115,24 @@ func StartMock(marker string, dialect Dialect) *Mock {
 	return m
 }
 
-// BaseURL is the provider base_url the harness should be pointed at, including
-// the /v1 suffix Codex expects.
-func (m *Mock) BaseURL() string { return m.srv.URL + "/v1" }
+// BaseURL is the provider base_url the harness should be pointed at.
+// For OpenAI-dialect mocks it includes the /v1 suffix Codex/Kimi/Goose expect.
+// For the Gemini dialect it is the raw server URL; the SDK appends its own
+// version path (/v1beta/models/{model}:streamGenerateContent).
+func (m *Mock) BaseURL() string {
+	if m.dialect == DialectGemini {
+		return m.srv.URL
+	}
+	return m.srv.URL + "/v1"
+}
 
 // Close shuts the server down.
 func (m *Mock) Close() { m.srv.Close() }
+
+// SetCommand overrides the probe command the mock scripts in the first turn.
+// The default is "echo <marker>; hostname". Call SetCommand before the first
+// request arrives; changing it after the first request is a data race.
+func (m *Mock) SetCommand(cmd string) { m.command = cmd }
 
 // Result returns the tool output the harness reported, and whether any tool
 // output was observed at all.
@@ -144,6 +162,9 @@ func (m *Mock) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		m.serveResponses(w, r)
 	case r.Method == http.MethodPost && m.dialect == DialectChat && strings.HasSuffix(path, "/chat/completions"):
 		m.serveChat(w, r)
+	case r.Method == http.MethodPost && m.dialect == DialectGemini &&
+		(strings.HasSuffix(path, ":streamGenerateContent") || strings.HasSuffix(path, ":generateContent")):
+		m.serveGemini(w, r)
 	default:
 		http.Error(w, "waldo harnessprobe mock: unexpected request", http.StatusNotFound)
 	}
@@ -279,7 +300,10 @@ func (m *Mock) writeEvent(w http.ResponseWriter, f http.Flusher, eventType strin
 // (every known codex shell tool accepts some spelling of a command) to be a
 // better fallback than giving up.
 func (m *Mock) pickTool(tools []toolSpec) (name string, arguments string) {
-	command := "echo " + m.marker + "; hostname"
+	command := m.command
+	if command == "" {
+		command = "echo " + m.marker + "; hostname"
+	}
 	advertised := map[string]bool{}
 	var firstFunction string
 	for _, t := range tools {
@@ -431,7 +455,10 @@ func (m *Mock) pickChatTool(tools []struct {
 		Name string `json:"name"`
 	} `json:"function"`
 }) (name string, arguments string) {
-	command := "echo " + m.marker + "; hostname"
+	command := m.command
+	if command == "" {
+		command = "echo " + m.marker + "; hostname"
+	}
 	advertised := map[string]bool{}
 	var firstFunction string
 	for _, t := range tools {
@@ -454,4 +481,176 @@ func (m *Mock) pickChatTool(tools []struct {
 		return firstFunction, string(data)
 	}
 	return "Bash", string(data)
+}
+
+// geminiRequest is the slice of a Gemini API request the mock reads.
+// Tools arrive under functionDeclarations; function results arrive as parts
+// with a functionResponse field inside the last user-role content.
+type geminiRequest struct {
+	Contents []struct {
+		Role  string `json:"role"`
+		Parts []struct {
+			Text         *string `json:"text,omitempty"`
+			FunctionCall *struct {
+				Name string         `json:"name"`
+				Args map[string]any `json:"args"`
+			} `json:"functionCall,omitempty"`
+			FunctionResponse *struct {
+				Name     string         `json:"name"`
+				Response map[string]any `json:"response"`
+			} `json:"functionResponse,omitempty"`
+		} `json:"parts"`
+	} `json:"contents"`
+	Tools []struct {
+		FunctionDeclarations []struct {
+			Name string `json:"name"`
+		} `json:"functionDeclarations"`
+	} `json:"tools"`
+}
+
+// serveGemini implements the Gemini API streaming dialect.
+//
+// The Gemini CLI uses the @google/genai SDK which sends POST requests to
+// /v1beta/models/{model}:streamGenerateContent with Server-Sent Events (SSE)
+// streaming. Function calls arrive in candidates[0].content.parts[0].functionCall;
+// function results are sent back in the next request as contents[N].parts[0].functionResponse.
+//
+// The response format uses `data: {...}\n\n` chunks (same SSE envelope as
+// OpenAI, but different payload structure). The stream ends when the connection
+// closes — no [DONE] sentinel.
+func (m *Mock) serveGemini(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 16<<20))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var req geminiRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		http.Error(w, "waldo harnessprobe mock: malformed request: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Scan every content for a functionResponse part. The SDK wraps the
+	// shell tool's output as {functionResponse: {name, response: {output: "..."}}}
+	// in a user-role content immediately following the model's functionCall.
+	for _, content := range req.Contents {
+		for _, part := range content.Parts {
+			if part.FunctionResponse == nil {
+				continue
+			}
+			out := ""
+			if s, ok := part.FunctionResponse.Response["output"].(string); ok {
+				out = s
+			}
+			if out == "" {
+				// Fallback: marshal the whole response object in case the SDK
+				// uses a different key (e.g. a future version may change the schema).
+				data, _ := json.Marshal(part.FunctionResponse.Response)
+				out = string(data)
+			}
+			m.record(out)
+		}
+	}
+
+	_, hasResult := m.Result()
+	firstTurn := !hasResult
+
+	flusher := startStream(w)
+
+	if firstTurn {
+		name, args := m.pickGeminiTool(req.Tools)
+		argsMap := map[string]any{}
+		_ = json.Unmarshal([]byte(args), &argsMap)
+		m.writeGeminiChunk(w, flusher, map[string]any{
+			"candidates": []map[string]any{{
+				"content": map[string]any{
+					"parts": []map[string]any{{
+						"functionCall": map[string]any{
+							"name": name,
+							"args": argsMap,
+						},
+					}},
+					"role": "model",
+				},
+				"finishReason": "STOP",
+				"index":        0,
+			}},
+			"usageMetadata": map[string]any{
+				"promptTokenCount":     0,
+				"candidatesTokenCount": 0,
+				"totalTokenCount":      0,
+			},
+		})
+	} else {
+		out, _ := m.Result()
+		if len(out) > 4000 {
+			out = out[:4000]
+		}
+		m.writeGeminiChunk(w, flusher, map[string]any{
+			"candidates": []map[string]any{{
+				"content": map[string]any{
+					"parts": []map[string]any{{"text": "OBSERVED: " + out}},
+					"role":  "model",
+				},
+				"finishReason": "STOP",
+				"index":        0,
+			}},
+			"usageMetadata": map[string]any{
+				"promptTokenCount":     0,
+				"candidatesTokenCount": 0,
+				"totalTokenCount":      0,
+			},
+		})
+		m.doneOnce.Do(func() { close(m.done) })
+	}
+}
+
+// writeGeminiChunk emits one Gemini SSE chunk and flushes it.
+func (m *Mock) writeGeminiChunk(w http.ResponseWriter, f http.Flusher, payload any) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+		return
+	}
+	if f != nil {
+		f.Flush()
+	}
+}
+
+// pickGeminiTool chooses which function tool to call in the Gemini dialect.
+// Gemini CLI's shell tool is "run_shell_command" with a {"command": ...} argument.
+func (m *Mock) pickGeminiTool(tools []struct {
+	FunctionDeclarations []struct {
+		Name string `json:"name"`
+	} `json:"functionDeclarations"`
+}) (name string, arguments string) {
+	command := m.command
+	if command == "" {
+		command = "echo " + m.marker + "; hostname"
+	}
+	advertised := map[string]bool{}
+	var firstFunction string
+	for _, tool := range tools {
+		for _, decl := range tool.FunctionDeclarations {
+			advertised[decl.Name] = true
+			if firstFunction == "" {
+				firstFunction = decl.Name
+			}
+		}
+	}
+	// Gemini CLI's shell tool is "run_shell_command"; accept "shell" as a
+	// fallback for harnesses that rename it.
+	for _, known := range []string{"run_shell_command", "shell", "bash"} {
+		if advertised[known] {
+			data, _ := json.Marshal(map[string]any{"command": command})
+			return known, string(data)
+		}
+	}
+	data, _ := json.Marshal(map[string]any{"command": command})
+	if firstFunction != "" {
+		return firstFunction, string(data)
+	}
+	return "run_shell_command", string(data)
 }

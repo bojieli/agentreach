@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bojieli/waldo/internal/execserver"
 	"github.com/bojieli/waldo/internal/session"
 	"github.com/bojieli/waldo/internal/waldo"
 )
@@ -23,8 +24,10 @@ const DefaultTimeout = 120 * time.Second
 
 // Harnesses the probe knows how to drive.
 const (
-	HarnessCodex = "codex"
-	HarnessKimi  = "kimi"
+	HarnessCodex  = "codex"
+	HarnessKimi   = "kimi"
+	HarnessGoose  = "goose"
+	HarnessGemini = "gemini"
 )
 
 // Options configures one Verify run.
@@ -42,6 +45,18 @@ type Options struct {
 	EnsureShim func() (string, error)
 	// Timeout bounds the whole probe. Zero means DefaultTimeout.
 	Timeout time.Duration
+	// BinaryPath is an absolute path to the harness binary to probe. When
+	// empty Verify falls back to exec.LookPath(Harness). Use this when the
+	// harness binary that will actually be launched (e.g. a patched npm
+	// bundle under ~/.waldo/) is not the one that appears first on PATH.
+	BinaryPath string
+	// CommandPrefix, when set, is prepended to the default probe command
+	// ("echo <marker>; hostname") with " && " as separator. Use it to verify
+	// that a specific type of operation — file read, file write, or program
+	// execution — also routes through the seam to the target. The marker and
+	// hostname are always appended so the verdict logic is unchanged.
+	// Example: "cat /srv/app/README.md" tests that file reads on the target work.
+	CommandPrefix string
 }
 
 // harnessSpec is the per-harness slice of the probe: which dialect the mock
@@ -53,11 +68,22 @@ type harnessSpec struct {
 	dialect Dialect
 	args    func(baseURL string) []string
 	env     func(sessName, shimDir, home, baseURL string) []string
+	// prepare runs after the harness's throwaway home directory exists and
+	// before the harness is spawned. Nil means the home needs nothing beyond
+	// what env arranges.
+	prepare func(home, sessName string) error
+	// workingDir, if set, overrides the probe process's working directory.
+	// Use this when the harness embeds a cd to its own cwd in every Bash
+	// call (kimi does this) and the local cwd may not exist on the target.
+	// A well-known path like /tmp exists on both sides without mapping.
+	workingDir string
 }
 
 var harnessSpecs = map[string]harnessSpec{
-	HarnessCodex: {dialect: DialectResponses, args: codexArgs, env: codexEnv},
-	HarnessKimi:  {dialect: DialectChat, args: kimiArgs, env: kimiEnv},
+	HarnessCodex:  {dialect: DialectResponses, args: codexArgs, env: codexEnv, prepare: codexPrepare},
+	HarnessKimi:   {dialect: DialectChat, args: kimiArgs, env: kimiEnv, workingDir: "/tmp"},
+	HarnessGoose:  {dialect: DialectChat, args: gooseArgs, env: gooseEnv},
+	HarnessGemini: {dialect: DialectGemini, args: geminiArgs, env: geminiEnv},
 }
 
 // Verify observes where the installed harness actually runs a shell command.
@@ -73,10 +99,10 @@ var harnessSpecs = map[string]harnessSpec{
 //
 // The probe inherits waldo's own posture rather than weakening it: the same
 // session environment the shim needs (WALDO_SESSION, shim directory first on
-// PATH) and, for codex, the same sandbox relaxation `waldo codex` applies
-// (network access for the workspace-write sandbox, because the shim has to
-// open an SSH connection). Each harness gets an isolated home directory and a
-// scrubbed credential environment so it can only ever talk to the mock on
+// PATH) and, for codex, an environments.toml routing its remote environment to
+// the waldo exec-server plus the same sandbox relaxation `waldo codex`
+// applies. Each harness gets an isolated home directory and a scrubbed
+// credential environment so it can only ever talk to the mock on
 // 127.0.0.1 — this probe must never reach a real provider.
 func Verify(ctx context.Context, opts Options) Result {
 	spec, ok := harnessSpecs[opts.Harness]
@@ -118,14 +144,20 @@ func Verify(ctx context.Context, opts Options) Result {
 	if err != nil {
 		return Result{Verdict: VerdictError, Detail: "install the PATH shim: " + err.Error()}
 	}
-	binPath, err := exec.LookPath(opts.Harness)
-	if err != nil {
-		return Result{Verdict: VerdictError, Detail: opts.Harness + " is not installed or not in PATH"}
+	binPath := opts.BinaryPath
+	if binPath == "" {
+		binPath, err = exec.LookPath(opts.Harness)
+		if err != nil {
+			return Result{Verdict: VerdictError, Detail: opts.Harness + " is not installed or not in PATH"}
+		}
 	}
 
 	marker := "WALDO_SEAM_" + randomHex(8)
 	mock := StartMock(marker, spec.dialect)
 	defer mock.Close()
+	if opts.CommandPrefix != "" {
+		mock.SetCommand(opts.CommandPrefix + " && echo " + marker + "; hostname")
+	}
 
 	home, err := os.MkdirTemp("", "waldo-"+opts.Harness+"-home-")
 	if err != nil {
@@ -133,8 +165,17 @@ func Verify(ctx context.Context, opts Options) Result {
 	}
 	defer func() { _ = os.RemoveAll(home) }()
 
+	if spec.prepare != nil {
+		if err := spec.prepare(home, sess.Name); err != nil {
+			return Result{Verdict: VerdictError, Detail: "prepare the harness home: " + err.Error()}
+		}
+	}
+
 	cmd := exec.CommandContext(ctx, binPath, spec.args(mock.BaseURL())...)
 	cmd.Env = spec.env(sess.Name, shimDir, home, mock.BaseURL())
+	if spec.workingDir != "" {
+		cmd.Dir = spec.workingDir
+	}
 	// Output is captured rather than inherited: a failing probe needs the
 	// tail of it as evidence, and a succeeding one has nothing worth the
 	// operator's screen.
@@ -209,9 +250,10 @@ func targetHostname(ctx context.Context, sess *session.Session) (string, error) 
 // with the wire_api codex ≥ 0.148 still speaks. `-a never` forbids approval
 // prompts the probe cannot answer, `exec --ephemeral --skip-git-repo-check`
 // runs one non-interactive turn that writes no state and needs no repository.
-// The sandbox flags mirror `waldo codex`: without network access the shell
-// shim cannot open its SSH connection, and the probe would be measuring the
-// sandbox instead of the seam.
+// The sandbox flags mirror `waldo codex`: a restricted network policy against
+// a remote environment requires an executor-local proxy the waldo exec-server
+// does not provide, so the probe would be measuring the sandbox instead of the
+// seam.
 func codexArgs(baseURL string) []string {
 	return []string{
 		"-c", `model_providers.waldo.name="waldo"`,
@@ -263,11 +305,31 @@ func baseProbeEnv(sessName, shimDir string, strip func(key string) bool) []strin
 	return append(env, "WALDO_SESSION="+sessName)
 }
 
+// codexPrepare writes the environments.toml that routes the probe's codex to
+// the waldo exec-server — the seam under test. The throwaway CODEX_HOME gets
+// exactly what `waldo codex` puts in its managed one: this waldo binary as the
+// environment's program, bound to the probe's session. The probe therefore
+// measures the exec-server seam end to end: mock model -> codex tool call ->
+// process/start on the exec-server -> the session's target.
+func codexPrepare(home, sessName string) error {
+	waldoPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("locate the waldo binary: %w", err)
+	}
+	if resolved, err := filepath.EvalSymlinks(waldoPath); err == nil {
+		waldoPath = resolved
+	}
+	toml := execserver.EnvironmentsTOML(waldoPath, sessName)
+	if err := os.WriteFile(filepath.Join(home, "environments.toml"), []byte(toml), 0o600); err != nil {
+		return fmt.Errorf("write environments.toml: %w", err)
+	}
+	return nil
+}
+
 // codexEnv builds the environment for the probe's codex process.
 //
 // Two things are deliberate here beyond the shared base. CODEX_HOME is a
 // throwaway directory so the operator's real codex config and credentials
-// cannot interfere — and so the probe writes nothing to them. OPENAI_API_KEY
 // cannot interfere — and so the probe writes nothing to them. OPENAI_API_KEY
 // is removed outright: the mock needs no auth, and a stray key must never let
 // a probe turn reach a real provider. The mock's URL travels through argv
@@ -289,6 +351,11 @@ func codexEnv(sessName, shimDir, home, _ string) []string {
 // key that satisfies kimi's auth check without being able to authenticate
 // anywhere, the openai provider type (the chat-completions dialect), and
 // telemetry off — the probe is not a usage event anyone should count.
+//
+// KIMI_SHELL_PATH directs the patched kimi bundle to use the PATH-shim's bash
+// instead of the hard-coded /bin/bash candidates the stock bundle probes.
+// Without it the patched binary would still fall back to /bin/bash and the
+// shim would never intercept kimi's Bash tool calls.
 func kimiEnv(sessName, shimDir, home, baseURL string) []string {
 	env := baseProbeEnv(sessName, shimDir, func(key string) bool {
 		return strings.HasPrefix(key, "KIMI_")
@@ -300,6 +367,85 @@ func kimiEnv(sessName, shimDir, home, baseURL string) []string {
 		"KIMI_MODEL_BASE_URL="+baseURL,
 		"KIMI_MODEL_PROVIDER_TYPE=openai",
 		"KIMI_DISABLE_TELEMETRY=1",
+		"KIMI_SHELL_PATH="+filepath.Join(shimDir, "bash"),
+	)
+}
+
+// gooseArgs builds the argument vector for the probe turn.
+//
+// `run` is goose's non-interactive mode. `--no-session` prevents goose from
+// creating a session file in the managed home. `--no-profile` skips the user's
+// profile extensions so only what the probe explicitly requests is loaded.
+// `--with-builtin developer` adds the developer extension (which exposes the
+// shell tool) without reading it from the managed home's (empty) config.yaml.
+// `--text` provides the scripted prompt for the one probe turn.
+func gooseArgs(_ string) []string {
+	return []string{
+		"run",
+		"--no-session",
+		"--no-profile",
+		"--with-builtin", "developer",
+		"--text", "Follow the tool-call instructions exactly.",
+	}
+}
+
+// gooseEnv builds the environment for the probe's goose process.
+//
+// All inherited GOOSE_* vars and the standard OpenAI endpoint vars are
+// stripped: the operator's shell may carry a live GOOSE_PROVIDER pointing at
+// Anthropic, a real OPENAI_API_KEY, or other provider settings, any of which
+// could let a scripted turn escape to a real model. The probe replaces them
+// with exactly what it needs: a throwaway GOOSE_PATH_ROOT, the mock's base
+// URL via OPENAI_BASE_URL, a dummy key, the openai provider (chat-completions
+// dialect), GOOSE_SHELL pointing at the PATH shim, and telemetry disabled so
+// the probe does not count as a usage event.
+func gooseEnv(sessName, shimDir, home, baseURL string) []string {
+	env := baseProbeEnv(sessName, shimDir, func(key string) bool {
+		return strings.HasPrefix(key, "GOOSE_") ||
+			key == "OPENAI_BASE_URL" || key == "OPENAI_HOST" || key == "OPENAI_API_KEY"
+	})
+	return append(env,
+		"GOOSE_PATH_ROOT="+home,
+		"GOOSE_PROVIDER=openai",
+		"GOOSE_MODEL=waldo-mock",
+		"GOOSE_SHELL="+filepath.Join(shimDir, "bash"),
+		"OPENAI_BASE_URL="+baseURL,
+		"OPENAI_API_KEY=dummy",
+		"GOOSE_TELEMETRY_DISABLED=1",
+	)
+}
+
+// geminiArgs builds the argument vector for the probe turn.
+//
+// --yolo sets ApprovalMode.YOLO so the shell tool executes without waiting for
+// user confirmation — a requirement for a headless, non-TTY probe run. -p runs
+// Gemini in non-interactive (headless) mode with the given prompt; the prompt
+// is read in a single turn and the process exits. HOME is managed by geminiEnv
+// so the probe's settings.json (with excludeTools) takes effect.
+func geminiArgs(_ string) []string {
+	return []string{"--yolo", "-p", "Follow the tool-call instructions exactly."}
+}
+
+// geminiEnv builds the environment for the probe's gemini process.
+//
+// HOME is set to the throwaway directory so that ~/.gemini/settings.json points
+// at the managed settings that exclude file tools. Every GEMINI_* and GOOGLE_*
+// variable from the operator's shell is stripped: a live GEMINI_API_KEY could
+// let a scripted turn reach a real model, and a GOOGLE_CLOUD_PROJECT could
+// switch auth to Vertex AI which the mock does not speak. The probe replaces
+// them with a dummy API key (satisfies the auth check without authenticating
+// anywhere), the mock's base URL, and telemetry disabled.
+func geminiEnv(sessName, shimDir, home, baseURL string) []string {
+	env := baseProbeEnv(sessName, shimDir, func(key string) bool {
+		return key == "HOME" ||
+			strings.HasPrefix(key, "GEMINI_") ||
+			strings.HasPrefix(key, "GOOGLE_")
+	})
+	return append(env,
+		"HOME="+home,
+		"GEMINI_API_KEY=dummy",
+		"GOOGLE_GEMINI_BASE_URL="+baseURL,
+		"GEMINI_TELEMETRY_OPT_OUT=1",
 	)
 }
 
@@ -321,22 +467,30 @@ func NormalizeVersion(line string) string {
 
 // HarnessVersion reports the installed harness's version, normalised. Both
 // supported harnesses answer `<binary> --version` with the version on the
-// first line.
+// first line. It resolves the binary via exec.LookPath; for a specific binary
+// path use HarnessVersionFromBinary.
 func HarnessVersion(ctx context.Context, harness string) (string, error) {
-	path, err := exec.LookPath(harness)
+	p, err := exec.LookPath(harness)
 	if err != nil {
 		return "", fmt.Errorf("%s is not installed or not in PATH", harness)
 	}
+	return HarnessVersionFromBinary(ctx, p)
+}
+
+// HarnessVersionFromBinary reports the version of an arbitrary harness binary,
+// normalised. Use this when the binary to version-check is not on PATH — for
+// example a waldo-managed patched kimi bundle under ~/.waldo/.
+func HarnessVersionFromBinary(ctx context.Context, binPath string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, path, "--version").Output()
+	out, err := exec.CommandContext(ctx, binPath, "--version").Output()
 	if err != nil {
-		return "", fmt.Errorf("%s --version: %w", harness, err)
+		return "", fmt.Errorf("%s --version: %w", binPath, err)
 	}
 	first, _, _ := strings.Cut(string(out), "\n")
 	v := NormalizeVersion(first)
 	if v == "" {
-		return "", fmt.Errorf("%s --version printed nothing", harness)
+		return "", fmt.Errorf("%s --version printed nothing", binPath)
 	}
 	return v, nil
 }

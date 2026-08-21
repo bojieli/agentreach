@@ -94,6 +94,32 @@ func TestReadCacheToleratesCorruption(t *testing.T) {
 	}
 }
 
+func TestReadCacheDiscardsSchema1Verdicts(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("WALDO_HOME", home)
+	// Schema 1 was a bare harness→version→entry map, and every verdict in it
+	// was measured against the PATH-shim seam. Those verdicts must not
+	// survive into a build whose seam is different.
+	legacy := `{"codex": {"0.148.0": {"verdict": "bypassed", "when": "2026-08-21T08:00:00Z", "detail": "ran locally"}}}`
+	if err := os.WriteFile(filepath.Join(home, "harness-verdicts.json"), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := LoadVerdict("codex", "0.148.0"); err != nil || ok {
+		t.Fatalf("a schema-1 verdict must read as a cache miss, not a refusal: ok=%v err=%v", ok, err)
+	}
+	// Storing after the upgrade rewrites the file at the current schema.
+	if err := StoreVerdict("codex", "0.148.0", Result{Verdict: VerdictOK}); err != nil {
+		t.Fatalf("StoreVerdict: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(home, "harness-verdicts.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"schema"`) {
+		t.Fatalf("rewritten cache must carry the schema marker:\n%s", data)
+	}
+}
+
 func TestNormalizeVersion(t *testing.T) {
 	cases := map[string]string{
 		"codex-cli 0.148.0":       "0.148.0",

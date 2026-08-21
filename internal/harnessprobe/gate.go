@@ -79,13 +79,12 @@ type harnessMessage struct {
 
 var harnessMessages = map[string]harnessMessage{
 	HarnessCodex: {
-		whyBypass: "Codex >= 0.148 resolves its shell by absolute path (getpwuid_r -> /bin/zsh -lc\n" +
-			"or similar) instead of by name, so the PATH shim waldo installs can never intercept\n" +
-			"it.",
+		whyBypass: "Codex 0.148+ runs its whole tool surface through an exec-server remote\n" +
+			"environment, which waldo implements (`waldo exec-server`). The seam probe measured\n" +
+			"the scripted command running somewhere other than the session's target.",
 		remediation: []string{
-			"Use Codex <= 0.147, which resolves its shell by name and is intercepted fine.",
-			"Run codex on the target itself, without waldo in between.",
-			"Track upstream (github.com/openai/codex) and re-check after upgrading with:\n      waldo harness verify codex",
+			"Run `waldo doctor` to check the session target, then re-probe with:\n      waldo harness verify codex",
+			"Report the failure with the probe detail above — the seam is measured, so this\n    verdict means the routing broke rather than that the version is unsupported.",
 			"Re-run with `waldo codex --force` if you accept that every command the agent\n    runs will execute on the local machine.",
 		},
 	},
