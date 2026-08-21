@@ -26,7 +26,10 @@ const bashShimName = "bash"
 const shimGuardEnv = "WALDO_IN_SHELL_SHIM"
 
 // shimmedShellNames are the shell names waldo installs on PATH and answers to.
-var shimmedShellNames = []string{bashShimName, "sh"}
+// zsh is the default login shell on macOS. Codex resolves the user's login
+// shell rather than hard-coding bash there, so omitting this alias lets its
+// tool calls bypass waldo entirely on a stock macOS install.
+var shimmedShellNames = []string{bashShimName, "sh", "zsh"}
 
 // isBashShimInvocation reports whether waldo was started as a harness's shell.
 func isBashShimInvocation() bool {
