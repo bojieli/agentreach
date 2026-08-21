@@ -39,10 +39,39 @@ func TestManagedGeminiHome_CreatesSettingsJSON(t *testing.T) {
 		}
 	}
 
-	// File tools must be excluded so they never act on the local machine.
-	for _, want := range []string{"read_file", "write_file", "edit", "glob", "grep", "ls", "read_many_files"} {
+	// All built-in tools except run_shell_command must be excluded.
+	// Names are the canonical TOOL_NAME constants from base-declarations.ts —
+	// shorthand aliases (e.g. "edit", "grep", "ls", "web_search") are NOT
+	// matched by Gemini CLI and must not appear here.
+	for _, want := range []string{
+		// File-system tools
+		"read_file", "write_file", "replace", "glob",
+		"grep_search", "list_directory", "read_many_files",
+		// Web tools
+		"web_fetch", "google_web_search",
+		// Todo / skill / internal tools
+		"write_todos", "activate_skill", "get_internal_docs",
+		// Interactive tools (block headless runs)
+		"ask_user", "enter_plan_mode", "exit_plan_mode",
+		// Planning tools
+		"update_topic", "complete_task",
+		// Agent tool
+		"invoke_agent",
+		// Tracker tools
+		"tracker_create_task", "tracker_update_task", "tracker_get_task",
+		"tracker_list_tasks", "tracker_add_dependency", "tracker_visualize",
+		// MCP resource tools
+		"read_mcp_resource", "list_mcp_resources",
+	} {
 		if !excluded[want] {
 			t.Errorf("tool %q should be in excludeTools, but it is not", want)
+		}
+	}
+	// Wrong aliases that were previously (incorrectly) listed — they do not
+	// match any tool and if present indicate a regression.
+	for _, stale := range []string{"edit", "grep", "ls", "web_search", "memory"} {
+		if excluded[stale] {
+			t.Errorf("tool %q is a wrong/stale name and should not be in excludeTools (use canonical names)", stale)
 		}
 	}
 	// The shell tool must NOT be excluded — it is the only tool advertised to the model.

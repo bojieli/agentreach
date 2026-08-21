@@ -16,26 +16,47 @@ standard POSIX guarantee that every process respects.
 
 ## File tools: excluded via settings.json
 
-Gemini CLI exposes `read_file`, `write_file`, `edit`, `glob`, `grep`, `ls`,
-`read_many_files`, `web_fetch`, and `web_search` tools that call Node's `fs`
-module directly, bypassing the shell.  `GOOSE_SHELL` has no effect on these.
+Gemini CLI exposes a large set of built-in tools that call Node's `fs` module
+directly, bypassing the shell: `read_file`, `write_file`, `replace` (the file
+editor), `glob`, `grep_search`, `list_directory`, `read_many_files`, `web_fetch`,
+`google_web_search`, `write_todos`, `activate_skill`, and others.  These must not
+be advertised to the model, because they act on the local filesystem — not the
+session target — and have no intercept point.
 
 `waldo gemini` sets `HOME` to a managed directory whose `.gemini/settings.json`
-contains an `excludeTools` array listing every file and web tool:
+contains an `excludeTools` array that names every built-in tool except
+`run_shell_command`:
 
 ```json
 {
   "excludeTools": [
-    "read_file", "write_file", "edit", "glob", "grep", "ls",
-    "read_many_files", "web_fetch", "web_search", "memory"
+    "read_file", "write_file", "replace", "glob",
+    "grep_search", "list_directory", "read_many_files",
+    "web_fetch", "google_web_search",
+    "write_todos", "activate_skill", "get_internal_docs",
+    "ask_user", "enter_plan_mode", "exit_plan_mode",
+    "update_topic", "complete_task", "invoke_agent",
+    "tracker_create_task", "tracker_update_task", "tracker_get_task",
+    "tracker_list_tasks", "tracker_add_dependency", "tracker_visualize",
+    "read_mcp_resource", "list_mcp_resources"
   ]
 }
 ```
 
-Gemini CLI reads `settings.json` from `HOME/.gemini/settings.json`.  With the
-managed `HOME`, the file tools are not advertised to the model; only
-`run_shell_command` is available.  The agent uses shell commands for file access
-instead, which run on the target.
+**Tool name precision matters.**  Gemini CLI matches `excludeTools` entries
+against the canonical `TOOL_NAME` constants from
+`packages/core/src/tools/definitions/base-declarations.ts`.  Common
+shorthands differ from the canonical names and are silently ignored:
+
+| Shorthand (wrong) | Canonical name (correct)   |
+|-------------------|---------------------------|
+| `edit`            | `replace`                  |
+| `grep`            | `grep_search`              |
+| `ls`              | `list_directory`           |
+| `web_search`      | `google_web_search`        |
+
+With the managed `HOME`, only `run_shell_command` is visible to the model.
+Shell commands route through the PATH shim and execute on the session target.
 
 ## Credential forwarding
 
@@ -47,18 +68,30 @@ passes through the environment unchanged.
 
 ## Seam coverage
 
-| Tool surface    | Mechanism                     | Status      |
-|-----------------|-------------------------------|-------------|
-| `run_shell_command` | PATH shim (bare `bash` name) | **✓ remote** |
-| `read_file`     | `excludeTools` in settings.json | **denied** (use shell) |
-| `write_file`    | `excludeTools` in settings.json | **denied** (use shell) |
-| `edit`          | `excludeTools` in settings.json | **denied** (use shell) |
-| `glob`          | `excludeTools` in settings.json | **denied** (use shell) |
-| `grep`          | `excludeTools` in settings.json | **denied** (use shell) |
-| `ls`            | `excludeTools` in settings.json | **denied** (use shell) |
-| `read_many_files` | `excludeTools` in settings.json | **denied** (use shell) |
-| `web_fetch`     | `excludeTools` in settings.json | **denied** |
-| `web_search`    | `excludeTools` in settings.json | **denied** |
+| Tool surface          | Mechanism                         | Status                  |
+|-----------------------|-----------------------------------|-------------------------|
+| `run_shell_command`   | PATH shim (bare `bash` name)      | **✓ remote**            |
+| `read_file`           | `excludeTools` in settings.json   | **denied** (use shell)  |
+| `write_file`          | `excludeTools` in settings.json   | **denied** (use shell)  |
+| `replace`             | `excludeTools` in settings.json   | **denied** (use shell)  |
+| `glob`                | `excludeTools` in settings.json   | **denied** (use shell)  |
+| `grep_search`         | `excludeTools` in settings.json   | **denied** (use shell)  |
+| `list_directory`      | `excludeTools` in settings.json   | **denied** (use shell)  |
+| `read_many_files`     | `excludeTools` in settings.json   | **denied** (use shell)  |
+| `web_fetch`           | `excludeTools` in settings.json   | **denied**              |
+| `google_web_search`   | `excludeTools` in settings.json   | **denied**              |
+| `write_todos`         | `excludeTools` in settings.json   | **denied**              |
+| `activate_skill`      | `excludeTools` in settings.json   | **denied**              |
+| `get_internal_docs`   | `excludeTools` in settings.json   | **denied**              |
+| `ask_user`            | `excludeTools` in settings.json   | **denied** (headless)   |
+| `enter_plan_mode`     | `excludeTools` in settings.json   | **denied** (headless)   |
+| `exit_plan_mode`      | `excludeTools` in settings.json   | **denied** (headless)   |
+| `update_topic`        | `excludeTools` in settings.json   | **denied**              |
+| `complete_task`       | `excludeTools` in settings.json   | **denied**              |
+| `invoke_agent`        | `excludeTools` in settings.json   | **denied**              |
+| `tracker_*` (6 tools) | `excludeTools` in settings.json  | **denied**              |
+| `read_mcp_resource`   | `excludeTools` in settings.json   | **denied**              |
+| `list_mcp_resources`  | `excludeTools` in settings.json   | **denied**              |
 
 ## Probe
 
@@ -74,6 +107,11 @@ probe verifies that the tool output contains the session target's hostname.
 
 The probe sets `--yolo` (ApprovalMode.YOLO) so the shell tool executes without
 waiting for user confirmation — a headless probe run has no TTY to accept on.
+
+The probe also writes its own `.gemini/settings.json` in the throwaway `HOME`
+(via `geminiPrepare`) using the same deny-list as the production managed home.
+This prevents `ask_user`, `enter_plan_mode`, and `exit_plan_mode` from appearing
+as tool choices that could block the headless probe run.
 
 ## Implementation status
 

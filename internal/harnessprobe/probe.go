@@ -89,7 +89,7 @@ var harnessSpecs = map[string]harnessSpec{
 	HarnessCodex:      {dialect: DialectResponses, args: codexArgs, env: codexEnv, prepare: codexPrepare},
 	HarnessKimi:       {dialect: DialectChat, args: kimiArgs, env: kimiEnv, workingDir: "/tmp"},
 	HarnessGoose:      {dialect: DialectChat, args: gooseArgs, env: gooseEnv},
-	HarnessGemini:     {dialect: DialectGemini, args: geminiArgs, env: geminiEnv},
+	HarnessGemini:     {dialect: DialectGemini, args: geminiArgs, env: geminiEnv, prepare: geminiPrepare},
 }
 
 // Verify observes where the installed harness actually runs a shell command.
@@ -464,6 +464,45 @@ func geminiEnv(sessName, shimDir, home, baseURL string) []string {
 		"GOOGLE_GEMINI_BASE_URL="+baseURL,
 		"GEMINI_TELEMETRY_OPT_OUT=1",
 	)
+}
+
+// geminiPrepare writes a settings.json into the probe's throwaway HOME that
+// mirrors what waldo writes for the production managed home. The key safety
+// properties are:
+//   - ask_user / enter_plan_mode / exit_plan_mode are excluded so a headless
+//     probe run cannot block waiting for TTY input
+//   - all local-file tools are excluded so the mock turn's tool_call is
+//     constrained to run_shell_command, the seam under test
+//
+// The exclude list must be kept in sync with writeManagedGeminiSettings in
+// cmd/waldo/gemini_home.go. Both use canonical TOOL_NAME constants from
+// packages/core/src/tools/definitions/base-declarations.ts.
+func geminiPrepare(home, _ string) error {
+	geminiDir := filepath.Join(home, ".gemini")
+	if err := os.MkdirAll(geminiDir, 0o700); err != nil {
+		return fmt.Errorf("create .gemini dir: %w", err)
+	}
+	// Minimal JSON — same logical content as writeManagedGeminiSettings.
+	// The "_waldo" marker and indentation are omitted here; the probe's home
+	// is ephemeral and doctor never inspects it.
+	const settingsJSON = `{
+  "excludeTools": [
+    "read_file","write_file","replace","glob","grep_search","list_directory",
+    "read_many_files","web_fetch","google_web_search","write_todos",
+    "activate_skill","get_internal_docs",
+    "ask_user","enter_plan_mode","exit_plan_mode",
+    "update_topic","complete_task","invoke_agent",
+    "tracker_create_task","tracker_update_task","tracker_get_task",
+    "tracker_list_tasks","tracker_add_dependency","tracker_visualize",
+    "read_mcp_resource","list_mcp_resources"
+  ]
+}
+`
+	p := filepath.Join(geminiDir, "settings.json")
+	if err := os.WriteFile(p, []byte(settingsJSON), 0o600); err != nil {
+		return fmt.Errorf("write .gemini/settings.json: %w", err)
+	}
+	return nil
 }
 
 // claudeCodeArgs builds the argument vector for the Claude Code probe.

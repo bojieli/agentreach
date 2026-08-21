@@ -17,10 +17,11 @@ const waldoGeminiSettingsMarker = "waldo-managed"
 // The managed directory acts as a substitute for the operator's real home:
 // Gemini CLI reads its configuration from HOME/.gemini/settings.json, so
 // waldo sets HOME to this directory. The settings.json it contains excludes
-// every Gemini file tool (read_file, write_file, edit, glob, grep, ls,
-// read_many_files, web_fetch, web_search), leaving only run_shell_command
-// advertised to the model. Shell commands route through the PATH shim and
-// execute on the session target.
+// every Gemini built-in tool except run_shell_command, which routes through
+// the PATH shim and executes on the session target. The full deny-list covers
+// file tools, web tools, todo/skill/agent tools, interactive blockers, and
+// tracker tools — every name is the canonical TOOL_NAME constant from
+// packages/core/src/tools/definitions/base-declarations.ts.
 //
 // Credential files from the operator's real ~/.gemini are symlinked into the
 // managed directory so that Gemini's API key and authentication tokens remain
@@ -74,28 +75,62 @@ func managedGeminiHome(sessName string) (string, error) {
 	return dir, nil
 }
 
-// writeManagedGeminiSettings writes a settings.json that excludes all local
-// file tools, leaving only run_shell_command (which routes through the PATH
-// shim) in the model's view. It is idempotent: rewriting on every launch keeps
-// the file current if this waldo binary changes what it excludes.
+// writeManagedGeminiSettings writes a settings.json that excludes all built-in
+// tools except run_shell_command, leaving only shell access (which routes
+// through the PATH shim) in the model's view. It is idempotent: rewriting on
+// every launch keeps the file current when this waldo binary changes what it
+// excludes.
+//
+// All names are the canonical TOOL_NAME constants from:
+// packages/core/src/tools/definitions/base-declarations.ts
+// The canonical names differ from common shorthands — e.g. the file editor is
+// "replace" (EDIT_TOOL_NAME), not "edit"; the lister is "list_directory"
+// (LS_TOOL_NAME), not "ls"; the grep is "grep_search" (GREP_TOOL_NAME), not
+// "grep"; and web search is "google_web_search" (WEB_SEARCH_TOOL_NAME), not
+// "web_search". Wrong names are silently ignored by Gemini CLI, leaving the
+// tools available to the model.
 func writeManagedGeminiSettings(geminiDir string) error {
 	settings := map[string]any{
 		// Mark the file as waldo-managed so doctor can identify it.
 		"_waldo": waldoGeminiSettingsMarker,
 		// excludeTools removes these tool names from the set advertised to the
-		// model. The names are the SHELL_TOOL_NAME / READ_FILE_TOOL_NAME etc.
-		// constants from @google/genai's tool-names.ts.
+		// model. Covers ALL_BUILTIN_TOOL_NAMES except run_shell_command.
 		"excludeTools": []string{
+			// File-system tools (call Node's fs module directly — bypass the shim)
 			"read_file",
 			"write_file",
-			"edit",
+			"replace",        // EDIT_TOOL_NAME — was wrongly listed as "edit"
 			"glob",
-			"grep",
-			"ls",
+			"grep_search",    // GREP_TOOL_NAME — was wrongly listed as "grep"
+			"list_directory", // LS_TOOL_NAME   — was wrongly listed as "ls"
 			"read_many_files",
+			// Web tools
 			"web_fetch",
-			"web_search",
-			"memory",
+			"google_web_search", // WEB_SEARCH_TOOL_NAME — was wrongly listed as "web_search"
+			// Todo tool — writes a local todos file
+			"write_todos",
+			// Skill / internal-doc tools — read local skill files
+			"activate_skill",
+			"get_internal_docs",
+			// Interactive tools — block a headless (no-TTY) run
+			"ask_user",
+			"enter_plan_mode",
+			"exit_plan_mode",
+			// Planning / narration tools — not needed in shell-only mode
+			"update_topic",
+			"complete_task",
+			// Tracker tools — local in-session state management
+			"tracker_create_task",
+			"tracker_update_task",
+			"tracker_get_task",
+			"tracker_list_tasks",
+			"tracker_add_dependency",
+			"tracker_visualize",
+			// Sub-agent tool — would spawn agents that run locally
+			"invoke_agent",
+			// MCP resource tools — managed home has no MCP server config
+			"read_mcp_resource",
+			"list_mcp_resources",
 		},
 	}
 	data, err := json.MarshalIndent(settings, "", "  ")
