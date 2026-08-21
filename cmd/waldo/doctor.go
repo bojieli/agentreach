@@ -115,9 +115,12 @@ func cmdDoctor(ctx context.Context, args []string) error {
 	}
 
 	fmt.Println("\nLOCAL HARNESSES")
-	reportHarness("claude", "Claude Code", "CLAUDE_CODE_SHELL_PREFIX")
+	reportHarness("claude", "Claude Code", claudeSeamNote())
 	reportHarness("codex", "Codex", codexSeamNote())
 	reportHarness("kimi", "Kimi Code", kimiSeamNote())
+	reportHarness("goose", "Goose", gooseSeamNote())
+	reportHarness("gemini", "Gemini CLI", geminiSeamNote())
+	reportHarness("crush", "Crush", "server mode (crush server --host)")
 	reportHarness("opencode", "opencode", "tool shadowing plugin")
 	return nil
 }
