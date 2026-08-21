@@ -34,6 +34,25 @@ any of it was published.
 
 ### Fixed
 
+- **Path mapping was broken for a Windows operator, in the direction that
+  matters.** Both places reach translates between the operator's filesystem and
+  the target's compared paths without agreeing on a separator first. The
+  workspace comes from Windows and is spelled with backslashes; the paths it is
+  compared against arrive from a harness or a `file://` URI and are spelled with
+  forward slashes, so nothing ever matched. In `execserver` that meant every
+  path fell through to the "this is already a target path" branch — a file the
+  agent meant to read beside itself was read on the target instead. In the PATH
+  shim it was worse than a miss: `filepath.Rel` returned `..\..\..\etc` and the
+  containment guard only recognised `../`, so `cd /etc && cat hostname` was
+  rewritten to `cd /srv/app/../../../etc`, escaping the workspace it was
+  supposed to be confined to. Both now compare in one spelling, and the shim
+  asks only whether a directory is inside the workspace rather than computing a
+  relative path and inspecting it for `..` afterwards.
+
+  These had gone unnoticed because the Windows test job never reached the tests:
+  it failed at `gofmt` first, on every push since 2026-08-21.
+
+
 - **The tier reach negotiates by default wrote temporaries under reach's former
   name.** internal/reach/tempfile.go states the rule every tier depends on —
   write to a same-directory `.reach.tmp.*` and rename over the destination — and

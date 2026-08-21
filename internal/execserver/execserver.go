@@ -479,20 +479,27 @@ func pathToURI(p string) string {
 // relative path is resolved against the session root, mirroring how the
 // target's own shell would see it from the workspace.
 func (s *Server) mapPath(p string) string {
-	if s.workspace != "" && s.workspace != string(filepath.Separator) {
-		if p == s.workspace {
+	// One spelling for both sides. The workspace comes from the operator's own
+	// filesystem, so on Windows it arrives with backslashes, while a path that
+	// reached here as a file:// URI arrives with forward slashes. Comparing
+	// them as given meant a Windows operator's workspace never matched its own
+	// paths, and every one of them fell through to the "already a target path"
+	// branch — which is how a file the agent meant to read locally is read on
+	// the target instead.
+	ws := filepath.ToSlash(s.workspace)
+	from := filepath.ToSlash(p)
+	if ws != "" && ws != "/" {
+		if from == ws {
 			return s.root
 		}
-		if strings.HasPrefix(p, s.workspace+string(filepath.Separator)) {
-			rel := p[len(s.workspace)+1:]
-			// Local separators are the operator's; the target is POSIX.
-			return path.Join(s.root, filepath.ToSlash(rel))
+		if strings.HasPrefix(from, ws+"/") {
+			return path.Join(s.root, from[len(ws)+1:])
 		}
 	}
-	if strings.HasPrefix(p, "/") {
-		return path.Clean(p)
+	if strings.HasPrefix(from, "/") {
+		return path.Clean(from)
 	}
-	return path.Join(s.root, p)
+	return path.Join(s.root, from)
 }
 
 // mapURI decodes a PathUri and maps it onto the target in one step.
