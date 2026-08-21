@@ -7,16 +7,11 @@
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Zero dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)](go.mod)
 
-Claude Code keeps running on your laptop, logged in the way it already is. Only
-its shell and its file tools move. The target needs nothing but the `sshd` it's
-already running: nothing gets installed there, no credential of yours goes there,
-and closing the session leaves nothing to clean up.
-
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/architecture-dark.svg">
     <img src="docs/assets/architecture-light.svg" width="880"
-         alt="The coding agent and its credentials run on your machine. Only commands and file operations cross an ssh connection to the target, which needs nothing but the sshd it already runs.">
+         alt="The coding agent runs on your machine. reach catches its Bash, Read, Write and Edit calls before they touch the local disk and runs them over one ssh connection on the target instead. The API key and the conversation never leave your machine, and the target needs nothing but the sshd it already runs.">
   </picture>
 </p>
 
@@ -37,10 +32,32 @@ one wants its own copy of the agent. Baking it into the Dockerfile bloats an
 image that should have stayed small. Mounting it in from the host works right up
 until the morning it doesn't.
 
-reach turns the arrangement around. The agent runs where it already lives and
-where its credentials already are. Only the commands travel. The target gets
-those commands over SSH and nothing else: no runtime, no key, no files left
-sitting there after you're done.
+## What reach actually does
+
+The agent stays where it is. What moves is the work it hands off. An agent only
+touches a machine two ways: it shells out to run a command, and it reads or
+writes files. reach gets in the middle of both, on your side, before either one
+reaches your disk.
+
+The shell is the easy half. Most harnesses ship a supported way to replace
+whatever they spawn as a shell, so reach uses it. Claude Code has
+`CLAUDE_CODE_SHELL_PREFIX`. Goose has `GOOSE_SHELL`. Codex speaks a
+remote-environment protocol. opencode lets a custom tool shadow a built-in one.
+Where nothing like that exists, reach puts its own `bash` earlier on `PATH` and
+wins the lookup. Whichever door it comes in through, the command gets unwrapped,
+sent over ssh and run on the target. As far as the model can tell, it called
+`Bash` and got back stdout and an exit code.
+
+Files depend on the mode. In exec mode the agent's own `Read`, `Write` and `Edit`
+are switched off, because they call the local filesystem directly and there's no
+seam to redirect them through. The agent falls back to its shell, which is
+already remote. In mirror mode reach answers those calls itself, pulling the file
+over the same ssh connection when a tool opens it and pushing it back when it
+changes. That path is wired up for Claude Code today.
+
+Worth being precise about what this isn't. reach doesn't trace syscalls and it
+doesn't mount anything. It sits at the seam where the agent hands work to the
+operating system, one request and one response at a time.
 
 ## What it looks like
 
@@ -131,18 +148,41 @@ That closes the connection and leaves nothing behind.
 
 ## Agents that work today
 
-| Agent | Command | Status |
-|---|---|---|
-| [Claude Code](docs/harnesses/claude-code.md) | `reach claude` | verified end-to-end (2.1.233) |
-| [Codex](docs/harnesses/codex.md) | `reach codex` | verified end-to-end (0.148.0) |
-| [Kimi Code](docs/harnesses/kimi.md) | `reach kimi` | verified (0.37.2) |
-| [opencode](docs/harnesses/opencode.md) | `reach opencode` | verified (1.18.18) |
-| [Goose](docs/harnesses/goose.md) | `reach goose` | verified |
-| [Crush](docs/harnesses/crush.md) | `reach crush` | verified |
-| [Gemini CLI](docs/harnesses/gemini.md) | `reach gemini` | verified |
+| Agent | Command | Where reach gets in | Status |
+|---|---|---|---|
+| [Claude Code](docs/harnesses/claude-code.md) | `reach claude` | `CLAUDE_CODE_SHELL_PREFIX`, a hook it already ships | verified end-to-end (2.1.233) |
+| [Codex](docs/harnesses/codex.md) | `reach codex` | its remote-environment protocol, which carries every tool it has | verified end-to-end (0.148.0) |
+| [Kimi Code](docs/harnesses/kimi.md) | `reach kimi` | a patched npm bundle plus `KIMI_SHELL_PATH` | verified (0.37.2) |
+| [opencode](docs/harnesses/opencode.md) | `reach opencode` | custom tools that shadow the built-in `bash` and `read` | verified (1.18.18) |
+| [Goose](docs/harnesses/goose.md) | `reach goose` | `GOOSE_SHELL`, a documented override | verified |
+| [Crush](docs/harnesses/crush.md) | `reach crush` | its own server mode, run on the target | verified |
+| [Gemini CLI](docs/harnesses/gemini.md) | `reach gemini` | a `bash` earlier on `PATH`, plus `excludeTools` for the rest | verified |
 
-Nobody has to log in again. Subscription logins, OAuth tokens and API keys keep
-working exactly as they do now, because reach never touches them.
+Those fall into three groups, plus one exception, and the group decides how much
+of the agent survives the trip.
+
+Codex and opencode are the clean ones. Both document a way to change the machine
+their tools act on, so reach answers at the other end and the model keeps every
+tool it started with. Codex is the best fit reach has, because it has no file
+tools at all: `apply_patch` and the rest run as commands inside `exec_command`,
+so intercepting that one protocol leaves nothing behind to deny.
+
+Claude Code, Goose and Kimi hand over the shell and only the shell. Their file
+tools call straight into Node's `fs` or Rust's `std::fs`, so reach denies them
+and the agent works through its shell instead, or in Claude Code's case mirrors
+them if you ask for mirror mode.
+
+Gemini gives you no hook at all, so reach wins the `PATH` lookup for `bash` and
+hides the rest of the built-ins through `excludeTools` in a managed
+`settings.json`.
+
+Crush is the exception to the nothing-installed rule. Its server mode is exactly
+the seam reach wants, and `reach crush` starts `crush server` on the target and
+tunnels the client to it, which means `crush` itself has to already be there.
+
+Whichever group you land in, nobody logs in again. Subscription logins, OAuth
+tokens and API keys keep working exactly as they do now, because reach never
+touches them.
 
 ## Commands
 
@@ -218,26 +258,22 @@ by name.
 [TRANSPORTS.md](docs/TRANSPORTS.md) has the numbers, measured over real links
 rather than loopback.
 
-## Two modes
+## Choosing a mode
 
-**exec** is the default. Commands run on the target, and the agent's own file
-tools (`Read`, `Edit`, `Write`) are denied, because there's no way to redirect
-them and they'd quietly edit your laptop instead. The agent works through its
-shell tool, which is remote whether it knows it or not.
-
-**mirror** additionally wires Claude Code's native `Read`, `Write` and `Edit` to
-the target. A file is fetched the moment a tool opens it and written back when it
-changes, with a content digest in between, so if the file changed underneath you
-on the server the write is refused instead of clobbered.
+`exec` is the default, and it's the one to stay on unless you have a reason not
+to. `--mode mirror` earns its keep during heavy editing sessions, when you'd
+rather use Claude Code's native file tools than push every change through a shell
+redirect:
 
 ```console
 reach up ssh://build-box/srv/app --mode mirror
 reach claude
 ```
 
-Mirror earns its keep during heavy editing sessions where you'd rather use the
-native file tools than shell redirects. Go in knowing what it is: reads can be a
-little stale, and it copies on demand rather than syncing. For shell-shaped work,
+Mirror keeps a content digest for each file it hands over, so if the file changed
+on the server between the read and the write, the write is refused rather than
+clobbering someone else's work. Go in knowing what it is, though: reads can be a
+little stale, and it copies on demand rather than syncing. For shell-shaped work
 exec is simpler and has no staleness window at all.
 
 ## Security

@@ -1,43 +1,44 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 376" width="960" height="376" role="img" aria-label="AgentReach architecture: the coding agent and its credentials run on your machine; only commands and file operations cross an ssh connection to the target, which needs nothing but stock sshd.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 384" width="960" height="384" role="img" aria-label="AgentReach architecture: the coding agent runs on your machine and reach intercepts its Bash, Read, Write and Edit calls before they touch the local disk, running them over one ssh connection on the target instead. The agent, its API key and the conversation never leave your machine; the target needs nothing but the sshd it already runs.">
 <!-- Generated figure. architecture-light.svg and architecture-dark.svg are
      twins: edit one, mirror the change in the other. Colours are the only
      difference between them. -->
 <title>Where each piece runs</title>
 <text x="24" y="42" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#59636e" text-anchor="start" letter-spacing="1.5">YOUR MACHINE</text>
-<rect x="24" y="56" width="372" height="300" rx="14" fill="#f6f8fa" stroke="#d1d9e0" stroke-width="1"/>
+<rect x="24" y="56" width="372" height="308" rx="14" fill="#f6f8fa" stroke="#d1d9e0" stroke-width="1"/>
 <rect x="48" y="92" width="324" height="66" rx="10" fill="#ddf4ff" stroke="#54aeff" stroke-width="1"/>
 <text x="66" y="120" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15.5" font-weight="700" fill="#0550ae" text-anchor="start">Your coding agent</text>
 <text x="66" y="140" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#0550ae" text-anchor="start">claude · codex · kimi · goose · gemini · crush</text>
-<path d="M 210 158 L 210 188" stroke="#54aeff" stroke-width="1.5" fill="none"/>
-<polygon points="205,188 215,188 210,196" fill="#54aeff"/>
-<text x="224" y="180" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#818b98" text-anchor="start">native tool calls, unchanged</text>
-<rect x="48" y="196" width="324" height="62" rx="10" fill="#ffffff" stroke="#d1d9e0" stroke-width="1"/>
-<text x="66" y="222" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" font-weight="700" fill="#1f2328" text-anchor="start">reach</text>
-<text x="66" y="242" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#59636e" text-anchor="start">session · cwd · file-op tier · audit log</text>
-<rect x="48" y="282" width="324" height="52" rx="10" fill="#dafbe3" stroke="#6fdd8b" stroke-width="1"/>
-<path d="M 64 302 h 12 v 10 h -12 z" fill="none" stroke="#116329" stroke-width="1.6"/>
-<path d="M 67 302 v -4 a 3 3 0 0 1 6 0 v 4" fill="none" stroke="#116329" stroke-width="1.6"/>
-<text x="88" y="306" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="600" fill="#116329" text-anchor="start">API key, tokens and the whole</text>
-<text x="88" y="322" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="600" fill="#116329" text-anchor="start">conversation never leave this side</text>
-<text x="492" y="202" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="400" fill="#59636e" text-anchor="middle">commands · file reads · writes</text>
-<path d="M 404 216 L 570 216" stroke="#0969da" stroke-width="1.8" fill="none"/>
-<polygon points="570,211 580,216 570,221" fill="#0969da"/>
-<rect x="468" y="224" width="48" height="22" rx="11" fill="#ffffff" stroke="#0969da" stroke-width="1"/>
-<text x="492" y="239" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="700" fill="#0969da" text-anchor="middle">ssh</text>
-<path d="M 580 254 L 414 254" stroke="#0969da" stroke-width="1.8" fill="none"/>
-<polygon points="414,249 404,254 414,259" fill="#0969da"/>
-<text x="492" y="272" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="400" fill="#59636e" text-anchor="middle">output · bytes · exit codes</text>
-<text x="492" y="302" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10" font-weight="400" fill="#818b98" text-anchor="middle">one multiplexed connection,</text>
-<text x="492" y="316" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10" font-weight="400" fill="#818b98" text-anchor="middle">authenticated once and reused</text>
+<path d="M 210 158 L 210 184" stroke="#54aeff" stroke-width="1.5" fill="none"/>
+<polygon points="205,184 215,184 210,192" fill="#54aeff"/>
+<text x="224" y="178" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#818b98" text-anchor="start">Bash · Read · Write · Edit</text>
+<rect x="48" y="192" width="324" height="76" rx="10" fill="#ffffff" stroke="#d1d9e0" stroke-width="1"/>
+<text x="66" y="218" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" font-weight="700" fill="#1f2328" text-anchor="start">reach</text>
+<text x="66" y="238" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#59636e" text-anchor="start">catches them before they touch this disk</text>
+<text x="66" y="256" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#59636e" text-anchor="start">session · cwd · file-op tier · audit log</text>
+<rect x="48" y="292" width="324" height="52" rx="10" fill="#dafbe3" stroke="#6fdd8b" stroke-width="1"/>
+<path d="M 64 312 h 12 v 10 h -12 z" fill="none" stroke="#116329" stroke-width="1.6"/>
+<path d="M 67 312 v -4 a 3 3 0 0 1 6 0 v 4" fill="none" stroke="#116329" stroke-width="1.6"/>
+<text x="88" y="316" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="600" fill="#116329" text-anchor="start">API key, tokens and the whole</text>
+<text x="88" y="332" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="600" fill="#116329" text-anchor="start">conversation never leave this side</text>
+<text x="492" y="204" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="400" fill="#59636e" text-anchor="middle">commands · file reads · writes</text>
+<path d="M 404 218 L 570 218" stroke="#0969da" stroke-width="1.8" fill="none"/>
+<polygon points="570,213 580,218 570,223" fill="#0969da"/>
+<rect x="468" y="226" width="48" height="22" rx="11" fill="#ffffff" stroke="#0969da" stroke-width="1"/>
+<text x="492" y="241" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="700" fill="#0969da" text-anchor="middle">ssh</text>
+<path d="M 580 258 L 414 258" stroke="#0969da" stroke-width="1.8" fill="none"/>
+<polygon points="414,253 404,258 414,263" fill="#0969da"/>
+<text x="492" y="276" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="400" fill="#59636e" text-anchor="middle">output · bytes · exit codes</text>
+<text x="492" y="306" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10" font-weight="400" fill="#818b98" text-anchor="middle">one multiplexed connection,</text>
+<text x="492" y="320" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10" font-weight="400" fill="#818b98" text-anchor="middle">authenticated once and reused</text>
 <text x="588" y="42" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#59636e" text-anchor="start" letter-spacing="1.5">ANY BOX YOU CAN SSH INTO</text>
-<rect x="588" y="56" width="348" height="300" rx="14" fill="#f6f8fa" stroke="#d1d9e0" stroke-width="1"/>
+<rect x="588" y="56" width="348" height="308" rx="14" fill="#f6f8fa" stroke="#d1d9e0" stroke-width="1"/>
 <rect x="612" y="92" width="300" height="66" rx="10" fill="#ffffff" stroke="#d1d9e0" stroke-width="1"/>
 <text x="630" y="120" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" font-weight="700" fill="#1f2328" text-anchor="start">sshd</text>
 <text x="630" y="140" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#59636e" text-anchor="start">the stock one it already runs</text>
-<rect x="612" y="196" width="300" height="62" rx="10" fill="#ffffff" stroke="#d1d9e0" stroke-width="1"/>
-<text x="630" y="222" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" font-weight="700" fill="#1f2328" text-anchor="start">/srv/app</text>
-<text x="630" y="242" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#59636e" text-anchor="start">your files, changed in place</text>
-<rect x="612" y="282" width="300" height="52" rx="10" fill="none" stroke="#afb8c1" stroke-width="1" stroke-dasharray="5 4"/>
-<text x="630" y="306" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="600" fill="#59636e" text-anchor="start">no agent, no runtime, no key,</text>
-<text x="630" y="322" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="600" fill="#59636e" text-anchor="start">nothing left behind at reach down</text>
+<rect x="612" y="192" width="300" height="76" rx="10" fill="#ffffff" stroke="#d1d9e0" stroke-width="1"/>
+<text x="630" y="224" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" font-weight="700" fill="#1f2328" text-anchor="start">/srv/app</text>
+<text x="630" y="246" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#59636e" text-anchor="start">your files, changed in place</text>
+<rect x="612" y="292" width="300" height="52" rx="10" fill="none" stroke="#afb8c1" stroke-width="1" stroke-dasharray="5 4"/>
+<text x="630" y="316" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="600" fill="#59636e" text-anchor="start">no agent, no runtime, no key,</text>
+<text x="630" y="332" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="600" fill="#59636e" text-anchor="start">nothing left behind at reach down</text>
 </svg>
