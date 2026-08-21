@@ -238,6 +238,38 @@ at the mock) and watches a scripted command run on the local machine.
 
 See `docs/harnesses/kimi.md`.
 
+## Grok Build 1.0.5
+
+Verified on macOS arm64 against `grok 1.0.5 (5115b46bc909) [stable]`.
+
+### `$SHELL` is the command seam
+
+A logging wrapper was installed as `$SHELL` and Grok was asked, via
+`--always-approve --tools run_terminal_command -p`, to run `echo SHELL_PROBE`.
+The wrapper was invoked. The PATH shim (`PATH=<shim>:$PATH` with `$SHELL`
+left at `/bin/zsh`) was **not** invoked. `GROK_SHELL` is present in
+`xai_grok_config::shell` in the binary; the live tool path followed `$SHELL`.
+
+### Invocation shape
+
+Environment snapshot (stays local):
+
+    argv = ["-lc", "source \"$HOME/.bashrc\" … builtin alias -p …"]
+
+Tool command (payload after `--` is the model command):
+
+    argv = ["-O", "extglob", "-c", "<envelope using __grok_user_cmd=\"$1\">", "--", "<command>"]
+
+The envelope evals a snapshot from fd 3, then `eval "$__grok_user_cmd"`.
+reach unwraps the `--` payload rather than forwarding the envelope.
+
+### File tools
+
+`read_file`, `search_replace`, `list_dir`, `grep` act on the local disk.
+Denied at launch with `--deny Read/Edit/Write/Grep`. Subagents disabled.
+
+See `docs/harnesses/grok.md`.
+
 ## opencode
 
 Not installed on the verification machine at time of writing; adapter is built

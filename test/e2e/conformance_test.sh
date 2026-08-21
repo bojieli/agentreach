@@ -122,6 +122,35 @@ else
   info "Codex not installed — skipping"
 fi
 
+# ------------------------------------------------------------------- Grok Build
+if command -v grok >/dev/null 2>&1; then
+  ver="$(grok --version 2>/dev/null | head -1)"
+  info "Grok Build: $ver"
+  wrap="$PROBE/grok-shell"
+  cat > "$wrap" <<'SH'
+#!/bin/bash
+printf 'ARGC=%s\n' "$#" > /tmp/reach-conformance-grok
+i=0; for a in "$@"; do printf 'ARGV[%d]=%s\n' "$i" "$a" >> /tmp/reach-conformance-grok; i=$((i+1)); done
+exec /bin/bash "$@"
+SH
+  chmod +x "$wrap"
+  rm -f /tmp/reach-conformance-grok
+  SHELL="$wrap" timeout 120 grok -p "Run exactly this shell command and nothing else: echo grok_conformance" \
+    --always-approve --no-subagents --sandbox off --tools run_terminal_command --max-turns 4 \
+    >/dev/null 2>&1 || true
+  if [[ -f /tmp/reach-conformance-grok ]]; then
+    argv="$(cat /tmp/reach-conformance-grok)"
+    ok "Grok still honours \$SHELL for run_terminal_command"
+    assert_contains "$argv" "__grok_user_cmd" \
+      "Grok still wraps the tool command in the __grok_user_cmd envelope"
+  else
+    bad "Grok no longer honours \$SHELL" \
+        "reach's Grok adapter needs updating for $ver"
+  fi
+else
+  info "Grok Build not installed — skipping"
+fi
+
 # ------------------------------------------------------------------- Kimi Code
 if command -v kimi >/dev/null 2>&1; then
   info "Kimi Code: $(kimi --version 2>/dev/null | head -1)"

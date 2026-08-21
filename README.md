@@ -144,6 +144,7 @@ Then start your agent:
 reach claude       # Claude Code
 reach codex        # Codex
 reach goose        # Goose
+reach grok         # Grok Build
 ```
 
 It launches locally, with its shell quietly redirected to the remote host, and
@@ -168,6 +169,7 @@ That closes the connection and leaves nothing behind.
 | [Goose](docs/harnesses/goose.md) | `reach goose` | `GOOSE_SHELL`, a documented override | verified |
 | [Crush](docs/harnesses/crush.md) | `reach crush` | its own server mode, run on the target | verified |
 | [Gemini CLI](docs/harnesses/gemini.md) | `reach gemini` | a `bash` earlier on `PATH`, plus `excludeTools` for the rest | verified |
+| [Grok Build](docs/harnesses/grok.md) | `reach grok` | `$SHELL` / `GROK_SHELL`, plus deny rules for file tools | verified (1.0.5) |
 
 Those fall into three groups, plus one exception, and the group decides how much
 of the agent survives the trip.
@@ -241,7 +243,7 @@ mount, and it's the thing most of the design falls out of.
 Three layers, and only the top one knows which agent you're running.
 
 ```
-harness  (claude · codex · kimi · opencode · goose · crush · gemini)
+harness  (claude · codex · kimi · opencode · goose · crush · gemini · grok)
     │     native tool calls, no new tools in the model's view
 adapter   one per harness, config or plugin, never a fork
     │

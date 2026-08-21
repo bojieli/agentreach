@@ -11,6 +11,13 @@ project makes without a version attached.
 
 ## [Unreleased]
 
+### Added
+
+- **`reach grok`** wires Grok Build (verified 1.0.5) to a session. Grok
+  spawns `$SHELL` by absolute path, so reach sets `SHELL`/`GROK_SHELL` to
+  the PATH shim and unwraps Grok's `__grok_user_cmd` envelope before the
+  command runs on the target. Native file tools are denied.
+
 ## [0.1.1] - 2026-08-22
 
 Every entry here is reach disarming its own shell seam. The Seam job had been

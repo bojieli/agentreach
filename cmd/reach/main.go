@@ -39,9 +39,10 @@ HARNESSES
   goose [args...]   launch Goose wired to the session
   gemini [args...]  launch Gemini CLI wired to the session
   crush [args...]   launch Crush wired to the session (server mode)
+  grok [args...]    launch Grok Build wired to the session
   opencode install  install tools that shadow opencode's built-ins
   env               print the environment a harness needs
-  harness verify codex|kimi|goose|gemini   probe whether this harness's shell routes through reach
+  harness verify claude|codex|kimi|goose|gemini|grok   probe whether this harness's shell routes through reach
 
 TARGETS
   ssh://[user@]host[:port]/abs/path    a remote host over SSH
@@ -123,6 +124,8 @@ func main() {
 		os.Exit(cmdGemini(ctx, os.Args[2:]))
 	case "crush":
 		os.Exit(cmdCrush(ctx, os.Args[2:]))
+	case "grok":
+		os.Exit(cmdGrok(ctx, os.Args[2:]))
 	case "opencode":
 		err = cmdOpencode(ctx, os.Args[2:])
 	case "harness":
