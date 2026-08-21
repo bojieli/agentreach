@@ -18,10 +18,11 @@ const waldoGooseConfigMarker = "# waldo: developer extension restricted to shell
 // The managed home has a config.yaml that copies the operator's provider
 // settings (so their model and API key keep working) but replaces the
 // extensions section with a waldo-controlled version that restricts the
-// developer extension to the shell tool only. File tools (file_read,
-// file_write, file_edit, tree, read_image) are therefore not advertised to
-// the model; the agent uses shell commands for file access instead, and
-// those commands run on the target.
+// developer extension to the shell tool only via `available_tools: [shell]`.
+// The other developer tools (write, edit, tree, read_image — canonical names
+// from crates/goose/src/agents/platform_extensions/developer/mod.rs) are
+// therefore not advertised to the model; the agent uses shell commands for
+// file access instead, and those commands run on the target.
 func managedGooseHome(sessName string) (string, error) {
 	dir, err := waldoSubdir(filepath.Join("goose-home", sessName))
 	if err != nil {

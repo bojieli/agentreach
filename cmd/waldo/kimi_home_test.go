@@ -10,7 +10,9 @@ func TestEnsureKimiFileToolDenyEmptyConfig(t *testing.T) {
 	for _, want := range []string{
 		waldoKimiConfigMarker,
 		"[permission]",
-		`deny = ["Read", "Write", "Edit", "Glob", "Grep", "ReadMediaFile"]`,
+		// Skill must be denied: it reads local skill YAML files from
+		// .kimi-code/skills/ and ~/.agents/skills/, bypassing the shell seam.
+		`deny = ["Read", "Write", "Edit", "Glob", "Grep", "ReadMediaFile", "Skill"]`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("managed config missing %q:\n%s", want, got)

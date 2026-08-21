@@ -9,14 +9,22 @@ import (
 	"strings"
 )
 
-// kimiLocalFileTools are Kimi's native file tools. They act on the LOCAL
-// filesystem no matter where the shell seam points, which is exactly the
-// wrong-machine failure waldo exists to prevent, so the managed launch config
-// denies them and the agent reaches files through its shell — which runs on
-// the target. The names are the built-in tool names in both kimi engines
-// (packages/agent-core*/src/**/tools: Read, Write, Edit, Glob, Grep,
-// ReadMediaFile); Bash is deliberately not in the list.
-var kimiLocalFileTools = []string{"Read", "Write", "Edit", "Glob", "Grep", "ReadMediaFile"}
+// kimiLocalFileTools are Kimi's native tools that act on the LOCAL filesystem
+// no matter where the shell seam points, which is exactly the wrong-machine
+// failure waldo exists to prevent. The managed launch config denies them; the
+// agent reaches files through its shell tool (Bash), which runs on the target.
+//
+// Names are the readonly `name` constants from both kimi engines:
+//   packages/agent-core/src/tools/builtin/file/*.ts   (v1)
+//   packages/agent-core-v2/src/agent/tools/os/*.ts    (v2)
+//
+// Bash is deliberately absent — it is the intercept point.
+//
+// Skill (v1 collaboration/skill-tool.ts, v2 agent/tools/skill/skillTool.ts)
+// reads local skill YAML files from .kimi-code/skills/ and ~/.agents/skills/,
+// bypassing the shell seam. Denied to prevent local project data from being
+// read on the operator's machine instead of the target.
+var kimiLocalFileTools = []string{"Read", "Write", "Edit", "Glob", "Grep", "ReadMediaFile", "Skill"}
 
 // waldoKimiConfigMarker marks waldo's addition to a managed kimi config so
 // repeated launches do not append it twice.
