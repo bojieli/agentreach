@@ -131,11 +131,23 @@ func runOnTarget(ctx context.Context, sessionName, command, cwdFile string) int 
 	}
 
 	if newCwd := stderr.Captured(); newCwd != "" {
-		_ = s.SetCwd(newCwd)
+		// Nothing else carries the working directory between tool calls: each
+		// one is its own process and its own connection. If this cannot be
+		// recorded, the agent's `cd` stops persisting and its next command runs
+		// somewhere else — so the failure is reported rather than swallowed,
+		// on the stream the agent reads.
+		if err := s.SetCwd(newCwd); err != nil {
+			fmt.Fprintf(os.Stderr,
+				"reach: could not record the working directory %s: %v\n"+
+					"reach: later commands will keep running in %s until this is fixed\n",
+				newCwd, err, cwd)
+		}
 		// Reproduce the harness's own bookkeeping on the local filesystem.
 		// Without this, `cd` silently stops persisting between tool calls.
 		if cwdFile != "" {
-			_ = os.WriteFile(cwdFile, []byte(newCwd+"\n"), 0o600)
+			if err := os.WriteFile(cwdFile, []byte(newCwd+"\n"), 0o600); err != nil {
+				fmt.Fprintf(os.Stderr, "reach: could not update the harness's record of the working directory: %v\n", err)
+			}
 		}
 	}
 	return code

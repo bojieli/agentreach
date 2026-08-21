@@ -190,3 +190,65 @@ func TestRunOnTargetFailsWithoutASession(t *testing.T) {
 			"fall through to the local machine", code, exitTransportFailure)
 	}
 }
+
+// captureStderr redirects os.Stderr for the length of a test and returns a
+// reader for what was written to it.
+func captureStderr(t *testing.T) func() string {
+	t.Helper()
+	f, err := os.CreateTemp(t.TempDir(), "stderr-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = f
+	t.Cleanup(func() {
+		os.Stderr = old
+		_ = f.Close()
+	})
+	return func() string {
+		data, err := os.ReadFile(f.Name())
+		if err != nil {
+			t.Fatalf("read captured stderr: %v", err)
+		}
+		return string(data)
+	}
+}
+
+// Nothing else carries the working directory between tool calls: each one is
+// its own process and its own connection. A failure to record it used to be
+// discarded, so the agent's `cd` stopped persisting and its next command ran
+// somewhere else, with nothing anywhere reporting why.
+func TestRunOnTargetReportsADirectoryItCouldNotRecord(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(ws, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s := localSession(t, ws)
+
+	// A directory where the record goes makes the rename that publishes it fail,
+	// which is what a full disk or a bad permission would do.
+	dir, err := session.Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := filepath.Join(dir, s.Name+".cwd")
+	if err := os.Remove(record); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(record, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	read := captureStderr(t)
+	if code := runOnTarget(context.Background(), s.Name, "cd sub", ""); code != 0 {
+		t.Fatalf("the command itself failed with %d; recording the directory is reach's problem, not the command's", code)
+	}
+
+	out := read()
+	if !strings.Contains(out, "could not record the working directory") {
+		t.Errorf("a lost working directory was not reported; stderr was:\n%s", out)
+	}
+	if !strings.Contains(out, "until this is fixed") {
+		t.Errorf("the report does not say what it means for later commands; stderr was:\n%s", out)
+	}
+}

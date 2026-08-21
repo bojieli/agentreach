@@ -130,7 +130,11 @@ func cmdUp(ctx context.Context, args []string) error {
 	if err := s.Save(); err != nil {
 		return err
 	}
-	_ = s.SetCwd(target.Workspace)
+	if err := s.SetCwd(target.Workspace); err != nil {
+		// The session is usable, but every command will start in the target's
+		// default directory rather than the workspace that was just verified.
+		fmt.Fprintf(os.Stderr, "reach: could not record the starting directory: %v\n", err)
+	}
 
 	fmt.Printf("session %q -> %s\n", s.Name, target.Describe())
 	fmt.Printf("  target   %s\n", s.Caps.Uname)
