@@ -30,14 +30,18 @@ RUNNING
   fs <op> ...       read, write, list, search files on the target
   shell-prefix      internal: entrypoint for CLAUDE_CODE_SHELL_PREFIX
   hook              internal: harness hook entrypoint (mirror mode)
+  exec-server       internal: codex remote-environment endpoint (JSON-RPC over stdio)
 
 HARNESSES
   claude [args...]  launch Claude Code wired to the session
   codex [args...]   launch Codex wired to the session
   kimi [args...]    launch Kimi Code wired to the session
+  goose [args...]   launch Goose wired to the session
+  gemini [args...]  launch Gemini CLI wired to the session
+  crush [args...]   launch Crush wired to the session (server mode)
   opencode install  install tools that shadow opencode's built-ins
   env               print the environment a harness needs
-  harness verify codex|kimi   probe whether this harness version's shell routes through waldo
+  harness verify codex|kimi|goose|gemini   probe whether this harness's shell routes through waldo
 
 TARGETS
   ssh://[user@]host[:port]/abs/path    a remote host over SSH
@@ -84,6 +88,9 @@ func main() {
 	if os.Args[1] == "hook" {
 		os.Exit(runHook(os.Args[2:]))
 	}
+	if os.Args[1] == "exec-server" {
+		os.Exit(cmdExecServer(context.Background(), os.Args[2:]))
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -110,6 +117,12 @@ func main() {
 		os.Exit(cmdCodex(ctx, os.Args[2:]))
 	case "kimi":
 		os.Exit(cmdKimi(ctx, os.Args[2:]))
+	case "goose":
+		os.Exit(cmdGoose(ctx, os.Args[2:]))
+	case "gemini":
+		os.Exit(cmdGemini(ctx, os.Args[2:]))
+	case "crush":
+		os.Exit(cmdCrush(ctx, os.Args[2:]))
 	case "opencode":
 		err = cmdOpencode(ctx, os.Args[2:])
 	case "harness":

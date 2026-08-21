@@ -99,6 +99,20 @@ var opencodeTools = []opencodeTool{
     return { title: args.filePath, output: "wrote " + args.content.length + " bytes to " + args.filePath }`,
 	},
 	{
+		name:        "edit",
+		description: "Edit a file on the remote target: replace oldString with newString. Fails unless oldString occurs exactly once, unless replaceAll is set.",
+		args:        `{ filePath: tool.schema.string().describe("absolute path on the target"), oldString: tool.schema.string().describe("the exact text to replace"), newString: tool.schema.string().describe("the replacement text"), replaceAll: tool.schema.boolean().optional().describe("replace every occurrence") }`,
+		body: `    const rd = await waldo(["fs", "read", args.filePath])
+    if (rd.code !== 0) throw new Error(rd.stderr || "read failed")
+    const occurrences = rd.stdout.split(args.oldString).length - 1
+    if (occurrences === 0) throw new Error("oldString not found in " + args.filePath)
+    if (occurrences > 1 && !args.replaceAll) throw new Error("oldString occurs " + occurrences + " times in " + args.filePath + "; pass replaceAll or a longer unique string")
+    const updated = args.replaceAll ? rd.stdout.split(args.oldString).join(args.newString) : rd.stdout.replace(args.oldString, args.newString)
+    const wr = await waldo(["fs", "write", args.filePath], updated)
+    if (wr.code !== 0) throw new Error(wr.stderr || "write failed")
+    return { title: args.filePath, output: "edited " + args.filePath + " (" + occurrences + " replacement" + (occurrences > 1 ? "s" : "") + ")" }`,
+	},
+	{
 		name:        "list",
 		description: "List a directory on the remote target.",
 		args:        `{ path: tool.schema.string().describe("absolute directory path on the target") }`,

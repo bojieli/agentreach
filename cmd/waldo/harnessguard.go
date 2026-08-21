@@ -82,22 +82,81 @@ func guardHarnessSeam(ctx context.Context, harness, sessName string) int {
 	return 0
 }
 
+// guardKimiSeam is the fail-closed launch guard for kimi, specialised to use
+// the resolved binary path and shim directory that cmdKimi already chose.
+// It is separate from guardHarnessSeam because kimi's binary is not always
+// the one exec.LookPath("kimi") returns — the patched npm bundle lives under
+// ~/.waldo/ and has to be found by resolveKimiBinary before the guard runs.
+func guardKimiSeam(ctx context.Context, sessName, binPath, shimDir string) int {
+	version, err := harnessprobe.HarnessVersionFromBinary(ctx, binPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr,
+			"waldo: WARNING: cannot determine the kimi version (%v)\n"+
+				"waldo: The shell seam is unverified. If the kimi binary was not patched for\n"+
+				"waldo: KIMI_SHELL_PATH, its commands will run LOCALLY while appearing remote.\n",
+			err)
+		return 0
+	}
+
+	entry, cached, err := harnessprobe.LoadVerdict(harnessprobe.HarnessKimi, version)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "waldo: WARNING: cannot read the seam verdict cache: %v\n", err)
+	}
+	if cached {
+		d := harnessprobe.Gate(harnessprobe.HarnessKimi, version, &entry)
+		if !d.RunProbe {
+			if d.Message != "" {
+				fmt.Fprint(os.Stderr, d.Message)
+			}
+			if !d.Allow {
+				return 1
+			}
+			return 0
+		}
+	}
+
+	fmt.Fprintf(os.Stderr,
+		"waldo: verifying the kimi %s shell seam (once per kimi version, up to 2 min)...\n",
+		version)
+	res := harnessprobe.Verify(ctx, harnessprobe.Options{
+		Harness:     harnessprobe.HarnessKimi,
+		SessionName: sessName,
+		EnsureShim:  ensurePathShim,
+		BinaryPath:  binPath,
+	})
+	if res.Conclusive() {
+		if err := harnessprobe.StoreVerdict(harnessprobe.HarnessKimi, version, res); err != nil {
+			fmt.Fprintf(os.Stderr, "waldo: WARNING: could not cache the seam verdict: %v\n", err)
+		}
+	}
+	d := harnessprobe.GateFromProbe(harnessprobe.HarnessKimi, version, res)
+	if d.Message != "" {
+		fmt.Fprint(os.Stderr, d.Message)
+	}
+	if !d.Allow {
+		return 1
+	}
+	return 0
+}
+
 // verifiableHarnesses are the harnesses `waldo harness verify` can probe.
 var verifiableHarnesses = map[string]bool{
-	harnessprobe.HarnessCodex: true,
-	harnessprobe.HarnessKimi:  true,
+	harnessprobe.HarnessCodex:  true,
+	harnessprobe.HarnessKimi:   true,
+	harnessprobe.HarnessGoose:  true,
+	harnessprobe.HarnessGemini: true,
 }
 
 // cmdHarness dispatches `waldo harness <op>`.
 func cmdHarness(ctx context.Context, args []string) error {
 	if len(args) < 1 || args[0] != "verify" {
-		return errors.New("usage: waldo harness verify codex|kimi [--session NAME]")
+		return errors.New("usage: waldo harness verify codex|kimi|goose|gemini [--session NAME]")
 	}
 	if len(args) < 2 {
-		return errors.New("usage: waldo harness verify codex|kimi [--session NAME]")
+		return errors.New("usage: waldo harness verify codex|kimi|goose|gemini [--session NAME]")
 	}
 	if !verifiableHarnesses[args[1]] {
-		return fmt.Errorf("unknown harness %q: only codex and kimi are verifiable", args[1])
+		return fmt.Errorf("unknown harness %q: codex, kimi, goose, and gemini are verifiable", args[1])
 	}
 	return cmdHarnessVerify(ctx, args[1], args[2:])
 }
@@ -108,9 +167,20 @@ func cmdHarness(ctx context.Context, args []string) error {
 // inline only when it has no cached verdict, so this command is how an
 // operator re-checks after upgrading a harness, or checks before trusting a
 // new version at all.
+//
+// --task-prefix runs the probe with a custom command prepended to the default
+// "echo <marker>; hostname" canary. Use it to verify that a specific type of
+// operation (file read, file write) also reaches the target. Probes with a
+// task prefix are not cached — they are ad-hoc checks, not the canonical
+// seam verdict.
+//
+// --binary points the probe at a specific binary path instead of resolving
+// the harness by name on PATH. Useful when multiple versions are installed.
 func cmdHarnessVerify(ctx context.Context, harness string, args []string) error {
 	fs := newFlagSet("harness verify " + harness)
 	sessName := sessionFlag(fs)
+	taskPrefix := fs.String("task-prefix", "", "prepend this shell command to the probe's canary")
+	binaryPath := fs.String("binary", "", "absolute path to the harness binary (overrides PATH lookup)")
 	pos, err := parseFlags(fs, args)
 	if err != nil {
 		return err
@@ -119,15 +189,35 @@ func cmdHarnessVerify(ctx context.Context, harness string, args []string) error 
 		return fmt.Errorf("unexpected argument %q", pos[0])
 	}
 
-	version, err := harnessprobe.HarnessVersion(ctx, harness)
+	// For kimi, use the managed patched binary if available — the same one
+	// cmdKimi will launch — so the verify result reflects the actual seam.
+	binPath := *binaryPath
+	if binPath == "" && harness == harnessprobe.HarnessKimi {
+		if p, err := resolveKimiBinary(); err == nil {
+			binPath = p
+		}
+	}
+
+	var version string
+	if binPath != "" {
+		version, err = harnessprobe.HarnessVersionFromBinary(ctx, binPath)
+	} else {
+		version, err = harnessprobe.HarnessVersion(ctx, harness)
+	}
 	if err != nil {
 		return err
 	}
-	fmt.Printf("%s %s — probing the shell seam against the session target...\n", harness, version)
+	if *taskPrefix != "" {
+		fmt.Printf("%s %s — probing task [%s] against the session target...\n", harness, version, *taskPrefix)
+	} else {
+		fmt.Printf("%s %s — probing the shell seam against the session target...\n", harness, version)
+	}
 	res := harnessprobe.Verify(ctx, harnessprobe.Options{
-		Harness:     harness,
-		SessionName: sessName(pos),
-		EnsureShim:  ensurePathShim,
+		Harness:       harness,
+		SessionName:   sessName(pos),
+		EnsureShim:    ensurePathShim,
+		BinaryPath:    binPath,
+		CommandPrefix: *taskPrefix,
 	})
 
 	switch res.Verdict {
@@ -143,10 +233,15 @@ func cmdHarnessVerify(ctx context.Context, harness string, args []string) error 
 		return fmt.Errorf("seam probe failed: %s", res.Detail)
 	}
 
-	if err := harnessprobe.StoreVerdict(harness, version, res); err != nil {
-		fmt.Fprintf(os.Stderr, "waldo: WARNING: could not cache the verdict: %v\n", err)
-	} else {
-		fmt.Printf("cached — the guard will use this verdict until %s's version changes.\n", harness)
+	// Task-prefix probes are not cached: they are ad-hoc checks, not the
+	// canonical seam verdict. Only the unadorned "echo marker; hostname" probe
+	// represents the question the launch guard asks.
+	if *taskPrefix == "" {
+		if err := harnessprobe.StoreVerdict(harness, version, res); err != nil {
+			fmt.Fprintf(os.Stderr, "waldo: WARNING: could not cache the verdict: %v\n", err)
+		} else {
+			fmt.Printf("cached — the guard will use this verdict until %s's version changes.\n", harness)
+		}
 	}
 	if res.Verdict == harnessprobe.VerdictBypassed {
 		// A measured bypass is the answer the operator needed and a result CI
@@ -162,17 +257,30 @@ func cmdHarnessVerify(ctx context.Context, harness string, args []string) error 
 func printBypassedRemediation(harness string) {
 	switch harness {
 	case harnessprobe.HarnessCodex:
-		fmt.Println("codex resolves its shell by absolute path; waldo cannot redirect its")
-		fmt.Println("commands, and `waldo codex` will refuse to launch this version.")
-		fmt.Println("Remediation: use Codex <= 0.147, or run codex on the target itself.")
+		fmt.Println("codex's exec-server seam failed: the scripted command did not run on the")
+		fmt.Println("session's target, and `waldo codex` will refuse to launch this version.")
+		fmt.Println("Remediation: run `waldo doctor` to check the session target, or report the")
+		fmt.Println("failure — the seam is measured, so this verdict means the routing broke.")
 	case harnessprobe.HarnessKimi:
-		fmt.Println("kimi spawns its shell by absolute path; waldo cannot redirect its")
-		fmt.Println("commands, and `waldo kimi` will refuse to launch this version.")
-		fmt.Println("Note: Kimi's native read_file, write_file and multi_edit tools act on the")
-		fmt.Println("LOCAL filesystem even when the shell seam works — use shell commands for")
-		fmt.Println("file access.")
-		fmt.Println("Remediation: run kimi on the target itself, or use --force if you accept")
-		fmt.Println("local execution.")
+		fmt.Println("kimi's shell seam failed. Either the kimi binary is not the patched")
+		fmt.Println("version or KIMI_SHELL_PATH is not being honoured by this version.")
+		fmt.Println("Remediation: run contrib/kimi-shell-path-patch.mjs against the kimi")
+		fmt.Println("npm bundle under ~/.waldo/kimi-*/node_modules/@moonshot-ai/kimi-code/")
+		fmt.Println("and re-run `waldo harness verify kimi`. Use --force only if you accept")
+		fmt.Println("that commands will run on the LOCAL machine.")
+	case harnessprobe.HarnessGoose:
+		fmt.Println("goose's GOOSE_SHELL seam failed: the scripted command ran on the local")
+		fmt.Println("machine rather than the session's target.")
+		fmt.Println("Remediation: check that this version of goose reads GOOSE_SHELL")
+		fmt.Println("(`goose --version`; the env var is documented in goose's developer")
+		fmt.Println("extension). Use --force only if you accept that shell commands will")
+		fmt.Println("run on the LOCAL machine.")
+	case harnessprobe.HarnessGemini:
+		fmt.Println("gemini's PATH shim seam failed: the scripted command ran on the local")
+		fmt.Println("machine rather than the session's target.")
+		fmt.Println("Remediation: check that this version of Gemini CLI resolves its shell")
+		fmt.Println("by walking PATH (run `waldo doctor` to check the shim). Use --force")
+		fmt.Println("only if you accept that shell commands will run on the LOCAL machine.")
 	}
 }
 
@@ -182,6 +290,12 @@ func codexSeamNote() string { return harnessSeamNote(harnessprobe.HarnessCodex) 
 // kimiSeamNote describes the kimi shell seam for doctor.
 func kimiSeamNote() string { return harnessSeamNote(harnessprobe.HarnessKimi) }
 
+// gooseSeamNote describes the goose shell seam for doctor.
+func gooseSeamNote() string { return harnessSeamNote(harnessprobe.HarnessGoose) }
+
+// geminiSeamNote describes the gemini shell seam for doctor.
+func geminiSeamNote() string { return harnessSeamNote(harnessprobe.HarnessGemini) }
+
 // harnessSeamNote describes a harness's shell seam for doctor, including the
 // cached verdict when one exists.
 //
@@ -189,12 +303,34 @@ func kimiSeamNote() string { return harnessSeamNote(harnessprobe.HarnessKimi) }
 // seam is the most dangerous invisible state waldo can be in: everything works,
 // on the wrong machine.
 func harnessSeamNote(harness string) string {
-	const seam = "PATH shim"
+	seam := "PATH shim"
+	switch harness {
+	case harnessprobe.HarnessCodex:
+		seam = "exec-server"
+	case harnessprobe.HarnessKimi:
+		seam = "KIMI_SHELL_PATH shim"
+	case harnessprobe.HarnessGoose:
+		seam = "GOOSE_SHELL env var"
+	case harnessprobe.HarnessGemini:
+		seam = "PATH shim (run_shell_command)"
+	}
 	unverified := fmt.Sprintf("%s (unverified — run `waldo harness verify %s`)", seam, harness)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	version, err := harnessprobe.HarnessVersion(ctx, harness)
+
+	// For kimi, version from the managed patched binary (same one waldo launches).
+	var version string
+	var err error
+	if harness == harnessprobe.HarnessKimi {
+		if binPath, berr := resolveKimiBinary(); berr == nil {
+			version, err = harnessprobe.HarnessVersionFromBinary(ctx, binPath)
+		} else {
+			version, err = harnessprobe.HarnessVersion(ctx, harness)
+		}
+	} else {
+		version, err = harnessprobe.HarnessVersion(ctx, harness)
+	}
 	if err != nil {
 		return unverified
 	}
