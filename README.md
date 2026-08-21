@@ -349,6 +349,11 @@ Interfaces may still move before 1.0. Three things won't: the file-operation
 protocol, the session format, and the promise that nothing lands on your server
 unless you asked for it.
 
+## Acknowledgements
+
+reach exists because [Zihan Zheng](https://github.com/zzh1996) (@zzh1996)
+proposed the idea.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
