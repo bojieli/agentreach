@@ -36,6 +36,16 @@ import (
 	"github.com/bojieli/agentreach/internal/reach"
 )
 
+// maxFileHandlers is how many file-operation strategies one exec-server keeps.
+//
+// Each is one channel and one small process on the target, started only when
+// operations actually overlap — a session that never runs two file operations
+// at once never starts a second. Four is chosen against what an agent does
+// rather than what a machine could bear: harnesses fan out a handful of file
+// reads at a time, and the point is that a long one stops blocking the rest,
+// not that every possible request runs at once.
+const maxFileHandlers = 4
+
 // JSON-RPC error codes, matching codex's own exec-server (rpc.rs).
 const (
 	codeInvalidRequest = -32600
@@ -93,6 +103,10 @@ type Server struct {
 	sawInitialize bool
 	processes    map[string]*process
 	handles      map[string]string
+
+	// order keeps requests about one path, handle or process in the order the
+	// client sent them, without serialising requests about different ones.
+	order *sequencer
 }
 
 // New builds an exec-server for sess. workspace is the local directory codex
@@ -112,9 +126,19 @@ func New(ctx context.Context, sess *session.Session, workspace string) (*Server,
 	if err != nil {
 		return nil, err
 	}
+	// Requests are answered concurrently here, and one handler answers them one
+	// at a time, so a large read would hold every other file operation behind
+	// it. Further handlers are started only when operations actually overlap.
+	ops := fileops.NewPool(sel.Ops, maxFileHandlers, func(ctx context.Context) (fileops.FileOps, error) {
+		more, err := sess.FileOps(ctx, t)
+		if err != nil {
+			return nil, err
+		}
+		return more.Ops, nil
+	})
 	name, shellPath, err := probeShell(ctx, t)
 	if err != nil {
-		_ = sel.Ops.Close()
+		_ = ops.Close()
 		return nil, err
 	}
 	if workspace == "" {
@@ -123,7 +147,7 @@ func New(ctx context.Context, sess *session.Session, workspace string) (*Server,
 	return &Server{
 		sess:      sess,
 		t:         t,
-		ops:       sel.Ops,
+		ops:       ops,
 		workspace: filepath.Clean(workspace),
 		root:      sess.Target.Workspace,
 		shellName: name,
@@ -131,6 +155,7 @@ func New(ctx context.Context, sess *session.Session, workspace string) (*Server,
 		sessionID: "reach-" + randomHex(8),
 		processes: map[string]*process{},
 		handles:   map[string]string{},
+		order:     newSequencer(),
 	}, nil
 }
 
@@ -166,6 +191,11 @@ func shellRequest(command string) reach.ExecRequest {
 // requests (process/write, fs/*) must still be answered, so a serial dispatch
 // would deadlock against unified_exec sessions. Shared state is mutex-guarded;
 // the transport multiplexes concurrent target operations on its own.
+//
+// Concurrent is not the same as unordered. A client that sends two requests
+// about one path or one process without waiting for the first response has
+// stated an order, and the sequencer preserves it — see order.go. Requests
+// about different things still overlap freely.
 func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 	s.out = out
 	sc := bufio.NewScanner(in)
@@ -197,8 +227,13 @@ func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 			continue
 		}
 		wg.Add(1)
+		// Reserved here, in the loop that reads the connection, because this is
+		// the only place the client's order is known.
+		place := s.order.enter(orderKey(req.Method, req.Params))
 		go func() {
 			defer wg.Done()
+			place.wait()
+			defer place.done()
 			s.dispatch(ctx, req)
 		}()
 	}
@@ -470,13 +505,16 @@ func (s *Server) operationContext(ctx context.Context) (context.Context, context
 	return s.sess.OperationContext(ctx)
 }
 
-// Close releases the file-operation strategy and the transport.
+// Close releases the file-operation strategies.
+//
+// The connection is deliberately left alone. This server's life is one agent
+// run — codex starts it, and it ends when codex exits — while the connection
+// belongs to the session, which outlives both. Tearing the master down here
+// meant that quitting codex silently cost the session its warm connection, so
+// the next `reach exec` paid a full reconnect for no reason the operator could
+// see. `reach down` ends the connection, because `reach down` ends the session.
 func (s *Server) Close() error {
-	err := s.ops.Close()
-	if cerr := s.t.Close(); err == nil {
-		err = cerr
-	}
-	return err
+	return s.ops.Close()
 }
 
 // EnvironmentsTOML renders the environments.toml that points codex at this

@@ -32,6 +32,35 @@ type Transport interface {
 	Close() error
 }
 
+// Overflower is a transport that can move onto a fresh connection to the same
+// target when the current one has no room for another channel.
+//
+// It is an optional interface rather than part of Transport because it only
+// means anything where one connection carries many channels. A local or
+// container transport has no such limit, and an ssh transport without
+// multiplexing already gives every command its own connection.
+type Overflower interface {
+	Overflow() bool
+}
+
+// Adviser is a transport that can add guidance to one of its own failures.
+//
+// It exists because the useful advice depends on how the transport is
+// configured — an authentication failure means something different to a
+// connection that could have prompted and one that could not — and only the
+// transport knows that.
+type Adviser interface {
+	Advise(failure string) string
+}
+
+// advise returns whatever the transport can add to a failure of its own.
+func advise(t Transport, failure string) string {
+	if a, ok := t.(Adviser); ok {
+		return a.Advise(failure)
+	}
+	return ""
+}
+
 // Stream is a long-lived remote process.
 type Stream struct {
 	Stdin  io.WriteCloser

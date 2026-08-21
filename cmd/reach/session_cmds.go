@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -145,6 +146,18 @@ func cmdUp(ctx context.Context, args []string) error {
 	return nil
 }
 
+// sessionList renders session names for a sentence.
+func sessionList(names []string) string {
+	quoted := make([]string, 0, len(names))
+	for _, n := range names {
+		quoted = append(quoted, strconv.Quote(n))
+	}
+	if len(quoted) == 1 {
+		return "session " + quoted[0] + " is"
+	}
+	return "sessions " + strings.Join(quoted, ", ") + " are"
+}
+
 // tierNote annotates the selected tier with how it was chosen, and with what
 // it costs the target. An operator reading `reach up` output should be able to
 // tell at a glance whether anything was written to the machine they pointed at.
@@ -216,9 +229,21 @@ func cmdDown(ctx context.Context, args []string) error {
 		// Close the multiplexed connection so nothing reach opened outlives the
 		// session. Leaving a live master on someone else's server would be a
 		// surprising residue for a tool whose premise is leaving no trace.
+		//
+		// Unless another session is working over it. The control socket is keyed
+		// on the destination, so two sessions on one host share a connection,
+		// and closing this one's would leave the other reconnecting on its next
+		// tool call — in batch mode, so on a host that needs a password or a
+		// token, failing rather than reconnecting.
 		if t, err := s.Transport(); err == nil {
 			reportOrRemoveFootprint(ctx, s, t, *clean)
-			_ = t.Close()
+			if sharing := s.SharesConnectionWith(); len(sharing) > 0 {
+				fmt.Fprintf(os.Stderr,
+					"reach: leaving the connection to %s open; %s still using it\n",
+					s.Target.Describe(), sessionList(sharing))
+			} else {
+				_ = t.Close()
+			}
 		}
 	case errors.Is(loadErr, os.ErrNotExist):
 		return loadErr

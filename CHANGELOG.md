@@ -13,6 +13,66 @@ project makes without a version attached.
 
 ### Fixed
 
+- **A broken file-operation handler ended file access for the whole session.**
+  Breaking the stream when a request is abandoned or half-written is what stops
+  a stale response from being read as the answer to the next one, but the
+  verdict was permanent and nothing acted on it: the error said "this session's
+  file access must be restarted" and no code path restarted anything. Per tool
+  call that cost nothing, since the process was about to exit. Under `reach
+  exec-server`, where one handler serves an entire agent session, one cancelled
+  or timed-out operation ended file access for the rest of it. The request that
+  discovers the break still fails — whether it reached the far end is unknown,
+  and a `rename` retried on a guess is applied twice — but the next one starts
+  the program again on a new channel. That is safe because the protocol is
+  stateless: every request carries its own path and offset. A program that never
+  answered is not restarted, so a target with no interpreter fails once instead
+  of spawning a doomed process per operation.
+
+- **A target that refused another channel was reported as a command that did
+  not complete.** sshd caps concurrent channels per connection with
+  `MaxSessions`, 10 by default, and multiplexing means every tool call running
+  at once is a channel on one connection. An agent that fanned out past the cap
+  had its eleventh tool call refused, and the refusal arrived as ssh exit 255
+  with "administratively prohibited" — naming neither the cause nor anything an
+  operator could do. reach now moves to another connection to the same target
+  and runs the command there, bounded at four extra connections, and a refusal
+  it cannot work around says what `MaxSessions` is and what to change. The retry
+  is safe in a way retrying a failed command is not: a refused channel means the
+  remote shell was never started. A dropped connection is never retried, because
+  it says nothing about whether the command ran.
+
+- **Short-lived commands tore down a connection another session was using.**
+  The control socket is keyed on the destination, so two sessions on one host
+  share a connection and authenticate once. Four callers closed it anyway:
+  `reach down` on one of two sessions on the same host, the exec-server when
+  codex exited, and `reach doctor` and `reach helper` whenever they ran. The
+  session was still up in every case, so the connection came back — but in batch
+  mode, which is every connection after `reach up`, and on a host that wants a
+  password or a token a reconnect that cannot prompt fails rather than being
+  slow. `reach down` now asks who else is on a connection before ending it; the
+  other three no longer close it at all.
+
+- **`reach up` threw away the connection it had just authenticated.** The
+  multiplexing probe forced batch mode on, so on exactly the hosts multiplexing
+  matters most for — a passphrase, a password, a hardware token — the probe
+  could not authenticate, reach recorded "no multiplexing", and every later tool
+  call opened its own connection in batch mode and failed too. The probe then
+  tore down the master it had established, on the grounds that the caller had
+  not asked for one. It now takes batch mode from its caller, stretches its
+  timeout to three minutes when it may prompt, and keeps a connection it proved
+  working. When one does expire, ssh's "Permission denied" is followed by what
+  happened and what to do about it.
+
+- **The exec-server answered pipelined requests about one path out of order.**
+  Requests are dispatched concurrently, and must be — process/read long-polls
+  while others are answered — but concurrent was also unordered. Twenty writes
+  to one path followed by a read, sent without waiting, left the file holding
+  whichever write finished last and the read reporting that same stale content.
+  Two chunks pipelined to one process's stdin could arrive swapped, corrupting
+  the input of anything interactive. Requests about one path, handle or process
+  now queue in the order they arrived on the wire; requests about different ones
+  still overlap.
+
 - **Nine Windows tests failed the first time the Windows suite ever ran.**
   Repairing the line-ending failure below let that job reach its tests at last,
   and none of the nine turned out to be a defect in reach — but each was a test
@@ -139,6 +199,12 @@ project makes without a version attached.
 
 ### Added
 
+- **`REACH_CONTROL_PERSIST`** sets how long an authenticated connection outlives
+  its last command — a duration, or `yes` to keep it until `reach down`, which
+  is what reach's up/down lifecycle already describes. A value reach cannot
+  parse is refused at construction rather than replaced with the default, so an
+  operator who asks for five minutes never silently gets an hour.
+
 - **`reach fs mv <from> <to>`.** Every tier implemented Rename and the
   conformance suite covered it; the CLI just never exposed it, so the one file
   operation an agent could not express through `reach fs` was the most ordinary
@@ -180,6 +246,21 @@ project makes without a version attached.
   half-read; documents written before the field existed still load.
 
 ### Changed
+
+- **A connection is now kept for an hour when idle, up from ten minutes.** Ten
+  minutes is shorter than the gaps an agent session actually has: a model
+  thinking, a colleague at the door, a long test run watched from another
+  window. Expiring in one costs a full reconnect, and because every connection
+  after `reach up` runs in batch mode, on a host wanting a password or a token
+  it costs the tool call outright.
+
+- **Overlapping file operations are answered on more than one handler.** The
+  handler protocol is serialised on purpose, which costs nothing where reach
+  runs a process per tool call. Under `reach exec-server` it was head-of-line
+  blocking: a 100 MB read held the stream across a dozen sequential chunk round
+  trips while every other file operation waited. Pipelining would not have
+  fixed it — the program on the far end reads one frame at a time — so up to
+  four handlers are now used, started only when operations actually overlap.
 
 - **Go 1.25.8 is now the minimum**, up from 1.23. govulncheck had been failing
   against three reachable standard-library vulnerabilities, and two of them are

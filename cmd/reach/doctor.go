@@ -49,7 +49,11 @@ func cmdDoctor(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = t.Close() }()
+	// The connection is not closed here. A short command run alongside a live
+	// session — `reach doctor` while an agent is working, a helper install
+	// between turns — shares that session's connection, and closing it would
+	// leave the agent's next tool call reconnecting from scratch. `reach down`
+	// is what ends a connection, because it is what ends the session.
 
 	caps, err := fileops.Probe(ctx, t)
 	if err != nil {
@@ -145,6 +149,10 @@ func reportConnectionReuse(ctx context.Context, s *session.Session) {
 	if ok {
 		fmt.Println("  Connection reuse: yes — one authenticated connection, reused")
 		fmt.Println("    Measured at 4-5x faster per command than reconnecting, on real links.")
+		fmt.Println("    sshd caps concurrent channels per connection (MaxSessions, 10 by")
+		fmt.Println("    default). Past that, reach opens another connection rather than")
+		fmt.Println("    failing the tool call, and says so on stderr when it does.")
+		fmt.Printf("    Kept: %s\n", transport.ControlPersistDescription())
 		return
 	}
 	fmt.Println("  Connection reuse: NO — every command opens and authenticates its own")

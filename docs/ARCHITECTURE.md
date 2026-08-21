@@ -77,6 +77,17 @@ for nothing.
 One consequence is worth stating early, because it shapes the tier design more
 than anything else: **reach runs one process per tool call.**
 
+Sharing one connection has a limit that a daemon would have had too: sshd caps
+concurrent channels per connection with `MaxSessions`, 10 by default, and reach
+runs one channel per tool call. An agent that fans out past that has its
+eleventh tool call refused — `administratively prohibited`, ssh exit 255, which
+reach used to report as "command did not complete". reach now opens a second
+connection instead, up to a small bound, and says so on stderr. The retry is
+safe in a way retrying a failed command generally is not: a refused channel
+means the remote shell was never started, so there is nothing to have
+half-happened. A connection that dropped mid-command is never retried, because
+it says nothing about whether the command ran.
+
 ## Platforms
 
 reach runs on Linux, macOS and Windows, and targets any POSIX host. The split
@@ -351,6 +362,7 @@ Everything below is optional; reach works with none of it set.
 | `REACH_HOME` | Where sessions, mirrors and audit logs live. Default `~/.reach`. Setting it per-shell gives you independent sets of sessions. |
 | `REACH_SESSION` | The session commands use when `--session` is absent. `reach claude` and the other harness launchers set it for the process they start, which is how a harness's tool calls find the right target. |
 | `REACH_SSH_CONFIG` | An alternate `ssh_config`, passed as `ssh -F`. Lets reach's connections be configured separately from your interactive ones without duplicating host definitions. |
+| `REACH_CONTROL_PERSIST` | How long the authenticated connection outlives its last command — a duration, or `yes` to keep it until `reach down`. Default one hour. Every connection after `reach up` runs in batch mode and cannot prompt, so on a host wanting a password or a hardware token this is the difference between a reconnect and a failed tool call. |
 | `REACH_NO_AUDIT` | Set to any value to stop recording what reach did. A record of every command is occasionally the wrong thing to keep — a shared machine, a command line carrying a secret — and that judgement is the operator's. |
 | `REACH_HELPER_BINARY` | A helper binary to install instead of the one reach would locate or build. For the helper tier only. |
 | `REACH_LOCAL_SHELL` | Windows only: a POSIX shell to use for `local://` targets. reach will not guess one, because guessing wrong runs your command under a shell that quotes differently. |
