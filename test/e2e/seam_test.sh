@@ -135,7 +135,7 @@ harness_binaries() {
 
 # Queue probes for all harnesses × all tasks × all versions in parallel.
 declare -a PIDS=()
-HARNESSES=(codex kimi goose gemini)
+HARNESSES=(claude codex kimi goose gemini)
 TASKS=(exec ro rw)
 
 for harness in "${HARNESSES[@]}"; do
