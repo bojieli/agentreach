@@ -58,18 +58,7 @@ func runBashShim(args []string) int {
 	if os.Getenv(shimGuardEnv) != "" {
 		return execRealShell(args)
 	}
-	command := ""
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		// Accept -c, -lc, -ic and similar clusters, which harnesses use
-		// interchangeably.
-		if strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.Contains(a, "c") {
-			if i+1 < len(args) {
-				command = args[i+1]
-			}
-			break
-		}
-	}
+	command := shellCommandArg(args)
 	if command == "" {
 		return execRealShell(args)
 	}
@@ -93,6 +82,38 @@ func runBashShim(args []string) int {
 		return exitTransportFailure
 	}
 	return runOnTarget(shimContext(), sessionNameFromEnv(""), mapEmbeddedCwd(sess, command), "")
+}
+
+// shellCommandArg returns the command string of a `-c` invocation, or "" when
+// this is not one.
+//
+// Options stop at the first argument that is not one, exactly as a shell's own
+// parsing does: in `bash [options] script args...` everything from the script
+// path onwards belongs to the script, not to bash. Scanning the whole argv for
+// anything containing a "c" ignored that, and the result was not a missed
+// interception but a wrong one. A harness installed behind a wrapper is started
+// as `bash /path/to/wrapper <the harness's own flags>` — and codex's flags
+// begin `-c model_providers.reach.name="reach"`. reach took that for a command
+// and ran the config override on the target, where it arrived as
+// `bash: line 1: model_providers.reach.name=reach: command not found`, while
+// the wrapper it was actually asked to run never started at all.
+func shellCommandArg(args []string) string {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" || a == "-" || !strings.HasPrefix(a, "-") {
+			// End of options: a script path, or an explicit terminator.
+			return ""
+		}
+		// Accept -c, -lc, -ic and similar clusters, which harnesses use
+		// interchangeably. Long options are not shorthand clusters.
+		if !strings.HasPrefix(a, "--") && strings.Contains(a, "c") {
+			if i+1 < len(args) {
+				return args[i+1]
+			}
+			return ""
+		}
+	}
+	return ""
 }
 
 // mapEmbeddedCwd rewrites the `cd <dir> && <command>` prefix some harnesses

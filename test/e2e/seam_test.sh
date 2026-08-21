@@ -89,8 +89,11 @@ probe() {
     rw)
       task_label="read-write (write+read remote file)"
       local tmp_path="/tmp/reach-probe-rw-$RANDOM.txt"
+      # Plain `rm`, not `rm -f`: codex refuses `rm -f` by policy and reports
+      # the refusal instead of running anything, which measures codex's rules
+      # rather than reach's seam.
       prefix_args=(--task-prefix \
-        "echo reach_probe_write > $tmp_path && cat $tmp_path && rm -f $tmp_path")
+        "echo reach_probe_write > $tmp_path && cat $tmp_path && rm $tmp_path")
       ;;
     *)
       echo "unknown task $task" >&2; echo "error skip skip" > "$out_file"; return 0
