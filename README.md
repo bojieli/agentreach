@@ -12,6 +12,14 @@ its shell and its file tools move. The target needs nothing but the `sshd` it's
 already running: nothing gets installed there, no credential of yours goes there,
 and closing the session leaves nothing to clean up.
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/architecture-dark.svg">
+    <img src="docs/assets/architecture-light.svg" width="880"
+         alt="The coding agent and its credentials run on your machine. Only commands and file operations cross an ssh connection to the target, which needs nothing but the sshd it already runs.">
+  </picture>
+</p>
+
 ## Why this exists
 
 Think about the last time you SSHed somewhere to fix something. A build box, a
