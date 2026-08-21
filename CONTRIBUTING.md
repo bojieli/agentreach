@@ -1,93 +1,89 @@
-# Contributing to reach
+# Contributing to AgentReach
 
-## The standard of evidence
+## Before you start
 
-reach hooks undocumented implementation details in closed binaries. That makes
-one rule more important than any style guideline:
+AgentReach hooks undocumented implementation details in closed binaries. That shapes everything about how this project works and what it asks of contributors.
 
-> **Claims about a harness must be backed by an experiment, not by its docs.**
+The most important rule:
 
-If you add or change a harness adapter, add a conformance test that fails when
-the seam changes shape, and record what you observed in `docs/RESEARCH.md` with
-the version you observed it on. If you cannot verify something, say so in the
-docs rather than implying it works — `docs/harnesses/opencode.md` is the model
-for how to write down a partially verified adapter.
+> **Claims about an agent harness must be backed by an experiment, not by its docs.**
+
+Agent binaries are not open contracts. A seam that silently changes shape is the single most likely way this project breaks for users. If you add or change a harness adapter, you must:
+
+1. Run a real experiment that proves the seam does what you say.
+2. Record what you observed in `docs/RESEARCH.md`, with the exact harness version.
+3. Add a conformance test that will fail when the harness changes the shape you depend on.
+
+If you cannot verify something, say so in the docs rather than implying it works. [`docs/harnesses/opencode.md`](docs/harnesses/opencode.md) is the model for how to document a partially verified adapter.
+
+---
 
 ## Running the tests
 
 ```console
-make check        # vet + unit tests. No network, no API key, no tokens.
-make integration  # every file-operation tier against a real sshd.
-make bench        # what each tier costs; the source of the table in TRANSPORTS.md.
-make mock         # verifies the mock model server. No API key.
-make conformance  # checks harness seams still have the expected shape.
-make e2e          # real agents against a real target. SPENDS TOKENS.
+make check        # vet + unit tests — no network, no API key, no tokens
+make integration  # every file-operation tier against a real sshd
+make bench        # what each tier costs; source for the table in docs/TRANSPORTS.md
+make mock         # verifies the mock model server — no API key needed
+make conformance  # checks that harness seams still have the expected shape
+make e2e          # real agents against a real target — spends tokens
 ```
 
-`make integration` starts an `sshd` owned by your user on a high port, so it
-needs neither root, nor Docker, nor a network. Mocks are deliberately not used
-there: shell quoting that works locally but not through ssh's own re-parsing,
-exit statuses lost to ssh's use of 255, and whether a link is 8-bit clean are
-exactly the things a mock cannot catch. Set `REACH_TEST_SSHD=docker` to run against a Debian
-container instead, which is how a GNU target gets exercised from a BSD host.
+`make integration` starts an `sshd` owned by your user on a high port. It needs neither root, nor Docker, nor an external network. Mocks are deliberately not used there: shell-quoting bugs, exit statuses swallowed by SSH's use of 255, and whether a link is 8-bit clean are exactly the problems a mock cannot catch.
 
-Tests that spend model tokens are never part of `make check`, so a contributor
-without an API key can still develop and verify most of the project.
+Set `REACH_TEST_SSH_HOST=my-box` to run against a real remote host. Set `REACH_TEST_SSHD=docker` to run against a Debian container, which is how a GNU target gets exercised from a BSD host.
 
-### Adding or changing a file-operation tier
+Tests that spend model tokens are gated behind `make e2e` and are never part of `make check`, so you can develop and verify the vast majority of the project without an API key.
 
-Every tier runs one shared conformance suite, `internal/fileops/fileopstest`.
-Add cases there rather than to a single tier's tests: the tiers share
-almost no code, a user cannot tell which is in use, and the entire design rests
-on their being interchangeable. A case that only one tier passes is a case that
-belongs in the shared suite until every tier passes it.
+---
 
-If you change which tier reach negotiates, re-run `make bench` and update the
-table in `docs/TRANSPORTS.md`. The obvious ordering is wrong here — see that
-document for why — so this is a decision to measure rather than reason about.
+## Adding or changing a file-operation tier
+
+Every tier runs one shared conformance suite, [`internal/fileops/fileopstest`](internal/fileops/fileopstest). Add cases there rather than to a single tier's tests:
+
+- The tiers share almost no code.
+- A user cannot tell which tier is in use.
+- The entire design rests on their producing identical results.
+
+A case that only one tier passes belongs in the shared suite until every tier passes it.
+
+If you change which tier reach negotiates by default, re-run `make bench` and update the table in [`docs/TRANSPORTS.md`](docs/TRANSPORTS.md). The intuitive ordering is wrong here — see that document for why — so this is a decision to measure, not to reason about.
+
+---
+
+## Adding a harness adapter
+
+1. Read the existing adapters (start with Claude Code and Codex — they represent two opposite ends of the seam-quality spectrum).
+2. Find the seam. Harnesses provide shells through `env` vars, config files, exec-server protocols, or PATH shims. Prefer a first-class seam over an intercept.
+3. Write a probe: `reach harness verify <name>` should drive a real harness turn against the offline mock model and confirm where the command ran.
+4. Write a launch guard: if the seam can regress with a version bump (it usually can), refuse to launch a version with a bypassed seam rather than running the agent against the wrong machine.
+5. Document what you observed in `docs/harnesses/<name>.md` and `docs/RESEARCH.md`, with version numbers.
+
+---
 
 ## Design rules
 
-These are load-bearing. If a change violates one, it needs a very good reason.
+These are load-bearing. A change that violates one needs a very good reason and an explicit discussion.
 
-**Every failure must be a value the agent can reason about, never a process that
-stops responding.** This is why reach is request/response over SSH rather than a
-filesystem mount, and why timeouts and caps exist on every path.
+**Every failure must be a value the agent can reason about, never a process that stops responding.** This is why reach is request/response over SSH rather than a filesystem mount, and why timeouts and caps exist on every code path.
 
-**Silent wrong-target access is the worst possible failure.** An agent that
-reads a local file believing it is remote produces confident nonsense; one that
-writes a local file believing it is remote destroys the operator's work. Where
-reach cannot redirect a tool, it denies the tool. Where a session is engaged but
-broken, reach fails loudly rather than falling back to local execution.
+**Silent wrong-target access is the worst possible failure.** An agent that reads a local file believing it is remote produces confident nonsense. One that writes a local file believing it is remote destroys the operator's work. Where reach cannot redirect a tool, it denies the tool. Where a session is engaged but broken, reach fails loudly rather than falling back to local execution.
 
-**Nothing is installed on the target by default.** Tier 0 needs only a POSIX
-shell and writes nothing to the target's disk. Autonegotiation never selects the
-tier that installs a binary; that stays an explicit operator decision.
+**Nothing is installed on the target by default.** Tier 0 needs only a POSIX shell and writes nothing. Autonegotiation never selects the helper tier; that stays an explicit operator decision.
 
-**Untrusted targets stay untrusted.** No credential is ever sent to a target, and
-SSH agent forwarding is off unconditionally. Output from a target is untrusted
-input — it flows into the context of an agent holding the operator's
-credentials.
+**Untrusted targets stay untrusted.** No credential is ever sent to a target. SSH agent forwarding is off, unconditionally. Output from a target is untrusted input flowing into the context of an agent that holds the operator's credentials.
 
-### Platform differences
+---
 
-reach runs on Linux, macOS and Windows. Every difference between them lives in
-`cmd/reach/platform_other.go` and `cmd/reach/platform_windows.go`; if you find
-yourself adding a `runtime.GOOS` check anywhere else, add a function to those
-two files instead. The reason is not tidiness: three of the Windows differences
-fail *silently*, in the direction where an agent runs commands on the operator's
-own machine, and they are only findable when they are all in one place with the
-reasoning attached. See [docs/WINDOWS.md](docs/WINDOWS.md).
-
-## Code
+## Code style
 
 - Go 1.25.8+, `gofmt`, `go vet` clean.
-- Comments explain *why*, especially where the code looks odd. Most of the
-  strange-looking code in reach is strange because a harness or a shell made it
-  necessary, and the next reader needs to know which.
-- Errors should tell the operator what to do next, not just what went wrong.
+- Comments explain *why*, especially where the code looks odd. Most of the strange-looking code in reach is strange because a harness or shell made it necessary, and the next reader needs to know which.
+- Errors tell the operator what to do next, not just what went wrong.
+- Platform differences between Linux/macOS and Windows live exclusively in `cmd/reach/platform_other.go` and `cmd/reach/platform_windows.go`. If you find yourself adding a `runtime.GOOS` check anywhere else, add a function to those two files instead. Three of the Windows differences fail *silently* in the direction where an agent runs commands on the operator's own machine, and they are only findable when they are all in one place with the reasoning attached.
+
+---
 
 ## Reporting security issues
 
-Use GitHub Security Advisories on this repository rather than a public issue.
-See [docs/SECURITY.md](docs/SECURITY.md).
+Use [GitHub Security Advisories](https://github.com/bojieli/agentreach/security/advisories) rather than opening a public issue. See [`docs/SECURITY.md`](docs/SECURITY.md) for the full security model.

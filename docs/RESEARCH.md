@@ -1,22 +1,18 @@
-# Harness Integration Research
+# Harness Research
 
-Everything in this document was **verified empirically** against the named
-version by running a real agent, not inferred from documentation. Each claim
-carries the version it was checked against and the method used. Re-verify with
-`make conformance` after upgrading a harness.
+Everything in this document was **verified empirically** against the named version by running a real agent, not inferred from documentation. Each claim carries the version it was checked against and the method used. Re-verify with `make conformance` after upgrading a harness.
 
-Last verified: 2026-08-15, against clean installs of each version named below,
-on Linux x86_64 and macOS arm64.
+Last verified: 2026-08-15, against clean installs of each version named below, on Linux x86_64 and macOS arm64.
+
+For per-agent quick reference (seam, modes, known limits), see the individual files in [`docs/harnesses/`](harnesses/). This document records the raw experimental findings that back those claims.
 
 ---
 
 ## Why this document exists
 
-reach relies on interception seams that are, in most harnesses, undocumented
-implementation details. A seam that silently changes shape is the single most
-likely way this project breaks for users. So every seam is (a) verified by
-experiment, (b) recorded here with its exact observed shape, and (c) covered by
-a conformance test that fails loudly when the shape changes.
+AgentReach intercepts agent harnesses at seams that are, in most cases, undocumented implementation details of closed binaries. A seam that silently changes shape is the single most likely way this project breaks for users. So every seam is (a) verified by experiment, (b) recorded here with its exact observed shape, and (c) covered by a conformance test that fails loudly when the shape changes.
+
+The experiments here are not illustrations. They are the *source* of the claims made in the rest of the documentation. If a claim in the README or an architecture doc has no corresponding finding here, it is not a verified claim.
 
 ---
 

@@ -1,12 +1,8 @@
 # Security model
 
-reach's premise is that **the target is not trusted**. It exists precisely for
-the case where you want an agent to work on a machine you would not put your
-credentials on — a client's server, a shared box, a production host someone
-else administers.
+AgentReach's premise is that **the target is not trusted**. It exists precisely for the case where you want an agent to work on a machine you would not put your credentials on — a client's server, a shared box, a production host someone else administers.
 
-Please report vulnerabilities privately via GitHub Security Advisories on this
-repository rather than opening a public issue.
+To report a vulnerability, use [GitHub Security Advisories](https://github.com/bojieli/agentreach/security/advisories) rather than a public issue. Include the AgentReach version, the agent harness and version, and the target's `uname -sm`.
 
 ## What reach guarantees
 

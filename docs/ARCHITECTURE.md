@@ -1,9 +1,11 @@
-# reach Architecture
+# Architecture
 
 > A *reach* is a teleoperated remote manipulator: the operator stays behind the
 > barrier, the manipulator works inside. That is the whole design. The agent —
 > the brain, and the credentials it holds — never leaves your machine. Only the
 > observation and action space is remote.
+
+This document is the authoritative description of how AgentReach is built and why. It covers the design decisions, the rejected alternatives, and the constraints that shaped both. For a quick overview, the [README](../README.md) is the right starting point.
 
 ## Problem
 

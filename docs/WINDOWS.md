@@ -1,11 +1,8 @@
-# reach on Windows
+# Windows
 
-reach runs on Windows as an operator platform: reach and the agent live on your
-Windows machine, and the target is a remote POSIX host. A Windows machine is
-never a target — reach's floor is a POSIX shell, and Windows does not have one.
+AgentReach runs on Windows as the machine you sit at: the agent and `reach` live on your Windows machine, and the target is a remote POSIX host. A Windows machine is never a *target* — AgentReach's floor is a POSIX shell, and Windows does not provide one.
 
-This document records what had to differ, what is verified and how, and what is
-not.
+This document records what differs from the Linux/macOS path, what is verified and how, and what is not yet verified.
 
 ## What differs from Unix, and why
 

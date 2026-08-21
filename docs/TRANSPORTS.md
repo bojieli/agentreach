@@ -1,14 +1,10 @@
-# Transport tiers
+# File-operation tiers
 
-reach separates *how it reaches a target* (transport) from *how it performs file
-operations* (file-op strategy). File-op strategies are tiered by what the target
-can support, and reach negotiates automatically. Every tier is selectable
-explicitly with `--fileops=<tier>`; `reach doctor` reports which tiers a given
-host qualifies for and why.
+AgentReach separates *how it reaches a target* (transport: SSH, Docker, Podman) from *how it performs file operations on that target* (tier). The tier is negotiated automatically based on what the target supports. You can also pin a specific tier with `--fileops=<tier>`, and `reach doctor` reports which tiers a given host qualifies for and why.
 
-The guarantee: **tier 0 works on any host running stock `sshd` and requires
-nothing installed, nothing written to disk, and no subsystem beyond a login
-shell.** Higher tiers are optimisations, never requirements.
+The key guarantee: **tier 0 works on any host running stock `sshd` and requires nothing installed, nothing written to disk, and nothing beyond a login shell.** Higher tiers are optimisations, never requirements.
+
+> **For most users:** you do not need to think about tiers. `reach up` negotiates the best option and records it. If you want to audit what was chosen, `reach status` tells you. If you want to ensure nothing is written to the target, `--fileops=posix` or `--fileops=pipe` guarantees it.
 
 | tier | name | remote requirement | writes to remote disk |
 |---|---|---|---|
