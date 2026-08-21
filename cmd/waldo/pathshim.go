@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/bojieli/waldo/internal/session"
 )
 
 // bashShimName is the logical name waldo answers to when installed on PATH as a
@@ -61,7 +63,8 @@ func runBashShim(args []string) int {
 	if command == "" {
 		return execRealShell(args)
 	}
-	if _, err := loadSessionQuiet(); err != nil {
+	sess, sessErr := loadSessionQuiet()
+	if sessErr != nil {
 		// If waldo was never engaged for this process, a shell invocation is
 		// somebody else's and belongs on the local machine.
 		if os.Getenv("WALDO_SESSION") == "" {
@@ -76,10 +79,91 @@ func runBashShim(args []string) int {
 				"       The agent expects it to run on the target. Start the session with:\n"+
 				"         waldo up <target> --name %s\n"+
 				"       Reason: %v\n",
-			os.Getenv("WALDO_SESSION"), os.Getenv("WALDO_SESSION"), err)
+			os.Getenv("WALDO_SESSION"), os.Getenv("WALDO_SESSION"), sessErr)
 		return exitTransportFailure
 	}
-	return runOnTarget(shimContext(), sessionNameFromEnv(""), command, "")
+	return runOnTarget(shimContext(), sessionNameFromEnv(""), mapEmbeddedCwd(sess, command), "")
+}
+
+// mapEmbeddedCwd rewrites the `cd <dir> && <command>` prefix some harnesses
+// wrap every shell call in (Kimi does this unconditionally) so the directory
+// is the target's, not the operator's.
+//
+// The harness computes <dir> on the local machine — its own working directory
+// — so forwarded verbatim the prefix either fails outright (the path does not
+// exist on the target) or, worse, lands the command in an unrelated directory
+// that happens to exist on both machines. waldo maps the harness's workspace,
+// passed down as WALDO_EXEC_WORKSPACE by the launcher, onto the session's
+// target root; a cd anywhere else is left alone, because that is the agent
+// thinking in the target's own paths.
+//
+// Anything that does not match the exact prefix shape is returned untouched:
+// rewriting arbitrary commands is worse than the leak it would prevent.
+func mapEmbeddedCwd(sess *session.Session, command string) string {
+	workspace := os.Getenv("WALDO_EXEC_WORKSPACE")
+	if workspace == "" || sess == nil || sess.Target == nil || sess.Target.Workspace == "" {
+		return command
+	}
+	dir, rest, ok := splitCdPrefix(command)
+	if !ok {
+		return command
+	}
+	// macOS canonicalises /tmp to /private/tmp and the harness may report
+	// either spelling, so compare both forms of the workspace.
+	candidates := []string{filepath.Clean(workspace)}
+	if resolved, err := filepath.EvalSymlinks(workspace); err == nil {
+		candidates = append(candidates, filepath.Clean(resolved))
+	}
+	for _, ws := range candidates {
+		if dir == ws {
+			return "cd " + shellQuote(sess.Target.Workspace) + " && " + rest
+		}
+		if rel, err := filepath.Rel(ws, dir); err == nil && rel != ".." && !strings.HasPrefix(rel, "../") {
+			mapped := sess.Target.Workspace + "/" + filepath.ToSlash(rel)
+			return "cd " + shellQuote(mapped) + " && " + rest
+		}
+	}
+	return command
+}
+
+// splitCdPrefix parses a leading `cd <dir> && ` wrapper, returning the
+// directory and the remaining command. The directory may be single-quoted,
+// double-quoted or bare; anything more exotic is not a prefix waldo
+// recognises.
+func splitCdPrefix(command string) (dir, rest string, ok bool) {
+	if !strings.HasPrefix(command, "cd ") {
+		return "", "", false
+	}
+	body := strings.TrimLeft(command[len("cd "):], " \t")
+	switch {
+	case strings.HasPrefix(body, "'"):
+		end := strings.Index(body[1:], "'")
+		if end < 0 {
+			return "", "", false
+		}
+		dir, rest = body[1:1+end], body[1+end+1:]
+	case strings.HasPrefix(body, `"`):
+		end := strings.Index(body[1:], `"`)
+		if end < 0 {
+			return "", "", false
+		}
+		dir, rest = body[1:1+end], body[1+end+1:]
+	default:
+		end := strings.IndexAny(body, " \t")
+		if end < 0 {
+			return "", "", false
+		}
+		dir, rest = body[:end], body[end:]
+	}
+	rest = strings.TrimLeft(rest, " \t")
+	if !strings.HasPrefix(rest, "&& ") {
+		return "", "", false
+	}
+	rest = strings.TrimSpace(rest[len("&& "):])
+	if dir == "" || rest == "" {
+		return "", "", false
+	}
+	return dir, rest, true
 }
 
 // execRealShell replaces this process with the genuine shell, with waldo's shim
