@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/bojieli/agentreach/internal/reach"
 )
@@ -222,5 +223,78 @@ func TestRunStreamDoesNotRetryADroppedConnection(t *testing.T) {
 	attempts, overflows := tr.counts()
 	if attempts != 1 || overflows != 0 {
 		t.Errorf("%d attempts and %d overflows after a dropped connection, want 1 and 0", attempts, overflows)
+	}
+}
+
+// slowTransport never finishes, standing in for a command that outlives the
+// patience reach has for it.
+type slowTransport struct{ scriptedTransport }
+
+func (s *slowTransport) Open(ctx context.Context, _ string) (Stream, error) {
+	done := make(chan struct{})
+	var once sync.Once
+	stop := func() { once.Do(func() { close(done) }) }
+	// exec.CommandContext kills the process when the context ends, which is
+	// what closes the pipes reach is reading. A fake that did not would hang
+	// the copy that Close is waiting behind.
+	go func() {
+		<-ctx.Done()
+		stop()
+	}()
+	return Stream{
+		Stdin:  nopWriteCloser{io.Discard},
+		Stdout: blockingReader{done},
+		Stderr: blockingReader{done},
+		Wait:   func() (int, error) { return 0, nil },
+		Close:  func() error { stop(); return nil },
+	}, nil
+}
+
+// blockingReader blocks until the stream is closed, then reports EOF.
+type blockingReader struct{ done chan struct{} }
+
+func (b blockingReader) Read([]byte) (int, error) {
+	<-b.done
+	return 0, io.EOF
+}
+
+// TestATimedOutCommandSaysItMayStillBeRunning: closing the channel is all reach
+// can do — a stock sshd offers no way to signal a remote process group, and a
+// command producing no output never notices the disconnect. Reporting only
+// "context deadline exceeded" leaves an operator believing the command stopped
+// because reach stopped waiting for it.
+func TestATimedOutCommandSaysItMayStillBeRunning(t *testing.T) {
+	tr := &slowTransport{}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	var out, errOut bytes.Buffer
+	_, err := RunStream(ctx, tr, reach.ExecRequest{Command: "sleep 600"}, &out, &errOut)
+	if err == nil {
+		t.Fatal("a command that never finished was reported as succeeding")
+	}
+	if !strings.Contains(err.Error(), "may still be") {
+		t.Errorf("the timeout does not warn that the command may have outlived it: %v", err)
+	}
+	if !strings.Contains(err.Error(), "reach exec -- ps") {
+		t.Errorf("the timeout does not say how to check: %v", err)
+	}
+}
+
+// A local command is reach's own child and really is killed, so the warning
+// would be false there.
+func TestALocalCommandIsNotSaidToSurvive(t *testing.T) {
+	local, err := NewLocal()
+	if err != nil {
+		t.Skipf("no POSIX shell here: %v", err)
+	}
+	if mayOutliveDisconnect(local) {
+		t.Error("a local command was described as able to outlive reach")
+	}
+	if note := abandonedCommandNote(local); note != "" {
+		t.Errorf("a local target got the remote-orphan warning: %q", note)
+	}
+	if !mayOutliveDisconnect(&scriptedTransport{}) {
+		t.Error("a remote command was described as dying with the connection")
 	}
 }

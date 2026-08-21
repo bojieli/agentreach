@@ -127,6 +127,23 @@ command failure sends the agent chasing a phantom bug, and a command failure
 reported as a transport failure makes reach retry something that must not be
 retried.
 
+## A command reach stops waiting for may not stop running
+
+Closing the channel is the whole of reach's control over a command it started.
+A stock sshd offers no way to signal a remote process group, and a command that
+produces no output never notices that the pipe it would have got `EPIPE` from
+has gone — so a timeout, an interrupt, or codex's Esc key ends reach's *interest*
+in a command without necessarily ending the command. `sleep 600` survives; a
+quiet build survives; anything writing steadily to stdout usually does not.
+
+reach does not paper over this. A timed-out command says the command may still
+be running and how to check, rather than reporting only that reach gave up. The
+alternative — a shell wrapper that watches for its own stdin to close and kills
+a process group — needs `setsid` or job control that a POSIX floor does not
+guarantee, and getting it wrong means signalling the wrong process group on
+somebody else's server. A local target is not affected: that process is reach's
+own child and is killed.
+
 ## The two interfaces
 
 reach separates *reaching a target* from *performing file operations on it*.

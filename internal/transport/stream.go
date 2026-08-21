@@ -101,7 +101,7 @@ func runStreamOnce(ctx context.Context, t Transport, req reach.ExecRequest, stdo
 		return 0, wrote, fmt.Errorf("%s: reading output: %w", t.Describe(), copyErr)
 	}
 	if ctx.Err() != nil {
-		return 0, wrote, fmt.Errorf("%s: %w", t.Describe(), ctx.Err())
+		return 0, wrote, fmt.Errorf("%s: %w%s", t.Describe(), ctx.Err(), abandonedCommandNote(t))
 	}
 	if code, ok := filter.exitCode(); ok {
 		return code, wrote, nil
@@ -115,6 +115,38 @@ func runStreamOnce(ctx context.Context, t Transport, req reach.ExecRequest, stdo
 	failure := fmt.Sprintf("%s: connection closed before the command completed (status %d)%s",
 		t.Describe(), waitCode, complaint(tap.String()))
 	return 0, wrote, fmt.Errorf("%s%s", failure, advise(t, failure))
+}
+
+// abandonedCommandNote warns that a command reach gave up on may still be
+// running where it was started.
+//
+// Closing the channel is all reach can do. A stock sshd offers no way to signal
+// a remote process group, and a command that is not writing output never
+// notices the pipe it would have got EPIPE from — so `sleep 600` survives a
+// timeout, and so does a quiet build. Saying nothing leaves an operator
+// believing a command stopped because reach stopped waiting for it, which is
+// the sort of quiet wrong impression this project refuses elsewhere.
+//
+// A local target is different: reach owns that process and kills it outright.
+func abandonedCommandNote(t Transport) string {
+	if !mayOutliveDisconnect(t) {
+		return ""
+	}
+	return "\n\nreach stopped waiting and closed the channel, but the command may still be\n" +
+		"running on the target: a stock sshd offers no way to signal a remote process\n" +
+		"group, and a command producing no output never notices the disconnect. Check\n" +
+		"with `reach exec -- ps`, or give commands longer with `reach up --timeout`."
+}
+
+// mayOutliveDisconnect reports whether a command started through this transport
+// can keep running after reach stops talking to it.
+//
+// A local command is reach's own child and is killed. Everything else runs
+// under something reach only holds a pipe to — sshd, a container runtime — and
+// closing the pipe is not the same as ending the process.
+func mayOutliveDisconnect(t Transport) bool {
+	_, local := t.(*LocalTransport)
+	return !local
 }
 
 // complaint renders the target's own explanation as a suffix, when there is one.
