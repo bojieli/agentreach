@@ -39,8 +39,7 @@ changed, so `Read`, `Edit` and `Write` work natively on remote content.
 search would report confidently incomplete results.
 
 ```console
-reach up ssh://box/srv/app --mode mirror
-reach claude
+reach ssh://box/srv/app --mode mirror claude
 ```
 
 Writes are guarded by a content digest taken at fetch time. If the file changed

@@ -64,9 +64,13 @@ type Session struct {
 	// ~130 ms per command, and it is recorded rather than assumed because
 	// Win32-OpenSSH does not implement the feature.
 	Multiplex bool `json:"multiplex"`
-	// Untrusted marks a target whose operator you are not. reach will not
-	// install anything on it and will not forward an SSH agent to it.
-	Untrusted bool `json:"untrusted"`
+	// A session written by 0.1.0 or 0.1.1 may carry an "untrusted" field. It is ignored
+	// rather than migrated, and the schema version does not move for it: what
+	// the field promised is now unconditional — no credential goes to any
+	// target, no agent is forwarded to any target, and nothing is installed on
+	// one unless the operator names the helper tier by hand — so there is no
+	// policy left for it to have meant, and a document written by either build
+	// loads identically in the other.
 	// Timeout bounds an individual command.
 	Timeout time.Duration `json:"timeout"`
 }
@@ -259,7 +263,10 @@ var ErrNotSession = errors.New("is not a reach session file")
 type noSuchSessionError struct{ name string }
 
 func (e *noSuchSessionError) Error() string {
-	return fmt.Sprintf("no reach session named %q. Start one with:\n  reach up ssh://host/path --name %s",
+	return fmt.Sprintf("no reach session named %q. Start one with:\n"+
+		"  reach up ssh://host/path --name %s\n"+
+		"or point the command straight at a target, which names the session for you:\n"+
+		"  reach ssh://host/path claude",
 		e.name, e.name)
 }
 
@@ -423,9 +430,10 @@ func (s *Session) transport(batch bool) (transport.Transport, error) {
 			// it. Assuming it here would mean sending options that a client
 			// without the feature may refuse outright.
 			Multiplex: s.Multiplex,
-			// Agent forwarding is refused outright for untrusted targets: a
-			// forwarded agent socket lets root on that host authenticate as
-			// the operator against every other system they can reach.
+			// Agent forwarding is refused for every target, and no flag turns
+			// it on: a forwarded agent socket lets root on that host
+			// authenticate as the operator against every other system they can
+			// reach, and no target reach connects to is trusted with that.
 			ForwardAgent: false,
 			BatchMode:    batch,
 		})
@@ -478,6 +486,31 @@ func (s *Session) checkWorkspace(ctx context.Context, t transport.Transport) err
 			"at a path that exists.", s.Target.Workspace, s.Target.Describe())
 }
 
+// loginDir asks the target where a plain login lands.
+//
+// This is what an absent path in a target spec means. It is a question only
+// the target can answer — the operator's own home directory is irrelevant, and
+// on a container it may not exist at all — so reach asks rather than guesses.
+func loginDir(ctx context.Context, t transport.Transport) (string, error) {
+	res, err := t.Run(ctx, reach.ExecRequest{Command: "pwd", MaxOutput: 4 << 10})
+	if err != nil {
+		return "", fmt.Errorf("ask the target where a login starts: %w", err)
+	}
+	dir := strings.TrimSpace(string(res.Stdout))
+	if res.Code != 0 || dir == "" {
+		return "", fmt.Errorf(
+			"the target did not say where a login starts, so reach does not know where to work.\n"+
+				"Name the directory instead, as in ssh://host/srv/app: %s",
+			strings.TrimSpace(string(res.Stderr)))
+	}
+	if !strings.HasPrefix(dir, "/") {
+		return "", fmt.Errorf(
+			"the target reported %q as its starting directory, which is not an absolute path.\n"+
+				"Name the directory instead, as in ssh://host/srv/app", dir)
+	}
+	return dir, nil
+}
+
 // FileOps builds the file-operation strategy for this session's tier.
 //
 // A pinned tier — one the operator named with --fileops — is never silently
@@ -485,11 +518,6 @@ func (s *Session) checkWorkspace(ctx context.Context, t transport.Transport) err
 // stderr, because a host that stopped answering on its usual tier should keep
 // working, but not without the operator being able to see that it changed.
 func (s *Session) FileOps(ctx context.Context, t transport.Transport) (fileops.Selection, error) {
-	if s.Tier == reach.TierHelper && s.Untrusted {
-		return fileops.Selection{}, fmt.Errorf(
-			"session %q is marked --untrusted, and the helper tier installs a binary on the target.\n"+
-				"Re-create the session without --untrusted, or use a tier that installs nothing.", s.Name)
-	}
 	warn := func(msg string) { fmt.Fprintln(os.Stderr, msg) }
 	return fileops.New(ctx, s.Tier, t, s.Caps, s.Pinned, warn)
 }
@@ -507,6 +535,20 @@ func (s *Session) Probe(ctx context.Context) error {
 		return err
 	}
 	defer func() { _ = t.Close() }()
+
+	// A target given without a path — `ssh://build-box`, `build-box:` — means
+	// the directory a login there lands in. It is resolved once, here, and
+	// written into the session: asking the target every time would leave two
+	// commands in one session disagreeing about where they are working if the
+	// home directory ever moved, and the whole point of a session is that they
+	// cannot.
+	if s.Target.Workspace == "" {
+		ws, err := loginDir(ctx, t)
+		if err != nil {
+			return err
+		}
+		s.Target.Workspace = ws
+	}
 
 	caps, err := fileops.Probe(ctx, t)
 	if err != nil {

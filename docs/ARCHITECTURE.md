@@ -88,6 +88,39 @@ means the remote shell was never started, so there is nothing to have
 half-happened. A connection that dropped mid-command is never retried, because
 it says nothing about whether the command ran.
 
+## A target names its session
+
+`reach <target> <command>` — `reach build-box claude` — binds a session and
+runs the command against it in one line. The two-step form (`reach up`, then
+`reach claude`) still exists for sessions that outlive a single agent, but it is
+no longer the way in, for two reasons.
+
+The first is arithmetic. A session that exists for the length of one agent
+should not cost three commands to create, use and destroy.
+
+The second is a trap. `reach up` defaults the session name to `default`, so a
+second `reach up` with no `--name` silently replaced the first session — and
+because the harness launchers resolve their target through that same name, an
+agent already working through it started running its commands on a different
+machine. reach could always hold many sessions at once; they had to be named by
+hand, and nothing said so. In the one-shot form the target names the session
+(`build-box`, `build-box-app`), a name already taken by a *different* target
+gets a numbered variant rather than being overwritten, and `reach up` now says
+so out loud when it repoints a name.
+
+A second command against a target reuses that target's session instead of
+probing again — a probe costs a round trip and an authentication, and asking a
+host questions it has already answered would be work with no answer attached.
+What is not skipped is the connection: reuse re-authenticates while the operator
+is still present, because every connection after that runs in batch mode and
+cannot prompt for a passphrase or a hardware token.
+
+A bare word is read as a host only when the operator's own ssh configuration or
+hosts file names it, or when it is an address or a dotted name. DNS is
+deliberately not consulted: resolvers that answer for every name are common
+enough that a lookup would turn `reach stauts` into a connection attempt on
+exactly the networks where that mistake is hardest to see.
+
 ## Platforms
 
 reach runs on Linux, macOS and Windows, and targets any POSIX host. The split
@@ -215,9 +248,9 @@ Full detail, including what each tier requires and writes, is in
   substituting something else, because a `reach status` reporting a tier the
   session is not using is a lie the operator will act on. An autonegotiated tier
   may still step down, and says so on stderr.
-- **Only the helper tier writes to the target**, only when asked, never on an
-  `--untrusted` session. Everything it installs is listed by `reach doctor` and
-  removed by `reach helper uninstall`.
+- **Only the helper tier writes to the target**, and only when the operator
+  names it: autonegotiation stops below it. Everything it installs is listed by
+  `reach doctor` and removed by `reach helper uninstall`.
 
 ## Two modes
 
@@ -378,7 +411,7 @@ Everything below is optional; reach works with none of it set.
 | Variable | Effect |
 |---|---|
 | `REACH_HOME` | Where sessions, mirrors and audit logs live. Default `~/.reach`. Setting it per-shell gives you independent sets of sessions. |
-| `REACH_SESSION` | The session commands use when `--session` is absent. `reach claude` and the other harness launchers set it for the process they start, which is how a harness's tool calls find the right target. |
+| `REACH_SESSION` | The session commands use when `--session` is absent. `reach claude` and the other harness launchers set it for the process they start, which is how a harness's tool calls find the right target, and `reach <target> <command>` sets it to the session the target named. |
 | `REACH_SSH_CONFIG` | An alternate `ssh_config`, passed as `ssh -F`. Lets reach's connections be configured separately from your interactive ones without duplicating host definitions. |
 | `REACH_CONTROL_PERSIST` | How long the authenticated connection outlives its last command — a duration, or `yes` to keep it until `reach down`. Default one hour. Every connection after `reach up` runs in batch mode and cannot prompt, so on a host wanting a password or a hardware token this is the difference between a reconnect and a failed tool call. |
 | `REACH_NO_AUDIT` | Set to any value to stop recording what reach did. A record of every command is occasionally the wrong thing to keep — a shared machine, a command line carrying a secret — and that judgement is the operator's. |

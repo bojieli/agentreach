@@ -20,6 +20,11 @@ func platformCheck() error { return nil }
 // has one, so any failure is worth telling the operator about.
 func execUnsupported(error) bool { return false }
 
+// hostsFilePath is the file that maps names to addresses without DNS. reach
+// reads it to decide whether a bare word in `reach <target> <command>` names a
+// machine.
+func hostsFilePath() string { return "/etc/hosts" }
+
 // programName renders an executable's filename. Unix does not decorate them.
 func programName(base string) string { return base }
 

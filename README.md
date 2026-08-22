@@ -35,45 +35,50 @@ until the morning it doesn't.
 ## What reach actually does
 
 The agent stays where it is. What moves is the work it hands off. An agent only
-touches a machine two ways: it shells out to run a command, and it reads or
-writes files. reach gets in the middle of both, on your side, before either one
+touches a machine two ways — it runs shell commands, and it reads or writes
+files — and reach gets in the middle of both, on your side, before either one
 reaches your disk.
 
-The shell is the easy half. Most harnesses ship a supported way to replace
-whatever they spawn as a shell, so reach uses it. Claude Code has
-`CLAUDE_CODE_SHELL_PREFIX`. Goose has `GOOSE_SHELL`. Codex speaks a
-remote-environment protocol. opencode lets a custom tool shadow a built-in one.
-Where nothing like that exists, reach puts its own `bash` earlier on `PATH` and
-wins the lookup. Whichever door it comes in through, the command gets unwrapped,
-sent over ssh and run on the target. As far as the model can tell, it called
-`Bash` and got back stdout and an exit code.
+**Commands.** reach takes over whatever the harness spawns as a shell, unwraps
+the command, runs it over ssh on the target, and hands back stdout and an exit
+code. As far as the model can tell, it called `Bash`. Every harness offers some
+door in:
 
-Files depend on the mode. In exec mode the agent's own `Read`, `Write` and `Edit`
-are switched off, because they call the local filesystem directly and there's no
-seam to redirect them through. The agent falls back to its shell, which is
-already remote. In mirror mode reach answers those calls itself, pulling the file
-over the same ssh connection when a tool opens it and pushing it back when it
-changes. That path is wired up for Claude Code today.
+- Claude Code — `CLAUDE_CODE_SHELL_PREFIX`
+- Goose — `GOOSE_SHELL`
+- Codex — its remote-environment protocol
+- opencode — a custom tool shadowing the built-in one
+- anything else — reach's own `bash`, earlier on `PATH`, winning the lookup
 
-Worth being precise about what this isn't. reach doesn't trace syscalls, and
-there's no filesystem in any of it: no SSHFS, no FUSE, no mount, and no file
-synchronisation between the two machines. It sits at the seam where the agent
-hands work to the operating system, one request and one response at a time.
+**Files.** Depends on the mode:
+
+- **exec mode** — the agent's own `Read`, `Write` and `Edit` are switched off.
+  They call the local filesystem directly and there is no seam to redirect them
+  through, so the agent falls back to its shell, which is already remote.
+- **mirror mode** — reach answers those calls itself, pulling the file over the
+  same ssh connection when a tool opens it and pushing it back when it changes.
+  Wired up for Claude Code today.
+
+**What this isn't.** No syscall tracing. No filesystem in any of it: no SSHFS,
+no FUSE, no mount, no file synchronisation between the two machines. reach sits
+at the seam where the agent hands work to the operating system, one request and
+one response at a time.
+
 [HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md) walks a single tool call through the
 whole path, in figures.
 
 ## What it looks like
 
 ```console
-$ reach up ssh://build-box/srv/app
-probing ssh://build-box/srv/app ...
-session "default" -> ssh://build-box/srv/app
+$ reach build-box claude
+probing ssh://build-box ...
+session "build-box" -> ssh://build-box/home/you
   target   Linux x86_64
   fileops  pipe (negotiated; nothing written to the target)
   search   ripgrep (fast, structured)
   connect  multiplexed (one authenticated connection, reused)
+reach: Claude Code -> ssh://build-box/home/you (bash runs on the target)
 
-$ reach claude
 > what's eating disk on this box?
 ```
 
@@ -129,37 +134,56 @@ you can reach over `ssh://`, `docker://`, `podman://`, or the usual
 
 ## Quick start
 
-Point reach at something:
+Name a machine, then name an agent:
 
 ```console
-reach up ssh://build-box/srv/app                     # a server you own
-reach up ssh://client-box/srv/app --untrusted        # somebody else's server
+reach build-box claude                        # an ssh_config alias; work where a login lands
+reach ssh://build-box/srv/app claude          # ... or in a directory you name
+reach client-box:/srv/app codex               # somebody else's server
 ```
 
-This opens one multiplexed SSH connection and asks the host what it can do.
-`--untrusted` promises that the optional helper binary will never be installed
-there, no matter what. Either way, `reach doctor` will tell you exactly what was
-found, which tier got picked, and whether anything is sitting on the target.
+reach opens one multiplexed SSH connection, asks the host what it can do, and
+launches the agent locally with its shell quietly redirected there. You talk to
+it like you always do. Nothing is written to that host unless you ask for the
+helper tier by name, and `reach doctor` tells you exactly what was found, which
+tier got picked, and whether anything is sitting on the target.
 
-Then start your agent:
+Any command takes a target, not just the agents:
 
 ```console
-reach claude       # Claude Code
-reach codex        # Codex
-reach goose        # Goose
-reach grok         # Grok Build
+reach build-box exec -- go test ./...
+reach build-box doctor
 ```
 
-It launches locally, with its shell quietly redirected to the remote host, and
-you talk to it like you always do.
+Each target gets its own session, named after it, so **several machines can be
+open at once** — one terminal per box, and no bookkeeping to keep them apart:
+
+```console
+$ reach status
+NAME            TARGET                    MODE  FILEOPS  CWD
+build-box-app   ssh://build-box/srv/app   exec  pipe     /srv/app
+client-box-app  ssh://client-box/srv/app  exec  posix    /srv/app
+```
+
+A second command against a target reuses that session instead of probing again,
+so running one costs no more than typing it.
 
 When you're finished:
 
 ```console
-reach down
+reach down build-box-app
 ```
 
 That closes the connection and leaves nothing behind.
+
+For a session meant to outlive one agent — several commands, several days, a
+name you chose — bind it up front and address it by name:
+
+```console
+reach up ssh://build-box/srv/app --name build
+reach claude --session build
+reach down build
+```
 
 ## Agents that work today
 
@@ -172,7 +196,7 @@ That closes the connection and leaves nothing behind.
 | [Goose](docs/harnesses/goose.md) | `reach goose` | `GOOSE_SHELL`, a documented override | verified |
 | [Crush](docs/harnesses/crush.md) | `reach crush` | its own server mode, run on the target | verified |
 | [Gemini CLI](docs/harnesses/gemini.md) | `reach gemini` | a `bash` earlier on `PATH`, plus `excludeTools` for the rest | verified |
-| [Grok Build](docs/harnesses/grok.md) | `reach grok` | `$SHELL` / `GROK_SHELL`, plus deny rules for file tools | verified (1.0.5) |
+| [Grok Build](docs/harnesses/grok.md) | `reach grok` | `$SHELL`, plus an agent profile that removes the file tools | verified (1.0.5) |
 
 Those fall into three groups, plus one exception, and the group decides how much
 of the agent survives the trip.
@@ -203,6 +227,7 @@ touches them.
 ## Commands
 
 ```console
+reach <target> <cmd>    bind a session to the target and run the command there
 reach up <target>       bind a session to a target and probe what it supports
 reach down [session]    close a session and leave no trace
 reach status            show active sessions
@@ -216,11 +241,26 @@ reach helper uninstall  remove anything reach put on the target
 Targets look like this:
 
 ```
+build-box                      an ssh_config alias, or a name in /etc/hosts
 ssh://user@host/path/to/work
 user@host:/path/to/work        (scp-style shorthand)
 docker://container/path
 podman://container/path
 local:///path                  (this machine, mostly for testing)
+```
+
+Leave the path off any of them — `build-box`, `ssh://build-box` — and the
+session works wherever a login on that machine lands, which reach asks the
+machine for rather than guessing. A bare word is read as a host only when your
+own ssh configuration or hosts file names it, or when it is an address or a
+dotted name; anything else is reported as a mistyped command, which is what it
+almost always is.
+
+Session flags go between the target and the command, and everything from the
+command onwards belongs to the command:
+
+```console
+reach build-box --mode mirror --fresh claude --resume
 ```
 
 ## Why not SSHFS, an MCP server, or just SSH?
@@ -290,8 +330,7 @@ rather use Claude Code's native file tools than push every change through a shel
 redirect:
 
 ```console
-reach up ssh://build-box/srv/app --mode mirror
-reach claude
+reach ssh://build-box/srv/app --mode mirror claude
 ```
 
 Mirror keeps a content digest for each file it hands over, so if the file changed

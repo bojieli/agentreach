@@ -71,7 +71,7 @@ These are load-bearing. A change that violates one needs a very good reason and 
 
 **Nothing is installed on the target by default.** Tier 0 needs only a POSIX shell and writes nothing. Autonegotiation never selects the helper tier; that stays an explicit operator decision.
 
-**Untrusted targets stay untrusted.** No credential is ever sent to a target. SSH agent forwarding is off, unconditionally. Output from a target is untrusted input flowing into the context of an agent that holds the operator's credentials.
+**Every target is untrusted, and there is no flag that says otherwise.** No credential is ever sent to a target. SSH agent forwarding is off, unconditionally. Output from a target is untrusted input flowing into the context of an agent that holds the operator's credentials.
 
 ---
 

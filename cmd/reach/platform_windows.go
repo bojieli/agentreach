@@ -36,6 +36,18 @@ func platformCheck() error { return nil }
 // path on this platform, not a degradation worth a warning.
 func execUnsupported(err error) bool { return errors.Is(err, syscall.EWINDOWS) }
 
+// hostsFilePath is the file that maps names to addresses without DNS. reach
+// reads it to decide whether a bare word in `reach <target> <command>` names a
+// machine. Windows keeps it under the system root rather than in /etc, and
+// SystemRoot is read from the environment because the drive is not always C:.
+func hostsFilePath() string {
+	root := os.Getenv("SystemRoot")
+	if root == "" {
+		root = `C:\Windows`
+	}
+	return filepath.Join(root, "System32", "drivers", "etc", "hosts")
+}
+
 // programName renders an executable's filename.
 //
 // The extension is not cosmetic. Windows will not execute a file without one

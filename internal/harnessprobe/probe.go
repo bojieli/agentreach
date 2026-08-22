@@ -356,6 +356,17 @@ func kimiArgs(_ string) []string {
 	return []string{"-p", "Follow the tool-call instructions exactly."}
 }
 
+// reachSessionKey is dropped from every inherited probe environment before the
+// probe's own value is appended.
+//
+// A duplicate key is resolved by whichever end of the block the child reads
+// first, so an inherited REACH_SESSION — from the operator's shell, or from
+// `reach <target> claude` setting it in this process — could win over the one
+// the probe is measuring. The shim would then route the probe's tool calls
+// through the operator's real session, and the seam under test would be
+// reported on the strength of a run that never used it.
+const reachSessionKey = "REACH_SESSION"
+
 // baseProbeEnv builds the part of the probe environment every harness shares:
 // REACH_SESSION binding the shim to the probe session exactly as `reach
 // <harness>` does, and the shim directory leading PATH — the seam under test.
@@ -364,7 +375,7 @@ func baseProbeEnv(sessName, shimDir string, strip func(key string) bool) []strin
 	var env []string
 	for _, kv := range os.Environ() {
 		key, value, _ := strings.Cut(kv, "=")
-		if strip(key) {
+		if strip(key) || key == reachSessionKey {
 			continue
 		}
 		if strings.EqualFold(key, "PATH") {
@@ -679,7 +690,7 @@ func claudeCodeEnv(sessName, shellPrefixPath, home, baseURL string) []string {
 	var env []string
 	for _, kv := range os.Environ() {
 		key, _, _ := strings.Cut(kv, "=")
-		if key == "HOME" ||
+		if key == "HOME" || key == reachSessionKey ||
 			strings.HasPrefix(key, "ANTHROPIC_") ||
 			strings.HasPrefix(key, "CLAUDE_") {
 			continue

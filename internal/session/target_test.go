@@ -23,6 +23,13 @@ func TestParseTargetForms(t *testing.T) {
 		// An ssh_config alias must survive untouched, since reach delegates
 		// destination resolution to the user's ssh client.
 		{"ssh://my-alias/srv/app", KindSSH, "my-alias", "", 0, "", "/srv/app"},
+		// No path: the session works wherever a login on that target lands,
+		// which Probe resolves and records. The short spellings are what make
+		// `reach build-box claude` typable.
+		{"ssh://build-box", KindSSH, "build-box", "", 0, "", ""},
+		{"ssh://root@build-box:2222", KindSSH, "build-box", "root", 2222, "", ""},
+		{"build-box:", KindSSH, "build-box", "", 0, "", ""},
+		{"docker://c1", KindDocker, "", "", 0, "c1", ""},
 	}
 	for _, c := range cases {
 		got, err := ParseTarget(c.spec)
@@ -40,7 +47,6 @@ func TestParseTargetForms(t *testing.T) {
 func TestParseTargetRejectsBadInput(t *testing.T) {
 	for _, spec := range []string{
 		"",                   // empty
-		"ssh://box",          // no workspace: reach would not know where to work
 		"ssh://box/relative", // caught below as absolute; kept for clarity
 		"ftp://box/srv",      // unsupported scheme
 		"docker:///srv",      // no container name

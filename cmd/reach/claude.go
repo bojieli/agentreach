@@ -72,10 +72,14 @@ func cmdClaude(ctx context.Context, args []string) int {
 		return 1
 	}
 
-	env := append(os.Environ(),
-		"REACH_SESSION="+sessName,
-		"CLAUDE_CODE_SHELL_PREFIX="+shim,
-	)
+	// A duplicate environment key is resolved by whichever end of the block
+	// the child reads first, so REACH_SESSION is replaced rather than
+	// appended: os.Environ() may already carry one — from the operator's
+	// shell, or from `reach <target> claude` setting it in this process — and
+	// losing that race would point the agent at a different machine than the
+	// one this launch just named.
+	env := replaceEnv(os.Environ(), "REACH_SESSION", sessName)
+	env = replaceEnv(env, "CLAUDE_CODE_SHELL_PREFIX", shim)
 
 	argv := []string{claudePath}
 	switch {

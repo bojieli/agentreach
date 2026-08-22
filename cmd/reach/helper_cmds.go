@@ -17,7 +17,7 @@ const helperUsage = `reach helper — the optional helper binary
   reach helper uninstall [session]  remove everything reach installed there
 
 The helper tier is the only tier that writes to a target. It is never selected
-automatically, is refused on a session marked --untrusted, and everything it
+automatically — you have to ask for it with --fileops=helper — and everything it
 installs lives in one directory that this command removes.
 `
 

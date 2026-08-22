@@ -33,4 +33,4 @@ If this touches a **file-operation tier**:
 If this changes what reach puts on a **target**:
 
 - [ ] It is opt-in, visible in `reach doctor`, and removable
-- [ ] It is refused on a session marked `--untrusted`
+- [ ] Autonegotiation still cannot select it
