@@ -13,9 +13,15 @@ project makes without a version attached.
 
 ## [0.1.1] - 2026-08-22
 
-Every entry here is reach disarming its own shell seam. The Seam job had been
-reporting it since the day it was added — Gemini and Kimi as `BYPASSED`, codex
-as a timeout — and it was read as harnesses changing under us. It was not.
+**Anyone on 0.1.0 should upgrade.** Every entry here is reach disarming its own
+shell seam, and 0.1.0 shipped with all of it. If you drove a harness that was
+installed behind a wrapper script — which is how npm, asdf, pyenv and nvm all
+install one — its commands ran on your own machine while reach reported them as
+running on the target.
+
+The Seam job had been reporting this since the day it was added — Gemini and
+Kimi as `BYPASSED`, codex as a timeout — and it was read as harnesses changing
+under us. It was not.
 
 ### Fixed
 
@@ -76,10 +82,9 @@ as a timeout — and it was read as harnesses changing under us. It was not.
 
 ## [0.1.0] - 2026-08-21
 
-Prepared but never tagged: the seam bugs listed under 0.1.1 were found before it
-was published, and shipping a release whose shell seam silently ran the agent's
-commands on the operator's own machine was not worth the tidier version number.
-0.1.1 is the first release, and contains everything below.
+The first release, superseded the next day. It carries the shell-seam defects
+listed under 0.1.1 — a harness installed behind a wrapper script ran the agent's
+commands locally while reach reported them as remote — so it should not be used.
 
 A
 changelog this long under a first version is not an accident: reach started as
