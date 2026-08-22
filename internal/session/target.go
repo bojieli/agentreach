@@ -45,6 +45,12 @@ type Target struct {
 //	local:///abs/path
 //	user@host:/abs/path             (scp-style shorthand)
 //
+// The path may be left off any of them — `ssh://build-box`, `build-box:` —
+// which means the directory the target's own login shell starts in. Session
+// Probe resolves it against the target and records the answer, so the short
+// spelling is a request for a real directory rather than a session with no
+// workspace.
+//
 // Host is deliberately passed through to the ssh client untouched, so entries
 // in ~/.ssh/config — ProxyJump, IdentityFile, Match blocks, hardware tokens —
 // keep working exactly as they do outside reach.
@@ -110,10 +116,13 @@ func validate(t *Target) error {
 			return fmt.Errorf("target %q: missing container name", t.Raw)
 		}
 	}
-	if t.Workspace == "" {
-		return fmt.Errorf("target %q: missing workspace path; specify the directory to work in, e.g. ssh://host/srv/app", t.Raw)
-	}
-	if !path.IsAbs(t.Workspace) {
+	// An absent workspace is not an error. It means "wherever a login on this
+	// target lands", which Probe asks the target for and records. Requiring
+	// the path up front made the short forms — `reach build-box claude`,
+	// `reach up ssh://build-box` — impossible to type, in exchange for a
+	// directory the operator almost always spelled out as the one ssh would
+	// have put them in anyway.
+	if t.Workspace != "" && !path.IsAbs(t.Workspace) {
 		return fmt.Errorf("target %q: workspace %q must be an absolute path on the target", t.Raw, t.Workspace)
 	}
 	return nil

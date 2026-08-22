@@ -13,6 +13,40 @@ project makes without a version attached.
 
 ### Added
 
+- **`reach <target> <command>`, and a session per target.** `reach build-box
+  claude` binds a session to build-box and starts Claude Code against it in one
+  line. It works for every command, not only the harnesses — `reach build-box
+  exec -- go test ./...`, `reach build-box doctor` — and session flags go
+  between the target and the command (`reach build-box --mode mirror claude`),
+  with everything from the command onwards belonging to the command.
+
+  The two-step form was not merely verbose, it hid a trap. `reach up` defaults
+  the session name to `default`, so a second `reach up` with no `--name`
+  silently replaced the first session, and the harness launchers resolve their
+  target through that same name: an agent already working through it began
+  running its commands on a different machine. reach could always hold several
+  targets at once — they had to be named by hand, and nothing said so. Now the
+  target names the session (`build-box`, `build-box-app`), a name already held
+  by a *different* target gets a numbered variant instead of being overwritten,
+  and `reach up` says so on stderr when it repoints a name someone was using.
+
+  A second command against a target reuses that target's session rather than
+  probing again, but still re-authenticates the connection while the operator is
+  present, because every connection afterwards runs in batch mode and cannot ask
+  for a passphrase or a hardware token. Commands that never touch the target —
+  `log`, `status`, `env` — skip even that, so reading a local audit file does not
+  ask for a hardware token touch.
+
+- **Targets may be spelled without a path.** `reach build-box claude`,
+  `reach up ssh://build-box`: the session works wherever a login on that machine
+  lands, which the probe asks the machine for and records, rather than reach
+  guessing at a home directory that may not exist. A bare word is read as a host
+  only when the operator's own ssh configuration (`Host` patterns, including
+  through `Include`) or hosts file names it, or when it is an address or a
+  dotted name. DNS is deliberately not consulted: resolvers that answer for
+  every name are common enough that a lookup would turn `reach stauts` into a
+  connection attempt on exactly the networks where that is hardest to see.
+
 - **[docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md), the implementation in
   figures.** Three new twinned light/dark figures — a Bash tool call followed
   from the model's call to the target's shell and back, a mount set beside a
@@ -28,6 +62,10 @@ project makes without a version attached.
   `reach log` — rather than asking to be believed.
 
 ### Fixed
+
+- **A misspelled `--mode` was accepted and behaved as `exec`.** Only `mirror` is
+  ever compared against, so `--mode mrror` created a session in the other mode
+  without a word. It is now rejected.
 
 - **A second `REACH_SESSION` in a harness's environment could point the agent at
   the wrong machine.** The launchers appended `REACH_SESSION` to a copy of the

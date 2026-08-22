@@ -15,7 +15,8 @@ const usage = `reach — teleoperation for coding agents
 Point your agent at any box you can SSH into. The box never gets your agent.
 
 USAGE
-  reach <command> [arguments]
+  reach <target> <command> [arguments]   bind a session to the target and run
+  reach <command> [arguments]            act on a session that already exists
 
 SESSIONS
   up <target>       bind a session to a target and probe it
@@ -44,18 +45,24 @@ HARNESSES
   harness verify codex|kimi|goose|gemini   probe whether this harness's shell routes through reach
 
 TARGETS
+  build-box                            an ssh_config alias; work where a login lands
   ssh://[user@]host[:port]/abs/path    a remote host over SSH
   docker://container/abs/path          a container
   local:///abs/path                    this machine (for testing)
   user@host:/abs/path                  scp-style shorthand
 
-EXAMPLES
-  reach up ssh://build-box/srv/app
-  reach up ssh://client-box/srv/app --untrusted --name client
-  reach claude
-  reach exec -- go test ./...
+  Session flags may follow the target, before the command:
+  --name --mode --untrusted --fileops --timeout --fresh
 
-Run 'reach <command> --help' for details.
+EXAMPLES
+  reach build-box claude                        Claude Code, working on build-box
+  reach ssh://build-box/srv/app claude          ... in a directory you name
+  reach client-box:/srv/app --untrusted codex   somebody else's box
+  reach build-box exec -- go test ./...
+  reach status                                  every session, and where each points
+
+Each target gets its own session, so several boxes can be open at once, one
+per terminal. Run 'reach <command> --help' for details.
 `
 
 func main() {
@@ -82,53 +89,94 @@ func main() {
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
 	}
-	if os.Args[1] == "shell-prefix" {
+	// The internal entrypoints are answered before the signal context is set
+	// up, for the same reason as the shim: they are on the per-tool-call path.
+	switch os.Args[1] {
+	case "shell-prefix":
 		os.Exit(runShellPrefix(os.Args[2:]))
-	}
-	if os.Args[1] == "hook" {
+	case "hook":
 		os.Exit(runHook(os.Args[2:]))
-	}
-	if os.Args[1] == "exec-server" {
+	case "exec-server":
 		os.Exit(cmdExecServer(context.Background(), os.Args[2:]))
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	code := dispatch(ctx, os.Args[1:])
+	stop()
+	os.Exit(code)
+}
+
+// knownCommands is every word reach answers as a command.
+//
+// dispatch consults it before anything else, because a first argument that is
+// not in here is read as a *target*: `reach build-box claude`. A command
+// missing from this map would be mistaken for a hostname, and one listed here
+// that dispatch does not handle would exit zero having done nothing, so
+// TestDispatchAndKnownCommandsAgree reads both out of this file and fails if
+// they ever drift apart.
+var knownCommands = map[string]bool{
+	"up": true, "down": true, "status": true, "doctor": true, "log": true,
+	"exec": true, "fs": true, "env": true, "helper": true, "harness": true,
+	"claude": true, "codex": true, "kimi": true, "goose": true,
+	"gemini": true, "crush": true, "opencode": true,
+	"shell-prefix": true, "hook": true, "exec-server": true,
+	"agent":   true,
+	"version": true, "--version": true, "-v": true,
+	"help": true, "--help": true, "-h": true,
+}
+
+// dispatch runs one reach command line and returns the process exit code.
+//
+// A first argument that is not a command is not a mistake to report: it is how
+// the one-shot form starts. `reach build-box claude` binds a session to
+// build-box and runs Claude Code against it, which is the shape most sessions
+// actually want. `up` and `down` remain for the sessions that outlive a single
+// agent, and for the ones several commands share.
+func dispatch(ctx context.Context, args []string) int {
+	if !knownCommands[args[0]] {
+		return runTargetFirst(ctx, args)
+	}
 
 	var err error
-	switch os.Args[1] {
+	switch args[0] {
 	case "up":
-		err = cmdUp(ctx, os.Args[2:])
+		err = cmdUp(ctx, args[1:])
 	case "down":
-		err = cmdDown(ctx, os.Args[2:])
+		err = cmdDown(ctx, args[1:])
 	case "status":
-		err = cmdStatus(ctx, os.Args[2:])
+		err = cmdStatus(ctx, args[1:])
 	case "doctor":
-		err = cmdDoctor(ctx, os.Args[2:])
+		err = cmdDoctor(ctx, args[1:])
 	case "exec":
-		os.Exit(cmdExec(ctx, os.Args[2:]))
+		return cmdExec(ctx, args[1:])
 	case "fs":
-		err = cmdFS(ctx, os.Args[2:])
+		err = cmdFS(ctx, args[1:])
 	case "env":
-		err = cmdEnv(ctx, os.Args[2:])
+		err = cmdEnv(ctx, args[1:])
 	case "claude":
-		os.Exit(cmdClaude(ctx, os.Args[2:]))
+		return cmdClaude(ctx, args[1:])
 	case "codex":
-		os.Exit(cmdCodex(ctx, os.Args[2:]))
+		return cmdCodex(ctx, args[1:])
 	case "kimi":
-		os.Exit(cmdKimi(ctx, os.Args[2:]))
+		return cmdKimi(ctx, args[1:])
 	case "goose":
-		os.Exit(cmdGoose(ctx, os.Args[2:]))
+		return cmdGoose(ctx, args[1:])
 	case "gemini":
-		os.Exit(cmdGemini(ctx, os.Args[2:]))
+		return cmdGemini(ctx, args[1:])
 	case "crush":
-		os.Exit(cmdCrush(ctx, os.Args[2:]))
+		return cmdCrush(ctx, args[1:])
 	case "opencode":
-		err = cmdOpencode(ctx, os.Args[2:])
+		err = cmdOpencode(ctx, args[1:])
 	case "harness":
-		err = cmdHarness(ctx, os.Args[2:])
+		err = cmdHarness(ctx, args[1:])
 	case "helper":
-		err = cmdHelper(ctx, os.Args[2:])
+		err = cmdHelper(ctx, args[1:])
+	case "shell-prefix":
+		return runShellPrefix(args[1:])
+	case "hook":
+		return runHook(args[1:])
+	case "exec-server":
+		return cmdExecServer(ctx, args[1:])
 	case "agent":
 		// Renamed. Anyone with this in a script or in muscle memory deserves
 		// the new name, not "unknown command".
@@ -136,17 +184,20 @@ func main() {
 			"It was renamed because \"agent\" already means the coding agent this tool " +
 			"drives, which made `reach agent uninstall` read like it removed Claude Code")
 	case "log":
-		err = cmdLog(ctx, os.Args[2:])
+		err = cmdLog(ctx, args[1:])
 	case "version", "--version", "-v":
 		fmt.Println(versionLine())
 	case "help", "--help", "-h":
 		fmt.Print(usage)
 	default:
-		fmt.Fprintf(os.Stderr, "reach: unknown command %q\n\n%s", os.Args[1], usage)
-		os.Exit(2)
+		// Only reachable if knownCommands lists something this switch does not
+		// handle, which the drift test exists to prevent.
+		fmt.Fprintf(os.Stderr, "reach: %q is listed as a command but not handled\n", args[0])
+		return 2
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "reach:", err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }

@@ -1,7 +1,10 @@
 package session
 
 import (
+	"context"
 	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -23,6 +26,37 @@ func newTestSession(t *testing.T, name string) *Session {
 	return &Session{
 		Name: name, Target: target, Mode: ModeExec,
 		Created: time.Now(), Tier: reach.TierPOSIX, Timeout: time.Minute,
+	}
+}
+
+// A target with no path means "wherever a login on that machine lands". That
+// is a real directory, and Probe has to turn it into one: a session carrying an
+// empty workspace would leave every later command to guess, and two of them
+// could guess differently.
+func TestProbeResolvesAnAbsentWorkspace(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a local:// target is unsupported on Windows by design")
+	}
+	withTempHome(t)
+	target, err := ParseTarget("local://")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.Workspace != "" {
+		t.Fatalf("parsing left a workspace of %q", target.Workspace)
+	}
+	s := &Session{
+		Name: "nopath", Target: target, Mode: ModeExec,
+		Created: time.Now(), Tier: reach.TierPOSIX, Timeout: time.Minute,
+	}
+	if err := s.Probe(context.Background()); err != nil {
+		t.Skipf("cannot probe a local target here: %v", err)
+	}
+	if !filepath.IsAbs(s.Target.Workspace) {
+		t.Fatalf("probe left the workspace as %q, which is not a directory anything can cd to", s.Target.Workspace)
+	}
+	if fi, err := os.Stat(s.Target.Workspace); err != nil || !fi.IsDir() {
+		t.Errorf("probe resolved the workspace to %q, which is not a directory: %v", s.Target.Workspace, err)
 	}
 }
 
