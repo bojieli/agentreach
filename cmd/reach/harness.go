@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -64,7 +63,7 @@ func cmdCodex(ctx context.Context, args []string) int {
 		fmt.Fprintln(os.Stderr, "reach:", err)
 		return 1
 	}
-	binPath, err := exec.LookPath("codex")
+	binPath, err := lookHarnessPath("codex")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "reach: codex is not installed or not in PATH")
 		return 1
@@ -186,7 +185,7 @@ func cmdGoose(ctx context.Context, args []string) int {
 		return 1
 	}
 
-	binPath, err := exec.LookPath("goose")
+	binPath, err := lookHarnessPath("goose")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "reach: goose is not installed or not in PATH")
 		return 1
@@ -254,7 +253,7 @@ func cmdGemini(ctx context.Context, args []string) int {
 		return 1
 	}
 
-	binPath, err := exec.LookPath("gemini")
+	binPath, err := lookHarnessPath("gemini")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "reach: gemini is not installed or not in PATH")
 		return 1

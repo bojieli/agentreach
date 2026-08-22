@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -163,7 +164,7 @@ func Verify(ctx context.Context, opts Options) Result {
 	}
 	binPath := opts.BinaryPath
 	if binPath == "" {
-		binPath, err = exec.LookPath(opts.Harness)
+		binPath, err = lookHarnessPath(opts.Harness)
 		if err != nil {
 			return Result{Verdict: VerdictError, Detail: opts.Harness + " is not installed or not in PATH"}
 		}
@@ -673,10 +674,10 @@ func NormalizeVersion(line string) string {
 
 // HarnessVersion reports the installed harness's version, normalised. Both
 // supported harnesses answer `<binary> --version` with the version on the
-// first line. It resolves the binary via exec.LookPath; for a specific binary
-// path use HarnessVersionFromBinary.
+// first line. It resolves the binary on PATH; for a specific binary path use
+// HarnessVersionFromBinary.
 func HarnessVersion(ctx context.Context, harness string) (string, error) {
-	p, err := exec.LookPath(harness)
+	p, err := lookHarnessPath(harness)
 	if err != nil {
 		return "", fmt.Errorf("%s is not installed or not in PATH", harness)
 	}
@@ -741,4 +742,25 @@ func (c *cappedBuffer) Tail() string {
 		return "(no output)"
 	}
 	return tail
+}
+
+// lookHarnessPath finds a harness binary on PATH and returns an absolute path.
+//
+// The same policy as cmd/reach's helper of this name, and duplicated for the
+// same reason cache.go duplicates the REACH_HOME rule: a probe that resolved a
+// binary differently from the launcher would verify a seam for one binary and
+// hand the operator another. exec.LookPath refuses a binary found through a
+// relative PATH entry (exec.ErrDot) — bash does not, so neither does reach —
+// and the path is pinned to an absolute one here, while the working directory
+// is still the one the lookup assumed.
+func lookHarnessPath(name string) (string, error) {
+	p, err := exec.LookPath(name)
+	if err != nil && !errors.Is(err, exec.ErrDot) {
+		return "", err
+	}
+	abs, absErr := filepath.Abs(p)
+	if absErr != nil {
+		return p, nil
+	}
+	return abs, nil
 }

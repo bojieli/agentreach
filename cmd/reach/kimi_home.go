@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -59,9 +58,9 @@ func resolveKimiBinary() (string, error) {
 	return lookPathKimi()
 }
 
-// lookPathKimi is exec.LookPath for "kimi", kept nameable for tests.
+// lookPathKimi finds the kimi binary on PATH, kept nameable for tests.
 var lookPathKimi = func() (string, error) {
-	return exec.LookPath("kimi")
+	return lookHarnessPath("kimi")
 }
 
 // managedKimiHome builds a per-session KIMI_CODE_HOME under ~/.reach that
