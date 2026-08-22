@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 428" width="960" height="428" role="img" aria-label="The two modes. In exec mode the shell runs on the target and the native file tools are denied, so the agent reads and writes through the shell, and nothing is copied to your disk. In mirror mode Claude Code&#x27;s Read, Write and Edit are re-pointed by a hook at a single file reach fetches at the moment the tool opens it and writes back when it changes; Grep and Glob stay denied because the mirror holds only files already opened.">
+<!-- Generated figure. modes-light.svg and modes-dark.svg are
+     twins: edit one, mirror the change in the other. Colours are the only
+     difference between them. -->
+<title>exec mode and mirror mode</title>
+<text x="24" y="42" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#59636e" text-anchor="start" letter-spacing="1.5">EXEC — THE DEFAULT</text>
+<rect x="24" y="56" width="444" height="348" rx="14" fill="#f6f8fa" stroke="#d1d9e0" stroke-width="1"/>
+<rect x="48" y="80" width="396" height="40" rx="10" fill="#ffffff" stroke="#d1d9e0" stroke-width="1"/>
+<text x="64" y="105" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="700" fill="#1f2328" text-anchor="start">Bash</text>
+<rect x="272.0" y="89.0" width="160" height="22" rx="11.0" fill="#dafbe3" stroke="#6fdd8b" stroke-width="1"/>
+<text x="352" y="104" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="700" fill="#116329" text-anchor="middle">runs on the target</text>
+<rect x="48" y="128" width="396" height="40" rx="10" fill="#ffffff" stroke="#d1d9e0" stroke-width="1"/>
+<text x="64" y="153" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="700" fill="#1f2328" text-anchor="start">Read Write Edit Grep Glob</text>
+<rect x="272.0" y="137.0" width="160" height="22" rx="11.0" fill="#ffebe9" stroke="#ff8182" stroke-width="1"/>
+<text x="352" y="152" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="700" fill="#a40e26" text-anchor="middle">denied</text>
+<rect x="48" y="184" width="396" height="98" rx="10" fill="#ffebe9" stroke="#ff8182" stroke-width="1"/>
+<text x="64" y="210" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#a40e26" text-anchor="start">Denied because those tools call the local</text>
+<text x="64" y="227" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#a40e26" text-anchor="start">filesystem directly and there is no seam to</text>
+<text x="64" y="244" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#a40e26" text-anchor="start">redirect them — a silent wrong-machine read</text>
+<text x="64" y="261" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#a40e26" text-anchor="start">is the worst failure this design can produce.</text>
+<text x="48" y="306" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#59636e" text-anchor="start">The agent reads and writes through its shell, which is</text>
+<text x="48" y="324" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#59636e" text-anchor="start">already remote:</text>
+<text x="48" y="346" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#1f2328" text-anchor="start">cat -- FILE · rg PATTERN DIR · cat &gt; FILE &lt;&lt;&#x27;EOF&#x27;</text>
+<text x="48" y="372" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="600" fill="#116329" text-anchor="start">Not one byte of the target&#x27;s files is copied to your disk.</text>
+<text x="492" y="42" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#59636e" text-anchor="start" letter-spacing="1.5">MIRROR — CLAUDE CODE, ON REQUEST</text>
+<rect x="492" y="56" width="444" height="348" rx="14" fill="#f6f8fa" stroke="#d1d9e0" stroke-width="1"/>
+<rect x="516" y="80" width="396" height="40" rx="10" fill="#ffffff" stroke="#d1d9e0" stroke-width="1"/>
+<text x="532" y="105" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="700" fill="#1f2328" text-anchor="start">Bash</text>
+<rect x="740.0" y="89.0" width="160" height="22" rx="11.0" fill="#dafbe3" stroke="#6fdd8b" stroke-width="1"/>
+<text x="820" y="104" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="700" fill="#116329" text-anchor="middle">runs on the target</text>
+<rect x="516" y="128" width="396" height="40" rx="10" fill="#ffffff" stroke="#d1d9e0" stroke-width="1"/>
+<text x="532" y="153" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="700" fill="#1f2328" text-anchor="start">Read Write Edit</text>
+<rect x="740.0" y="137.0" width="160" height="22" rx="11.0" fill="#ddf4ff" stroke="#54aeff" stroke-width="1"/>
+<text x="820" y="152" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="700" fill="#0550ae" text-anchor="middle">one file, on demand</text>
+<rect x="516" y="176" width="396" height="40" rx="10" fill="#ffffff" stroke="#d1d9e0" stroke-width="1"/>
+<text x="532" y="201" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="700" fill="#1f2328" text-anchor="start">Grep Glob</text>
+<rect x="740.0" y="185.0" width="160" height="22" rx="11.0" fill="#ffebe9" stroke="#ff8182" stroke-width="1"/>
+<text x="820" y="200" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="700" fill="#a40e26" text-anchor="middle">denied</text>
+<rect x="516" y="232" width="396" height="116" rx="10" fill="#ddf4ff" stroke="#54aeff" stroke-width="1"/>
+<text x="532" y="258" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#0550ae" text-anchor="start">PreToolUse rewrites file_path to a local copy</text>
+<text x="532" y="275" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#0550ae" text-anchor="start">reach fetches at that moment; PostToolUse pushes</text>
+<text x="532" y="292" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#0550ae" text-anchor="start">it back, and refuses if the file changed on the</text>
+<text x="532" y="309" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#0550ae" text-anchor="start">target since the fetch. Search stays denied: the</text>
+<text x="532" y="326" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#0550ae" text-anchor="start">mirror holds only files a tool already opened.</text>
+<text x="516" y="372" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="600" fill="#0550ae" text-anchor="start">No sync engine, no watcher, no bulk copy, no reconciliation.</text>
+</svg>

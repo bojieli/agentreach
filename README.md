@@ -55,9 +55,12 @@ already remote. In mirror mode reach answers those calls itself, pulling the fil
 over the same ssh connection when a tool opens it and pushing it back when it
 changes. That path is wired up for Claude Code today.
 
-Worth being precise about what this isn't. reach doesn't trace syscalls and it
-doesn't mount anything. It sits at the seam where the agent hands work to the
-operating system, one request and one response at a time.
+Worth being precise about what this isn't. reach doesn't trace syscalls, and
+there's no filesystem in any of it: no SSHFS, no FUSE, no mount, and no file
+synchronisation between the two machines. It sits at the seam where the agent
+hands work to the operating system, one request and one response at a time.
+[HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md) walks a single tool call through the
+whole path, in figures.
 
 ## What it looks like
 
@@ -236,6 +239,14 @@ A timeout should show up as a tool error the model can retry or route around.
 That's the reason reach is request/response over SSH instead of a filesystem
 mount, and it's the thing most of the design falls out of.
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/not-a-mount-dark.svg">
+    <img src="docs/assets/not-a-mount-light.svg" width="880"
+         alt="A mount turns one tool call into a stream of syscalls through the kernel's VFS and a FUSE daemon, so a stalled link parks the agent in uninterruptible sleep with no error it can see. reach answers each tool call with one request and one response over ssh, so a timeout comes back as a tool error the model can read, retry or route around. Nothing is mounted and no kernel is involved.">
+  </picture>
+</p>
+
 ## How it works
 
 Three layers, and only the top one knows which agent you're running.
@@ -267,7 +278,9 @@ by name.
 | `helper` | can run an uploaded binary | one cached binary | never |
 
 [TRANSPORTS.md](docs/TRANSPORTS.md) has the numbers, measured over real links
-rather than loopback.
+rather than loopback. [HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md) follows a single
+`Bash` call all the way down and back — the envelope reach takes apart, how `cd`
+survives between calls, and where the exit status hides.
 
 ## Choosing a mode
 
@@ -316,6 +329,7 @@ model is in [docs/SECURITY.md](docs/SECURITY.md).
 
 | | |
 |---|---|
+| [HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md) | the implementation in figures, and what reach is deliberately not |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | how the pieces fit, and which alternatives got thrown out |
 | [TRANSPORTS.md](docs/TRANSPORTS.md) | the three file-operation tiers, benchmarked on real links |
 | [RESEARCH.md](docs/RESEARCH.md) | what each agent does internally, with transcripts |
