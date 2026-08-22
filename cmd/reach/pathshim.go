@@ -66,10 +66,8 @@ func runBashShim(args []string) int {
 	if isGrokLocalSnapshot(args) {
 		return execRealShell(args)
 	}
-	command := ""
-	if unwrapped, ok := unwrapGrokEnvelope(args); ok {
-		command = unwrapped
-	} else {
+	command, ok := unwrapGrokEnvelope(args)
+	if !ok {
 		command = shellCommandArg(args)
 	}
 	if command == "" {
@@ -123,14 +121,14 @@ func unwrapGrokEnvelope(args []string) (string, bool) {
 			}
 			continue
 		}
-		if i+1 >= len(args) {
+		tail := args[i+1:]
+		if len(tail) == 0 {
 			return "", false
 		}
-		script := args[i+1]
-		if !strings.Contains(script, "__grok_user_cmd") {
+		if !strings.Contains(tail[0], "__grok_user_cmd") {
 			return "", false
 		}
-		rest := args[i+2:]
+		rest := tail[1:]
 		if len(rest) > 0 && rest[0] == "--" {
 			rest = rest[1:]
 		}
