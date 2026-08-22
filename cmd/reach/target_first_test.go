@@ -127,14 +127,14 @@ func TestResolveTargetSpecRejectsAWordThatIsNoMachine(t *testing.T) {
 
 func TestSplitTargetArgs(t *testing.T) {
 	for _, tc := range []struct {
-		name      string
-		args      []string
-		untrusted bool
-		mode      string
-		rest      []string
+		name  string
+		args  []string
+		fresh bool
+		mode  string
+		rest  []string
 	}{
 		{"bare command", []string{"claude"}, false, "exec", []string{"claude"}},
-		{"session flag first", []string{"--untrusted", "claude"}, true, "exec", []string{"claude"}},
+		{"session flag first", []string{"--fresh", "claude"}, true, "exec", []string{"claude"}},
 		{"flag with a value", []string{"--mode", "mirror", "claude"}, false, "mirror", []string{"claude"}},
 		// Everything from the command onwards is the command's, including
 		// flags reach itself defines.
@@ -149,13 +149,41 @@ func TestSplitTargetArgs(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if o.untrusted != tc.untrusted || o.mode != tc.mode {
+			if o.fresh != tc.fresh || o.mode != tc.mode {
 				t.Errorf("options = %+v", o)
 			}
 			if strings.Join(rest, " ") != strings.Join(tc.rest, " ") {
 				t.Errorf("rest = %v, want %v", rest, tc.rest)
 			}
 		})
+	}
+}
+
+// A flag reach used to have must say it is gone. Left to the flag package it
+// would be "flag provided but not defined: -untrusted" and a usage dump, which
+// reads like reach forgot a flag it still supports — and the operator would be
+// left believing they had asked for something.
+func TestRemovedFlagExplainsItself(t *testing.T) {
+	_, _, err := splitTargetArgs([]string{"--untrusted", "claude"})
+	if err == nil {
+		t.Fatal("--untrusted was accepted")
+	}
+	for _, want := range []string{"removed", "--fileops=helper"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("message does not mention %q: %v", want, err)
+		}
+	}
+
+	// After the command, the flag is the command's to refuse.
+	if _, rest, err := splitTargetArgs([]string{"claude", "--untrusted"}); err != nil {
+		t.Errorf("reach answered for a flag that belongs to claude: %v", err)
+	} else if len(rest) != 2 {
+		t.Errorf("rest = %v, want the command and its flag", rest)
+	}
+
+	// `up` owns its whole line, so position does not matter there.
+	if err := removedFlag([]string{"ssh://box/srv/app", "--untrusted"}, false); err == nil {
+		t.Error("reach up accepted --untrusted after its target")
 	}
 }
 
@@ -262,7 +290,7 @@ func TestSameTarget(t *testing.T) {
 // default must never overrule a session created deliberately.
 func TestOptionsAgree(t *testing.T) {
 	s := &session.Session{
-		Mode: session.ModeMirror, Untrusted: true,
+		Mode: session.ModeMirror,
 		Tier: reach.TierPipe, Pinned: true, Timeout: time.Minute,
 	}
 	defaults := &sessionOptions{mode: string(session.ModeExec), set: map[string]bool{}}
@@ -270,17 +298,16 @@ func TestOptionsAgree(t *testing.T) {
 		t.Error("untyped defaults disagreed with an existing session")
 	}
 	same := &sessionOptions{
-		mode: string(session.ModeMirror), untrusted: true, tier: "pipe", timeout: time.Minute,
-		set: map[string]bool{"mode": true, "untrusted": true, "fileops": true, "timeout": true},
+		mode: string(session.ModeMirror), tier: "pipe", timeout: time.Minute,
+		set: map[string]bool{"mode": true, "fileops": true, "timeout": true},
 	}
 	if !optionsAgree(s, same) {
 		t.Error("flags matching the session were reported as a disagreement")
 	}
 	for name, o := range map[string]*sessionOptions{
-		"mode":      {mode: string(session.ModeExec), set: map[string]bool{"mode": true}},
-		"untrusted": {untrusted: false, set: map[string]bool{"untrusted": true}},
-		"fileops":   {tier: "posix", set: map[string]bool{"fileops": true}},
-		"timeout":   {timeout: time.Hour, set: map[string]bool{"timeout": true}},
+		"mode":    {mode: string(session.ModeExec), set: map[string]bool{"mode": true}},
+		"fileops": {tier: "posix", set: map[string]bool{"fileops": true}},
+		"timeout": {timeout: time.Hour, set: map[string]bool{"timeout": true}},
 	} {
 		if optionsAgree(s, o) {
 			t.Errorf("--%s was typed with a different value and the session was reused anyway", name)

@@ -248,9 +248,9 @@ Full detail, including what each tier requires and writes, is in
   substituting something else, because a `reach status` reporting a tier the
   session is not using is a lie the operator will act on. An autonegotiated tier
   may still step down, and says so on stderr.
-- **Only the helper tier writes to the target**, only when asked, never on an
-  `--untrusted` session. Everything it installs is listed by `reach doctor` and
-  removed by `reach helper uninstall`.
+- **Only the helper tier writes to the target**, and only when the operator
+  names it: autonegotiation stops below it. Everything it installs is listed by
+  `reach doctor` and removed by `reach helper uninstall`.
 
 ## Two modes
 

@@ -85,6 +85,12 @@ func sessionNameFromEnv(explicit string) string {
 }
 
 func cmdUp(ctx context.Context, args []string) error {
+	// Before the flag package answers with "flag provided but not defined" and
+	// a usage dump. `up` owns every argument on its line, so a removed flag is
+	// reach's to explain wherever it appears.
+	if err := removedFlag(args, false); err != nil {
+		return err
+	}
 	fs := flag.NewFlagSet("up", flag.ContinueOnError)
 	o := registerSessionFlags(fs, defaultSessionName)
 	pos, err := parseFlags(fs, args)
@@ -92,7 +98,7 @@ func cmdUp(ctx context.Context, args []string) error {
 		return err
 	}
 	if len(pos) < 1 {
-		return fmt.Errorf("usage: reach up <target> [--name N] [--untrusted]\n\nExamples:\n  reach up ssh://build-box/srv/app\n  reach build-box claude   # bind a session and start an agent in one step")
+		return fmt.Errorf("usage: reach up <target> [--name N] [--mode exec|mirror]\n\nExamples:\n  reach up ssh://build-box/srv/app\n  reach build-box claude   # bind a session and start an agent in one step")
 	}
 	o.markSet(fs)
 
@@ -134,9 +140,6 @@ func printSessionSummary(w io.Writer, s *session.Session) {
 	_, _ = fmt.Fprintf(w, "  search   %s\n", searchEngine(s))
 	if s.Target.Kind == session.KindSSH {
 		_, _ = fmt.Fprintf(w, "  connect  %s\n", connectionNote(s))
-	}
-	if s.Untrusted {
-		_, _ = fmt.Fprintf(w, "  policy   untrusted: no installs, no agent forwarding\n")
 	}
 }
 
@@ -320,14 +323,10 @@ func cmdStatus(_ context.Context, args []string) error {
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		// Writes to a tabwriter are buffered; the only error that matters surfaces
 		// from Flush below.
-		_, _ = fmt.Fprintln(w, "NAME\tTARGET\tMODE\tFILEOPS\tCWD\tPOLICY")
+		_, _ = fmt.Fprintln(w, "NAME\tTARGET\tMODE\tFILEOPS\tCWD")
 		for _, s := range sessions {
-			policy := "-"
-			if s.Untrusted {
-				policy = "untrusted"
-			}
-			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
-				s.Name, s.Target.Describe(), s.Mode, s.Tier, s.Cwd(), policy)
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+				s.Name, s.Target.Describe(), s.Mode, s.Tier, s.Cwd())
 		}
 		if err := w.Flush(); err != nil {
 			return err
@@ -363,9 +362,6 @@ func statusOne(name string) error {
 	}
 	if s.Target.Kind == session.KindSSH {
 		fmt.Printf("  connect  %s\n", connectionNote(s))
-	}
-	if s.Untrusted {
-		fmt.Printf("  policy   untrusted: no installs, no agent forwarding\n")
 	}
 	if !s.Created.IsZero() {
 		fmt.Printf("  started  %s\n", s.Created.Format(time.RFC3339))

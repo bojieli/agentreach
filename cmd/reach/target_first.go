@@ -46,6 +46,13 @@ func runTargetFirst(ctx context.Context, args []string) int {
 
 	o, rest, err := splitTargetArgs(args[1:])
 	if err != nil {
+		// The flag package reports its own errors, with a usage dump, before
+		// returning them. A removed flag is reach's own message and has not
+		// been printed by anyone.
+		var removed *removedFlagError
+		if errors.As(err, &removed) {
+			fmt.Fprintln(os.Stderr, "reach:", err)
+		}
 		return 2
 	}
 
@@ -90,11 +97,17 @@ func runTargetFirst(ctx context.Context, args []string) int {
 // the command that follows them.
 //
 // flag.Parse stops at the first non-flag argument, which is exactly the split
-// this form needs: `reach box --untrusted claude --resume` configures the
-// session with --untrusted and hands --resume to claude. It is the opposite of
+// this form needs: `reach box --mode mirror claude --resume` configures the
+// session with --mode and hands --resume to claude. It is the opposite of
 // parseFlags, which the rest of reach uses because their flags may follow
 // their positional arguments — here a flag after the command is the command's.
 func splitTargetArgs(args []string) (*sessionOptions, []string, error) {
+	// Stopping at the first non-flag argument matters here as well as below:
+	// in `reach box claude --untrusted` the flag is claude's to refuse, not
+	// reach's to explain.
+	if err := removedFlag(args, true); err != nil {
+		return nil, nil, err
+	}
 	fs := newFlagSet("target")
 	o := registerSessionFlags(fs, "")
 	fs.BoolVar(&o.fresh, "fresh", false,
@@ -137,15 +150,14 @@ func resolveTargetSpec(spec string) (*session.Target, error) {
 
 // sessionOptions are the settings that describe a session rather than a
 // command. `reach up` and the flags allowed between a target and its command
-// take the same set, so that `reach up ssh://box/srv --untrusted` and
-// `reach ssh://box/srv --untrusted claude` mean the same thing.
+// take the same set, so that `reach up ssh://box/srv --mode mirror` and
+// `reach ssh://box/srv --mode mirror claude` mean the same thing.
 type sessionOptions struct {
-	name      string
-	mode      string
-	untrusted bool
-	tier      string
-	timeout   time.Duration
-	fresh     bool
+	name    string
+	mode    string
+	tier    string
+	timeout time.Duration
+	fresh   bool
 	// set records which of these the operator actually typed. A flag that was
 	// merely defaulted must not count as disagreeing with an existing session,
 	// or every command would re-probe a session it could have reused.
@@ -156,11 +168,53 @@ func registerSessionFlags(fs *flag.FlagSet, defaultName string) *sessionOptions 
 	o := &sessionOptions{}
 	fs.StringVar(&o.name, "name", defaultName, "session name")
 	fs.StringVar(&o.mode, "mode", string(session.ModeExec), "exec or mirror")
-	fs.BoolVar(&o.untrusted, "untrusted", false,
-		"target is not yours: never install anything, never forward an agent")
 	fs.StringVar(&o.tier, "fileops", "", "pin a file-operation tier ("+reach.TierList()+")")
 	fs.DurationVar(&o.timeout, "timeout", 2*time.Minute, "default per-command timeout")
 	return o
+}
+
+// removedFlags are flags reach used to have, and what to say instead of
+// letting the flag package answer with "flag provided but not defined" and a
+// usage dump. A flag that quietly stopped doing anything would be worse than
+// either: the operator would go on believing they had asked for something.
+var removedFlags = map[string]string{
+	"untrusted": "--untrusted has been removed.\n" +
+		"It named two guarantees that now hold for every target, with no flag to ask for them:\n" +
+		"  no credential is sent to a target, and no SSH agent is ever forwarded to one.\n" +
+		"The third was that nothing would be installed there. Nothing is, unless you name\n" +
+		"the helper tier yourself with --fileops=helper; autonegotiation never picks it.\n" +
+		"Drop the flag. `reach doctor` reports what is on the target, and `reach helper\n" +
+		"uninstall` removes it.",
+}
+
+// removedFlagError marks a flag reach used to have, so a caller can tell it
+// apart from a flag-package error that has already been printed.
+type removedFlagError struct{ msg string }
+
+func (e *removedFlagError) Error() string { return e.msg }
+
+// removedFlag reports a removed flag in the arguments reach itself owns.
+//
+// stopAtPositional draws the line for `reach <target> <command>`: the flags
+// before the command are reach's, and everything from the command onwards
+// belongs to another program, which must be left to answer for its own.
+func removedFlag(args []string, stopAtPositional bool) error {
+	for _, a := range args {
+		if a == "--" {
+			return nil
+		}
+		if !strings.HasPrefix(a, "-") {
+			if stopAtPositional {
+				return nil
+			}
+			continue
+		}
+		name, _, _ := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		if why, ok := removedFlags[name]; ok {
+			return &removedFlagError{why}
+		}
+	}
+	return nil
 }
 
 func (o *sessionOptions) markSet(fs *flag.FlagSet) {
@@ -262,13 +316,12 @@ func warmConnection(ctx context.Context, s *session.Session) error {
 // newSession builds an unprobed session from the operator's options.
 func newSession(name string, target *session.Target, o *sessionOptions) (*session.Session, error) {
 	s := &session.Session{
-		Name:      name,
-		Target:    target,
-		Mode:      session.Mode(o.mode),
-		Created:   time.Now(),
-		Untrusted: o.untrusted,
-		Timeout:   o.timeout,
-		Tier:      reach.TierPOSIX,
+		Name:    name,
+		Target:  target,
+		Mode:    session.Mode(o.mode),
+		Created: time.Now(),
+		Timeout: o.timeout,
+		Tier:    reach.TierPOSIX,
 	}
 	// A misspelled mode used to be accepted and behave as exec, because only
 	// "mirror" is ever compared against. An operator who asked for mirror and
@@ -282,9 +335,6 @@ func newSession(name string, target *session.Target, o *sessionOptions) (*sessio
 		t, err := reach.ParseTier(o.tier)
 		if err != nil {
 			return nil, err
-		}
-		if t == reach.TierHelper && o.untrusted {
-			return nil, fmt.Errorf("refusing --fileops=helper on an --untrusted target: that tier installs a binary on the target")
 		}
 		s.Tier = t
 		s.Pinned = true
@@ -331,9 +381,6 @@ func sameTarget(have, want *session.Target) bool {
 // that was deliberately created with something else.
 func optionsAgree(s *session.Session, o *sessionOptions) bool {
 	if o.set["mode"] && session.Mode(o.mode) != s.Mode {
-		return false
-	}
-	if o.set["untrusted"] && o.untrusted != s.Untrusted {
 		return false
 	}
 	if o.set["timeout"] && o.timeout != s.Timeout {
