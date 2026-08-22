@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -204,7 +203,7 @@ func orNone(s string) string {
 }
 
 func reportHarness(bin, label, seam string) {
-	if p, err := exec.LookPath(bin); err == nil {
+	if p, err := lookHarnessPath(bin); err == nil {
 		fmt.Printf("  %-12s found (%s) — seam: %s\n", label, filepath.Base(p), seam)
 	} else {
 		fmt.Printf("  %-12s not installed\n", label)

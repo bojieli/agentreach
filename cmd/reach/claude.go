@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/bojieli/agentreach/internal/harnessprobe"
@@ -66,7 +65,7 @@ func cmdClaude(ctx context.Context, args []string) int {
 		fmt.Fprintln(os.Stderr, "reach:", err)
 		return 1
 	}
-	claudePath, err := exec.LookPath("claude")
+	claudePath, err := lookHarnessPath("claude")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "reach: Claude Code is not installed or not in PATH")
 		return 1

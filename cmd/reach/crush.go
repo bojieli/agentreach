@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"time"
 
 	"github.com/bojieli/agentreach/internal/session"
@@ -49,7 +48,7 @@ func cmdCrush(ctx context.Context, args []string) int {
 		return 1
 	}
 
-	binPath, err := exec.LookPath("crush")
+	binPath, err := lookHarnessPath("crush")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "reach: crush is not installed or not in PATH")
 		return 1
