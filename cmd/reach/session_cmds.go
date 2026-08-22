@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -85,69 +86,70 @@ func sessionNameFromEnv(explicit string) string {
 
 func cmdUp(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("up", flag.ContinueOnError)
-	name := fs.String("name", defaultSessionName, "session name")
-	mode := fs.String("mode", string(session.ModeExec), "exec or mirror")
-	untrusted := fs.Bool("untrusted", false, "target is not yours: never install anything, never forward an agent")
-	tierName := fs.String("fileops", "", "pin a file-operation tier ("+reach.TierList()+")")
-	timeout := fs.Duration("timeout", 2*time.Minute, "default per-command timeout")
+	o := registerSessionFlags(fs, defaultSessionName)
 	pos, err := parseFlags(fs, args)
 	if err != nil {
 		return err
 	}
 	if len(pos) < 1 {
-		return fmt.Errorf("usage: reach up <target> [--name N] [--untrusted]\n\nExample:\n  reach up ssh://build-box/srv/app")
+		return fmt.Errorf("usage: reach up <target> [--name N] [--untrusted]\n\nExamples:\n  reach up ssh://build-box/srv/app\n  reach build-box claude   # bind a session and start an agent in one step")
 	}
+	o.markSet(fs)
 
-	target, err := session.ParseTarget(pos[0])
+	target, err := resolveTargetSpec(pos[0])
 	if err != nil {
 		return err
 	}
-	s := &session.Session{
-		Name:      *name,
-		Target:    target,
-		Mode:      session.Mode(*mode),
-		Created:   time.Now(),
-		Untrusted: *untrusted,
-		Timeout:   *timeout,
-		Tier:      reach.TierPOSIX,
-	}
-	if *tierName != "" && *tierName != "auto" {
-		t, err := reach.ParseTier(*tierName)
-		if err != nil {
-			return err
-		}
-		if t == reach.TierHelper && *untrusted {
-			return fmt.Errorf("refusing --fileops=helper on an --untrusted target: that tier installs a binary on the target")
-		}
-		s.Tier = t
-		s.Pinned = true
-	}
-
-	fmt.Fprintf(os.Stderr, "probing %s ...\n", target.Describe())
-	if err := s.Probe(ctx); err != nil {
-		return fmt.Errorf("cannot use %s: %w", target.Describe(), err)
-	}
-	if err := s.Save(); err != nil {
+	s, err := newSession(o.name, target, o)
+	if err != nil {
 		return err
 	}
-	if err := s.SetCwd(target.Workspace); err != nil {
-		// The session is usable, but every command will start in the target's
-		// default directory rather than the workspace that was just verified.
-		fmt.Fprintf(os.Stderr, "reach: could not record the starting directory: %v\n", err)
+	// A session name is a single slot, and `up` writes into it whatever was
+	// there before. Silently repointing it is how "reach can only hold one
+	// target" happened: a second `reach up` with no --name replaced the first
+	// session, and the agent that was using it started running its commands on
+	// a different machine.
+	if previous, err := session.Load(o.name); err == nil && !sameTarget(previous.Target, target) {
+		fmt.Fprintf(os.Stderr,
+			"reach: session %q pointed at %s; it now points at %s.\n"+
+				"  To keep both, name them — or let the target name them for you:\n"+
+				"    reach %s claude\n",
+			o.name, previous.Target.Describe(), target.Describe(), pos[0])
 	}
+	if err := bringUp(ctx, s); err != nil {
+		return err
+	}
+	printSessionSummary(os.Stdout, s)
+	printNextSteps(os.Stdout, s)
+	return nil
+}
 
-	fmt.Printf("session %q -> %s\n", s.Name, target.Describe())
-	fmt.Printf("  target   %s\n", s.Caps.Uname)
-	fmt.Printf("  fileops  %s%s\n", s.Tier, tierNote(s))
-	fmt.Printf("  search   %s\n", searchEngine(s))
+// printSessionSummary reports what a session can do, in the terms that decide
+// whether an operator should trust it: which machine, and what it costs that
+// machine.
+func printSessionSummary(w io.Writer, s *session.Session) {
+	_, _ = fmt.Fprintf(w, "session %q -> %s\n", s.Name, s.Target.Describe())
+	_, _ = fmt.Fprintf(w, "  target   %s\n", s.Caps.Uname)
+	_, _ = fmt.Fprintf(w, "  fileops  %s%s\n", s.Tier, tierNote(s))
+	_, _ = fmt.Fprintf(w, "  search   %s\n", searchEngine(s))
 	if s.Target.Kind == session.KindSSH {
-		fmt.Printf("  connect  %s\n", connectionNote(s))
+		_, _ = fmt.Fprintf(w, "  connect  %s\n", connectionNote(s))
 	}
 	if s.Untrusted {
-		fmt.Printf("  policy   untrusted: no installs, no agent forwarding\n")
+		_, _ = fmt.Fprintf(w, "  policy   untrusted: no installs, no agent forwarding\n")
 	}
-	fmt.Printf("\nNext:\n  reach claude          # launch Claude Code against this target\n  reach exec -- ls -la  # or run something directly\n")
-	return nil
+}
+
+// printNextSteps is shown when a session was created with no command waiting
+// behind it, which is the one case where the operator still has to type
+// something to use it.
+func printNextSteps(w io.Writer, s *session.Session) {
+	sessionArg := ""
+	if s.Name != defaultSessionName {
+		sessionArg = " --session " + s.Name
+	}
+	_, _ = fmt.Fprintf(w, "\nNext:\n  reach claude%s          # launch Claude Code against this target\n"+
+		"  reach exec%s -- ls -la  # or run something directly\n", sessionArg, sessionArg)
 }
 
 // sessionList renders session names for a sentence.

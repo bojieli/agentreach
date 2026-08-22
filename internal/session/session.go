@@ -259,7 +259,10 @@ var ErrNotSession = errors.New("is not a reach session file")
 type noSuchSessionError struct{ name string }
 
 func (e *noSuchSessionError) Error() string {
-	return fmt.Sprintf("no reach session named %q. Start one with:\n  reach up ssh://host/path --name %s",
+	return fmt.Sprintf("no reach session named %q. Start one with:\n"+
+		"  reach up ssh://host/path --name %s\n"+
+		"or point the command straight at a target, which names the session for you:\n"+
+		"  reach ssh://host/path claude",
 		e.name, e.name)
 }
 
@@ -478,6 +481,31 @@ func (s *Session) checkWorkspace(ctx context.Context, t transport.Transport) err
 			"at a path that exists.", s.Target.Workspace, s.Target.Describe())
 }
 
+// loginDir asks the target where a plain login lands.
+//
+// This is what an absent path in a target spec means. It is a question only
+// the target can answer — the operator's own home directory is irrelevant, and
+// on a container it may not exist at all — so reach asks rather than guesses.
+func loginDir(ctx context.Context, t transport.Transport) (string, error) {
+	res, err := t.Run(ctx, reach.ExecRequest{Command: "pwd", MaxOutput: 4 << 10})
+	if err != nil {
+		return "", fmt.Errorf("ask the target where a login starts: %w", err)
+	}
+	dir := strings.TrimSpace(string(res.Stdout))
+	if res.Code != 0 || dir == "" {
+		return "", fmt.Errorf(
+			"the target did not say where a login starts, so reach does not know where to work.\n"+
+				"Name the directory instead, as in ssh://host/srv/app: %s",
+			strings.TrimSpace(string(res.Stderr)))
+	}
+	if !strings.HasPrefix(dir, "/") {
+		return "", fmt.Errorf(
+			"the target reported %q as its starting directory, which is not an absolute path.\n"+
+				"Name the directory instead, as in ssh://host/srv/app", dir)
+	}
+	return dir, nil
+}
+
 // FileOps builds the file-operation strategy for this session's tier.
 //
 // A pinned tier — one the operator named with --fileops — is never silently
@@ -507,6 +535,20 @@ func (s *Session) Probe(ctx context.Context) error {
 		return err
 	}
 	defer func() { _ = t.Close() }()
+
+	// A target given without a path — `ssh://build-box`, `build-box:` — means
+	// the directory a login there lands in. It is resolved once, here, and
+	// written into the session: asking the target every time would leave two
+	// commands in one session disagreeing about where they are working if the
+	// home directory ever moved, and the whole point of a session is that they
+	// cannot.
+	if s.Target.Workspace == "" {
+		ws, err := loginDir(ctx, t)
+		if err != nil {
+			return err
+		}
+		s.Target.Workspace = ws
+	}
 
 	caps, err := fileops.Probe(ctx, t)
 	if err != nil {
