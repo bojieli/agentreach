@@ -2,7 +2,7 @@
 
 Probed against **0.34.0** and **0.37.2**. MIT-licensed, npm-bundled TypeScript.
 
-## The seam
+## Creating the seam
 
 Kimi Code 0.37.2 spawns its shell by absolute path — it probes `/bin/bash`,
 `/usr/bin/bash`, `/usr/local/bin/bash` in that order, ignoring `PATH`.  A
@@ -30,7 +30,8 @@ command never runs.
 `reach kimi` sets `REACH_EXEC_WORKSPACE` to the operator's current directory.
 The PATH shim reads this variable and rewrites the cd prefix:
 `cd '<local-cwd>'` becomes `cd '<session-target-workspace>'`.  The agent's
-working directory on the target is correct, with no visible seam.
+working directory on the target is correct, and the model never sees the
+rewrite.
 
 ## File tools: denied via config
 

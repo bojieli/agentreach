@@ -42,7 +42,8 @@ reaches your disk.
 **Commands.** reach takes over whatever the harness spawns as a shell, unwraps
 the command, runs it over ssh on the target, and hands back stdout and an exit
 code. As far as the model can tell, it called `Bash`. Every harness offers some
-door in:
+door in — a seam, a place where behaviour can be changed without editing the
+binary:
 
 - Claude Code — `CLAUDE_CODE_SHELL_PREFIX`
 - Goose — `GOOSE_SHELL`
