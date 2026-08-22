@@ -9,34 +9,15 @@ details in closed harness binaries. Entries therefore name the harness versions
 a change was verified against: "works with Claude Code" is not a claim this
 project makes without a version attached.
 
-## [Unreleased]
+## [0.2.0] - 2026-08-22
 
-### Fixed
+**A target now names a session.** `reach build-box claude` binds a session to
+build-box and starts the agent against it in one line; the two-step `reach up`
+form remains for sessions that outlive a single agent. `--untrusted` is gone —
+see below for why the guarantee it advertised was always weaker than the flag
+implied.
 
-- **A harness on PATH through a relative entry was reported as not installed.**
-  Since Go 1.19 `exec.LookPath` returns a binary found through a relative PATH
-  entry together with an error, so that a caller testing `err != nil` refuses to
-  run it. reach tested exactly that, for every harness, and told the operator
-  `claude is not installed or not in PATH` about a binary they could launch by
-  name in the very same shell — false about the one thing the message asserts,
-  and it sends someone off reinstalling a harness that was never missing.
-
-  The obvious repair did not work either, which is what made it worth fixing
-  rather than documenting. `LookPath` stops at the first match, so appending an
-  absolute entry to PATH left the earlier relative one matching first and
-  failing the same way; the operator watches the fix that should plainly work
-  change nothing at all.
-
-  A relative PATH entry is an ordinary thing for a person to keep, and bash runs
-  what it finds there without comment, so reach now does too. The lookup stays
-  `exec.LookPath` rather than a hand-rolled PATH walk — on Windows executability
-  is PATHEXT and not a file mode — and only the refusal is dropped. What reach
-  does not inherit is the ambiguity: the result is resolved to an absolute path
-  while the working directory is still the one the lookup assumed, because a
-  path left relative names a different file after any chdir, and this one is
-  handed to exec and to the seam probe. The probe resolves harness binaries the
-  same way, so it cannot verify a seam for one binary and hand the operator
-  another.
+Verified against Grok Build 1.0.5, which this release adds an adapter for.
 
 ### Added
 
@@ -124,6 +105,31 @@ project makes without a version attached.
   other.
 
 ### Fixed
+
+- **A harness on PATH through a relative entry was reported as not installed.**
+  Since Go 1.19 `exec.LookPath` returns a binary found through a relative PATH
+  entry together with an error, so that a caller testing `err != nil` refuses to
+  run it. reach tested exactly that, for every harness, and told the operator
+  `claude is not installed or not in PATH` about a binary they could launch by
+  name in the very same shell — false about the one thing the message asserts,
+  and it sends someone off reinstalling a harness that was never missing.
+
+  The obvious repair did not work either, which is what made it worth fixing
+  rather than documenting. `LookPath` stops at the first match, so appending an
+  absolute entry to PATH left the earlier relative one matching first and
+  failing the same way; the operator watches the fix that should plainly work
+  change nothing at all.
+
+  A relative PATH entry is an ordinary thing for a person to keep, and bash runs
+  what it finds there without comment, so reach now does too. The lookup stays
+  `exec.LookPath` rather than a hand-rolled PATH walk — on Windows executability
+  is PATHEXT and not a file mode — and only the refusal is dropped. What reach
+  does not inherit is the ambiguity: the result is resolved to an absolute path
+  while the working directory is still the one the lookup assumed, because a
+  path left relative names a different file after any chdir, and this one is
+  handed to exec and to the seam probe. The probe resolves harness binaries the
+  same way, so it cannot verify a seam for one binary and hand the operator
+  another.
 
 - **`reach harness verify grok` could not reach a verdict.** Three faults, each
   of which alone was enough to fail the probe, and together they meant

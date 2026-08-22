@@ -17,8 +17,11 @@ func parseFlags(fs *flag.FlagSet, args []string) ([]string, error) {
 	var tail []string
 	for i, a := range args {
 		if a == "--" {
-			tail = args[i+1:]
-			args = args[:i]
+			// G602: i is an index into args from ranging over it, so both
+			// args[i+1:] and args[:i] are in range by construction. gosec
+			// does not follow that through the reassignment of args.
+			tail = args[i+1:] //nolint:gosec // i came from range over args
+			args = args[:i]   //nolint:gosec // i came from range over args
 			break
 		}
 	}
