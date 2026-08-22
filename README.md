@@ -55,9 +55,12 @@ already remote. In mirror mode reach answers those calls itself, pulling the fil
 over the same ssh connection when a tool opens it and pushing it back when it
 changes. That path is wired up for Claude Code today.
 
-Worth being precise about what this isn't. reach doesn't trace syscalls and it
-doesn't mount anything. It sits at the seam where the agent hands work to the
-operating system, one request and one response at a time.
+Worth being precise about what this isn't. reach doesn't trace syscalls, and
+there's no filesystem in any of it: no SSHFS, no FUSE, no mount, and no file
+synchronisation between the two machines. It sits at the seam where the agent
+hands work to the operating system, one request and one response at a time.
+[HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md) walks a single tool call through the
+whole path, in figures.
 
 ## What it looks like
 
@@ -220,23 +223,29 @@ podman://container/path
 local:///path                  (this machine, mostly for testing)
 ```
 
-## Things that look like they should work
+## Why not SSHFS, an MCP server, or just SSH?
 
-| | what actually happens |
-|---|---|
-| **Install the agent on the server** | 300 MB of Node, and your API key is now on a machine you don't administer |
-| **SSHFS or a FUSE mount** | macOS wants a kernel extension and a reboot. Worse, on a flaky link the mount hangs in uninterruptible sleep and the agent freezes mid-call with no error it can see |
-| **An MCP file server** | The model now sees `mcp__remote__read_file` where it expected `Read`. You didn't relocate the agent, you retrained it |
-| **Just SSH inside the agent's terminal** | `cd` stops persisting between calls, relative paths drift, and the agent's file tools are still happily editing your laptop |
+Four things look like they should work. Each breaks somewhere specific.
 
-There's one rule underneath all of this:
+- **Install the agent on the server.** 300 MB of Node on a machine that isn't
+  yours, and your API key with it, on a box where other people have root.
+- **Run an MCP file server on the target.** The model sees
+  `mcp__remote__read_file` where it expected `Read`. You haven't moved the
+  agent, you've retrained it.
+- **Let the agent ssh in from its own shell.** Every command is a separate
+  login, so `cd` stops persisting and relative paths drift — and the agent's own
+  `Read` and `Write` still edit your laptop.
+- **Mount the target with SSHFS or FUSE.** macOS wants a kernel extension and a
+  reboot. Worse, when the link stalls the read is stuck inside the kernel: the
+  tool call never returns, and the model gets no error it could retry.
 
-> Every failure has to arrive as a value the agent can reason about, never as a
-> process that stops answering.
-
-A timeout should show up as a tool error the model can retry or route around.
-That's the reason reach is request/response over SSH instead of a filesystem
-mount, and it's the thing most of the design falls out of.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/not-a-mount-dark.svg">
+    <img src="docs/assets/not-a-mount-light.svg" width="880"
+         alt="A mount turns one tool call into a stream of syscalls through the kernel's VFS and a FUSE daemon, so a stalled link parks the agent in uninterruptible sleep with no error it can see. reach answers each tool call with one request and one response over ssh, so a timeout comes back as a tool error the model can read, retry or route around. Nothing is mounted and no kernel is involved.">
+  </picture>
+</p>
 
 ## How it works
 
@@ -269,7 +278,9 @@ by name.
 | `helper` | can run an uploaded binary | one cached binary | never |
 
 [TRANSPORTS.md](docs/TRANSPORTS.md) has the numbers, measured over real links
-rather than loopback.
+rather than loopback. [HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md) follows a single
+`Bash` call all the way down and back — the envelope reach takes apart, how `cd`
+survives between calls, and where the exit status hides.
 
 ## Choosing a mode
 
@@ -318,6 +329,7 @@ model is in [docs/SECURITY.md](docs/SECURITY.md).
 
 | | |
 |---|---|
+| [HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md) | the implementation in figures, and what reach is deliberately not |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | how the pieces fit, and which alternatives got thrown out |
 | [TRANSPORTS.md](docs/TRANSPORTS.md) | the three file-operation tiers, benchmarked on real links |
 | [RESEARCH.md](docs/RESEARCH.md) | what each agent does internally, with transcripts |
