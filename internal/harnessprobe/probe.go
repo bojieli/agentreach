@@ -377,6 +377,19 @@ func baseProbeEnv(sessName, shimDir string, strip func(key string) bool) []strin
 		}
 		env = append(env, kv)
 	}
+	// A probe that replaces HOME — grok and gemini both need a throwaway one
+	// for the harness's own config — would otherwise send the shim looking for
+	// the session store under that throwaway directory, where no session
+	// exists, and the seam would be reported as broken when it was the probe
+	// that could not find the session. Pinning REACH_HOME keeps the store
+	// where `reach up` actually wrote it. Resolved the same way the session
+	// package resolves it, and duplicated for the same reason cache.go
+	// duplicates it: the dependency is not worth the cycle.
+	if os.Getenv("REACH_HOME") == "" {
+		if hd, err := os.UserHomeDir(); err == nil {
+			env = append(env, "REACH_HOME="+filepath.Join(hd, ".reach"))
+		}
+	}
 	return append(env, "REACH_SESSION="+sessName)
 }
 
@@ -577,12 +590,15 @@ func grokPrepare(home, _ string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create .grok dir: %w", err)
 	}
+	// No base_url: a model's own base_url overrides the chat proxy entirely,
+	// so setting one here would send the probe past the mock and hang. Left
+	// unset, the model resolves through the cli-chat-proxy, which
+	// GROK_CLI_CHAT_PROXY_BASE_URL points at the mock.
 	cfg := `[models]
 default = "reach-mock"
 
 [model.reach-mock]
 model = "reach-mock"
-base_url = "http://127.0.0.1/unused"
 api_backend = "chat_completions"
 api_key = "dummy"
 `

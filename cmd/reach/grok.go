@@ -26,11 +26,6 @@ Use shell commands for all file access; they run on the target:
 
 Paths are the target's own absolute paths. Do not translate them.`
 
-// grokDeniedPermissionRules are Grok Build permission-deny prefixes for tools
-// that call the local filesystem. A bare prefix matches every invocation.
-// Names follow Grok's rule-matching reference (Read/Edit/Write/Grep).
-var grokDeniedPermissionRules = []string{"Read", "Edit", "Write", "Grep"}
-
 // cmdGrok launches Grok Build against the session's target.
 //
 // Grok 1.0.5 resolves its command shell from $SHELL (absolute path; a PATH
@@ -43,10 +38,13 @@ var grokDeniedPermissionRules = []string{"Read", "Edit", "Write", "Grep"}
 // and runs only the payload on the target; Grok's `-lc` environment
 // snapshots stay local.
 //
-// File tools (read_file, search_replace, list_dir, grep) call the local
-// disk. They are denied via --deny rules so the model uses the shell
-// instead. Subagents are disabled because a child would inherit local
-// file tools.
+// File tools (read_file, search_replace, list_dir, grep, write) call the
+// local disk. They are removed by a generated agent profile rather than by
+// --deny rules: grok classifies a shell command that reads a file under the
+// same permission prefix as read_file, so denying the tool denies `cat` too
+// (and `cat > file` and `sed -i` with Write and Edit), which is precisely the
+// shell access reach exists to provide. Subagents are disabled because a
+// child would inherit the default toolset.
 func cmdGrok(ctx context.Context, args []string) int {
 	fs := newFlagSet("grok")
 	name := fs.String("session", "", "session name (default $REACH_SESSION)")
@@ -89,23 +87,33 @@ func cmdGrok(ctx context.Context, args []string) int {
 	shimBash := filepath.Join(shimDir, bashShimName)
 	cwd, _ := os.Getwd()
 
+	agentProfile, err := managedGrokAgentProfile(sessName, grokExecGuidance)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "reach:", err)
+		return 1
+	}
+
 	env := os.Environ()
 	env = replaceEnv(env, "SHELL", shimBash)
 	env = append(env, "REACH_SESSION="+sessName)
 	env = append(env, "GROK_SHELL="+shimBash)
+	env = append(env, "GROK_AGENT="+agentProfile)
 	env = append(env, "GROK_SUBAGENTS=0")
 	env = append(env, "GROK_SANDBOX=off")
 	env = append(env, "REACH_EXEC_WORKSPACE="+cwd)
 	env = prependPath(env, shimDir)
 
-	argv := []string{binPath, "--no-subagents", "--sandbox", "off", "--rules", grokExecGuidance}
-	for _, rule := range grokDeniedPermissionRules {
-		argv = append(argv, "--deny", rule)
+	argv := []string{
+		binPath,
+		"--agent", agentProfile,
+		"--no-subagents",
+		"--sandbox", "off",
+		"--rules", grokExecGuidance,
 	}
 	argv = append(argv, pos...)
 
 	fmt.Fprintf(os.Stderr,
-		"reach: Grok Build -> %s (shell via $SHELL; file tools denied)\n",
+		"reach: Grok Build -> %s (shell via $SHELL; local file tools removed)\n",
 		s.Target.Describe())
 
 	return replaceProcess(ctx, binPath, argv, env)

@@ -265,8 +265,28 @@ reach unwraps the `--` payload rather than forwarding the envelope.
 
 ### File tools
 
-`read_file`, `search_replace`, `list_dir`, `grep` act on the local disk.
-Denied at launch with `--deny Read/Edit/Write/Grep`. Subagents disabled.
+`read_file`, `search_replace`, `list_dir`, `grep`, `write` act on the local
+disk. `write` is advertised in a live session and appears in no documentation.
+
+Permission rules are the wrong instrument. Measured one rule at a time, with a
+shell command that only the rule under test could block:
+
+| rule | denies native tool | also denies in the shell |
+|---|---|---|
+| `Read` | `read_file`, `list_dir` | `cat` |
+| `Write` | `write` | `echo > file` |
+| `Edit` | `search_replace` | `sed -i` |
+| `Grep` | `grep` | — |
+
+Grok classifies a shell command that touches a file under the same prefix as
+the tool, so denying the tools denies the shell workflow that replaces them.
+The tools are removed instead with an agent profile's `disallowedTools`, which
+leaves the shell untouched.
+
+`--agent` pointing at a missing file does not error; grok falls back to the
+default agent with every local file tool enabled, silently.
+
+Subagents disabled.
 
 See `docs/harnesses/grok.md`.
 

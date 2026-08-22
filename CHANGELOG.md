@@ -16,7 +16,14 @@ project makes without a version attached.
 - **`reach grok`** wires Grok Build (verified 1.0.5) to a session. Grok
   spawns `$SHELL` by absolute path, so reach sets `SHELL`/`GROK_SHELL` to
   the PATH shim and unwraps Grok's `__grok_user_cmd` envelope before the
-  command runs on the target. Native file tools are denied.
+  command runs on the target. The local file tools — `read_file`,
+  `search_replace`, `list_dir`, `grep` and the undocumented `write` — are
+  removed by a generated agent profile rather than by permission rules,
+  because grok files a shell command that reads a file under the same
+  prefix as `read_file`: `--deny Read` takes `cat` with it, and `Write` and
+  `Edit` take `cat > file` and `sed -i`. Denying the tools would have denied
+  the shell workflow that replaces them, leaving an agent that could run
+  `hostname` and not much else.
 
 - **[docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md), the implementation in
   figures.** Three new twinned light/dark figures — a Bash tool call followed
@@ -31,6 +38,23 @@ project makes without a version attached.
   what reach is not, says why in each case, and closes with the commands that
   check each claim — `mount` on both machines, `ps`, `reach doctor`,
   `reach log` — rather than asking to be believed.
+
+### Fixed
+
+- **`reach harness verify grok` could not reach a verdict.** Three faults, each
+  of which alone was enough to fail the probe, and together they meant
+  `reach grok` refused to launch at all without `-force`. The probe's
+  `config.toml` pinned the model's `base_url`, which overrides
+  `GROK_CLI_CHAT_PROXY_BASE_URL` outright — the probe dialled a dead address
+  and timed out rather than the mock; the base URL is now left unset so the
+  model resolves through the chat proxy the env var points at. The mock's
+  chat-dialect tool call sent `{"command": …}` for every harness, and grok's
+  `run_terminal_command` rejects a call with no `description`, so the argument
+  shape is now chosen per tool. And a probe that replaces `HOME` — grok and
+  gemini both need a throwaway one — left the shim looking for the session
+  store under that throwaway directory, so a working seam was reported as
+  broken; `REACH_HOME` is now pinned for every probe, which fixes the same
+  latent fault in the gemini probe.
 
 ## [0.1.1] - 2026-08-22
 
