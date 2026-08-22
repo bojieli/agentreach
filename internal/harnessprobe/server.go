@@ -475,10 +475,23 @@ func (m *Mock) pickChatTool(tools []struct {
 			firstFunction = t.Function.Name
 		}
 	}
-	for _, known := range []string{"Bash", "bash", "shell"} {
-		if advertised[known] {
-			data, _ := json.Marshal(map[string]any{"command": command})
-			return known, string(data)
+	// Grok Build's run_terminal_command rejects a call that omits
+	// `description`, so the argument shape is per-tool rather than one
+	// generic {"command": ...} for every harness.
+	for _, known := range []struct {
+		name string
+		args func(string) map[string]any
+	}{
+		{"Bash", func(c string) map[string]any { return map[string]any{"command": c} }},
+		{"bash", func(c string) map[string]any { return map[string]any{"command": c} }},
+		{"shell", func(c string) map[string]any { return map[string]any{"command": c} }},
+		{"run_terminal_command", func(c string) map[string]any {
+			return map[string]any{"command": c, "description": "reach seam probe"}
+		}},
+	} {
+		if advertised[known.name] {
+			data, _ := json.Marshal(known.args(command))
+			return known.name, string(data)
 		}
 	}
 	data, _ := json.Marshal(map[string]any{"command": command})

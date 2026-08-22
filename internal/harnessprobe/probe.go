@@ -30,6 +30,7 @@ const (
 	HarnessKimi       = "kimi"
 	HarnessGoose      = "goose"
 	HarnessGemini     = "gemini"
+	HarnessGrok       = "grok"
 )
 
 // Options configures one Verify run.
@@ -91,6 +92,7 @@ var harnessSpecs = map[string]harnessSpec{
 	HarnessKimi:       {dialect: DialectChat, args: kimiArgs, env: kimiEnv, workingDir: "/tmp"},
 	HarnessGoose:      {dialect: DialectChat, args: gooseArgs, env: gooseEnv},
 	HarnessGemini:     {dialect: DialectGemini, args: geminiArgs, env: geminiEnv, prepare: geminiPrepare},
+	HarnessGrok:       {dialect: DialectChat, args: grokArgs, env: grokEnv, prepare: grokPrepare},
 }
 
 // Verify observes where the installed harness actually runs a shell command.
@@ -387,6 +389,19 @@ func baseProbeEnv(sessName, shimDir string, strip func(key string) bool) []strin
 		}
 		env = append(env, kv)
 	}
+	// A probe that replaces HOME — grok and gemini both need a throwaway one
+	// for the harness's own config — would otherwise send the shim looking for
+	// the session store under that throwaway directory, where no session
+	// exists, and the seam would be reported as broken when it was the probe
+	// that could not find the session. Pinning REACH_HOME keeps the store
+	// where `reach up` actually wrote it. Resolved the same way the session
+	// package resolves it, and duplicated for the same reason cache.go
+	// duplicates it: the dependency is not worth the cycle.
+	if os.Getenv("REACH_HOME") == "" {
+		if hd, err := os.UserHomeDir(); err == nil {
+			env = append(env, "REACH_HOME="+filepath.Join(hd, ".reach"))
+		}
+	}
 	return append(env, "REACH_SESSION="+sessName)
 }
 
@@ -546,6 +561,64 @@ func geminiEnv(sessName, shimDir, home, baseURL string) []string {
 		"GOOGLE_GEMINI_BASE_URL="+baseURL,
 		"GEMINI_TELEMETRY_OPT_OUT=1",
 	)
+}
+
+func grokArgs(_ string) []string {
+	return []string{
+		"--always-approve",
+		"--no-subagents",
+		"--sandbox", "off",
+		"--tools", "run_terminal_command",
+		"--max-turns", "4",
+		"-p", "Follow the tool-call instructions exactly.",
+	}
+}
+
+// grokEnv points Grok Build at the mock via the CLI chat-proxy override and
+// at the PATH shim via $SHELL. All inherited GROK_* / XAI_* credentials are
+// stripped so a probe cannot reach a real provider.
+func grokEnv(sessName, shimDir, home, baseURL string) []string {
+	env := baseProbeEnv(sessName, shimDir, func(key string) bool {
+		return key == "HOME" || key == "SHELL" ||
+			strings.HasPrefix(key, "GROK_") ||
+			strings.HasPrefix(key, "XAI_")
+	})
+	shimBash := filepath.Join(shimDir, "bash")
+	return append(env,
+		"HOME="+home,
+		"GROK_HOME="+filepath.Join(home, ".grok"),
+		"SHELL="+shimBash,
+		"GROK_SHELL="+shimBash,
+		"GROK_SUBAGENTS=0",
+		"GROK_SANDBOX=off",
+		"GROK_TELEMETRY_ENABLED=0",
+		"XAI_API_KEY=dummy",
+		"GROK_CLI_CHAT_PROXY_BASE_URL="+baseURL,
+	)
+}
+
+func grokPrepare(home, _ string) error {
+	dir := filepath.Join(home, ".grok")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("create .grok dir: %w", err)
+	}
+	// No base_url: a model's own base_url overrides the chat proxy entirely,
+	// so setting one here would send the probe past the mock and hang. Left
+	// unset, the model resolves through the cli-chat-proxy, which
+	// GROK_CLI_CHAT_PROXY_BASE_URL points at the mock.
+	cfg := `[models]
+default = "reach-mock"
+
+[model.reach-mock]
+model = "reach-mock"
+api_backend = "chat_completions"
+api_key = "dummy"
+`
+	p := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(p, []byte(cfg), 0o600); err != nil {
+		return fmt.Errorf("write .grok/config.toml: %w", err)
+	}
+	return nil
 }
 
 // geminiPrepare writes a settings.json into the probe's throwaway HOME that

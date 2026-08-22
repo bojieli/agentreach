@@ -135,3 +135,25 @@ func TestShellCommandArgStopsAtTheScript(t *testing.T) {
 		})
 	}
 }
+
+func TestUnwrapGrokEnvelope(t *testing.T) {
+	script := `snap=$(command cat <&3); builtin eval -- "$snap"; __grok_user_cmd="$1"; builtin set --; builtin eval "$__grok_user_cmd" 2>&1`
+	got, ok := unwrapGrokEnvelope([]string{"-O", "extglob", "-c", script, "--", "echo", "hello"})
+	if !ok || got != "echo hello" {
+		t.Fatalf("got %q ok=%v, want %q", got, ok, "echo hello")
+	}
+	if _, ok := unwrapGrokEnvelope([]string{"-c", "echo hi"}); ok {
+		t.Fatal("plain -c should not unwrap")
+	}
+}
+
+func TestIsGrokLocalSnapshot(t *testing.T) {
+	snap := `source "$HOME/.bashrc" 2>/dev/null; printf '\x01'; builtin alias -p 2>/dev/null`
+	if !isGrokLocalSnapshot([]string{"-lc", snap}) {
+		t.Fatal("expected snapshot to stay local")
+	}
+	script := `__grok_user_cmd="$1"; builtin eval "$__grok_user_cmd"`
+	if isGrokLocalSnapshot([]string{"-O", "extglob", "-c", script, "--", "echo hi"}) {
+		t.Fatal("tool envelope must not be classified as a snapshot")
+	}
+}

@@ -58,7 +58,18 @@ func runBashShim(args []string) int {
 	if os.Getenv(shimGuardEnv) != "" {
 		return execRealShell(args)
 	}
-	command := shellCommandArg(args)
+	// Grok Build snapshots the login environment with `$SHELL -lc` before
+	// any tool call. Those scripts read the operator's own bashrc and must
+	// stay local. Its actual tool commands are wrapped in an envelope that
+	// names __grok_user_cmd; the payload after `--` is what should run on
+	// the target.
+	if isGrokLocalSnapshot(args) {
+		return execRealShell(args)
+	}
+	command, ok := unwrapGrokEnvelope(args)
+	if !ok {
+		command = shellCommandArg(args)
+	}
 	if command == "" {
 		return execRealShell(args)
 	}
@@ -82,6 +93,68 @@ func runBashShim(args []string) int {
 		return exitTransportFailure
 	}
 	return runOnTarget(shimContext(), sessionNameFromEnv(""), mapEmbeddedCwd(sess, command), "")
+}
+
+// unwrapGrokEnvelope extracts the user command from Grok Build's shell
+// invocation.
+//
+// Observed on grok 1.0.5: the run_terminal_command tool spawns
+//
+//	$SHELL -O extglob -c '<envelope using __grok_user_cmd="$1">' -- <command>
+//
+// The envelope reads a snapshot from fd 3, evals it, then evals $1. Forwarding
+// the envelope to the target fails (no fd 3, no $1). The payload after `--` is
+// the command the model asked to run.
+func unwrapGrokEnvelope(args []string) (string, bool) {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" || a == "-" || !strings.HasPrefix(a, "-") {
+			return "", false
+		}
+		if strings.HasPrefix(a, "--") {
+			continue
+		}
+		if !strings.Contains(a, "c") {
+			// -O extglob sits in front of -c. Skip the option's argument.
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				i++
+			}
+			continue
+		}
+		tail := args[i+1:]
+		if len(tail) == 0 {
+			return "", false
+		}
+		if !strings.Contains(tail[0], "__grok_user_cmd") {
+			return "", false
+		}
+		rest := tail[1:]
+		if len(rest) > 0 && rest[0] == "--" {
+			rest = rest[1:]
+		}
+		if len(rest) == 0 {
+			return "", false
+		}
+		return strings.Join(rest, " "), true
+	}
+	return "", false
+}
+
+// isGrokLocalSnapshot reports Grok Build's pre-command environment snapshot
+// (`$SHELL -lc 'source "$HOME/.bashrc"; … alias … env'`). That must run on
+// the operator's machine; sending it to the target would source the wrong
+// home directory.
+func isGrokLocalSnapshot(args []string) bool {
+	cmd := shellCommandArg(args)
+	if cmd == "" {
+		return false
+	}
+	if strings.Contains(cmd, "__grok_user_cmd") {
+		return false
+	}
+	return strings.Contains(cmd, `source "$HOME/.bashrc"`) ||
+		strings.Contains(cmd, "builtin alias -p") ||
+		strings.Contains(cmd, "command env -0")
 }
 
 // shellCommandArg returns the command string of a `-c` invocation, or "" when
