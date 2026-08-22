@@ -52,12 +52,12 @@ TARGETS
   user@host:/abs/path                  scp-style shorthand
 
   Session flags may follow the target, before the command:
-  --name --mode --untrusted --fileops --timeout --fresh
+  --name --mode --fileops --timeout --fresh
 
 EXAMPLES
   reach build-box claude                        Claude Code, working on build-box
   reach ssh://build-box/srv/app claude          ... in a directory you name
-  reach client-box:/srv/app --untrusted codex   somebody else's box
+  reach client-box:/srv/app codex               scp-style, with a path
   reach build-box exec -- go test ./...
   reach status                                  every session, and where each points
 

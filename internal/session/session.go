@@ -64,9 +64,13 @@ type Session struct {
 	// ~130 ms per command, and it is recorded rather than assumed because
 	// Win32-OpenSSH does not implement the feature.
 	Multiplex bool `json:"multiplex"`
-	// Untrusted marks a target whose operator you are not. reach will not
-	// install anything on it and will not forward an SSH agent to it.
-	Untrusted bool `json:"untrusted"`
+	// A session written by 0.1.0 or 0.1.1 may carry an "untrusted" field. It is ignored
+	// rather than migrated, and the schema version does not move for it: what
+	// the field promised is now unconditional — no credential goes to any
+	// target, no agent is forwarded to any target, and nothing is installed on
+	// one unless the operator names the helper tier by hand — so there is no
+	// policy left for it to have meant, and a document written by either build
+	// loads identically in the other.
 	// Timeout bounds an individual command.
 	Timeout time.Duration `json:"timeout"`
 }
@@ -426,9 +430,10 @@ func (s *Session) transport(batch bool) (transport.Transport, error) {
 			// it. Assuming it here would mean sending options that a client
 			// without the feature may refuse outright.
 			Multiplex: s.Multiplex,
-			// Agent forwarding is refused outright for untrusted targets: a
-			// forwarded agent socket lets root on that host authenticate as
-			// the operator against every other system they can reach.
+			// Agent forwarding is refused for every target, and no flag turns
+			// it on: a forwarded agent socket lets root on that host
+			// authenticate as the operator against every other system they can
+			// reach, and no target reach connects to is trusted with that.
 			ForwardAgent: false,
 			BatchMode:    batch,
 		})
@@ -513,11 +518,6 @@ func loginDir(ctx context.Context, t transport.Transport) (string, error) {
 // stderr, because a host that stopped answering on its usual tier should keep
 // working, but not without the operator being able to see that it changed.
 func (s *Session) FileOps(ctx context.Context, t transport.Transport) (fileops.Selection, error) {
-	if s.Tier == reach.TierHelper && s.Untrusted {
-		return fileops.Selection{}, fmt.Errorf(
-			"session %q is marked --untrusted, and the helper tier installs a binary on the target.\n"+
-				"Re-create the session without --untrusted, or use a tier that installs nothing.", s.Name)
-	}
 	warn := func(msg string) { fmt.Fprintln(os.Stderr, msg) }
 	return fileops.New(ctx, s.Tier, t, s.Caps, s.Pinned, warn)
 }

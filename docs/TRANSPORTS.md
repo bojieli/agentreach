@@ -164,10 +164,9 @@ Properties:
   and says plainly when it has placed nothing.
 - **Removable.** `reach helper uninstall` deletes the cache directory. That path
   is derived by reach, never from anything the target said.
-- **Never automatic.** Autonegotiation stops below this tier. Writing to someone
-  else's machine stays an explicit operator decision.
-- **Refused on untrusted targets.** A session created with `--untrusted` cannot
-  use this tier at all.
+- **Never automatic.** Autonegotiation stops below this tier, so reaching it
+  takes `--fileops=helper` and nothing else. Writing to someone else's machine
+  stays an explicit operator decision.
 
 Set `REACH_HELPER_BINARY` to use a build you produced yourself.
 

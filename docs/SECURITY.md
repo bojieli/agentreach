@@ -13,8 +13,8 @@ reach different from running the agent remotely.
 
 **Nothing is installed by default.** Tier 0 uses only a POSIX shell and writes
 nothing to the target's disk. The one tier that does write a binary
-(`--fileops=helper`) is never selected by autonegotiation and is refused
-outright on a session marked `--untrusted`.
+(`--fileops=helper`) is never selected by autonegotiation: reaching it takes an
+operator naming it, on the command line, for that session.
 
 **SSH agent forwarding is off, unconditionally.** reach never passes
 `ForwardAgent=yes`. A forwarded agent socket on a host with a hostile root lets

@@ -23,8 +23,9 @@ of these properties is a vulnerability, not a bug:
 
 - **No credential reaches the target.** The agent, its API key or OAuth token,
   and its conversation stay on the operator's machine.
-- **Nothing is installed or written by default.** Only the opt-in `helper` tier
-  writes to a target, and never on a session marked `--untrusted`.
+- **Nothing is installed or written by default.** Only the `helper` tier writes
+  to a target, it is never selected automatically, and reaching it requires the
+  operator to name it with `--fileops=helper`.
 - **reach acts only on the paths it was asked to act on.** In particular, a path
   originating in content read from a target must not be able to escape the
   mirror root or reach an arbitrary local file.

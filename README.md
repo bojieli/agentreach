@@ -139,15 +139,14 @@ Name a machine, then name an agent:
 ```console
 reach build-box claude                        # an ssh_config alias; work where a login lands
 reach ssh://build-box/srv/app claude          # ... or in a directory you name
-reach client-box:/srv/app --untrusted codex   # somebody else's server
+reach client-box:/srv/app codex               # somebody else's server
 ```
 
 reach opens one multiplexed SSH connection, asks the host what it can do, and
 launches the agent locally with its shell quietly redirected there. You talk to
-it like you always do. `--untrusted` promises that the optional helper binary
-will never be installed on that host, no matter what; either way `reach doctor`
-tells you exactly what was found, which tier got picked, and whether anything is
-sitting on the target.
+it like you always do. Nothing is written to that host unless you ask for the
+helper tier by name, and `reach doctor` tells you exactly what was found, which
+tier got picked, and whether anything is sitting on the target.
 
 Any command takes a target, not just the agents:
 
@@ -161,9 +160,9 @@ open at once** — one terminal per box, and no bookkeeping to keep them apart:
 
 ```console
 $ reach status
-NAME            TARGET                    MODE  FILEOPS  CWD       POLICY
-build-box-app   ssh://build-box/srv/app   exec  pipe     /srv/app  -
-client-box-app  ssh://client-box/srv/app  exec  posix    /srv/app  untrusted
+NAME            TARGET                    MODE  FILEOPS  CWD
+build-box-app   ssh://build-box/srv/app   exec  pipe     /srv/app
+client-box-app  ssh://client-box/srv/app  exec  posix    /srv/app
 ```
 
 A second command against a target reuses that session instead of probing again,
@@ -260,7 +259,7 @@ Session flags go between the target and the command, and everything from the
 command onwards belongs to the command:
 
 ```console
-reach build-box --mode mirror --untrusted claude --resume
+reach build-box --mode mirror --fresh claude --resume
 ```
 
 ## Why not SSHFS, an MCP server, or just SSH?

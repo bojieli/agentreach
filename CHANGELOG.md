@@ -61,6 +61,29 @@ project makes without a version attached.
   check each claim — `mount` on both machines, `ps`, `reach doctor`,
   `reach log` — rather than asking to be believed.
 
+### Removed
+
+- **`--untrusted`.** It promised three things and delivered one. Two of them —
+  that no credential reaches a target, and that no SSH agent is ever forwarded
+  to one — hold for every target, with no flag that turns them off, so printing
+  them as one session's *policy* implied the other sessions were weaker. That
+  was false in the direction that matters.
+
+  The third, that nothing would be installed on the host, was real but nearly
+  redundant: autonegotiation never selects the helper tier, so the flag could
+  only fire against an operator who had typed `--fileops=helper` on the same
+  line, and the refusal then told them to re-create the session without it.
+
+  It also contradicted reach's own posture. The premise is that every target may
+  be hostile; a flag called `--untrusted` implies the default is trusted, which
+  is neither what reach does nor what its threat model says.
+
+  Passing it now fails with an explanation rather than "flag provided but not
+  defined" and a usage dump. Session files written by 0.1.0 and 0.1.1 still
+  load: the field is ignored, and the schema version deliberately does not move
+  for it, because a document written by either build loads identically in the
+  other.
+
 ### Fixed
 
 - **A misspelled `--mode` was accepted and behaved as `exec`.** Only `mirror` is
