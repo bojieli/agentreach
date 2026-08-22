@@ -196,6 +196,7 @@ reach down build
 | [Goose](docs/harnesses/goose.md) | `reach goose` | `GOOSE_SHELL`, a documented override | verified |
 | [Crush](docs/harnesses/crush.md) | `reach crush` | its own server mode, run on the target | verified |
 | [Gemini CLI](docs/harnesses/gemini.md) | `reach gemini` | a `bash` earlier on `PATH`, plus `excludeTools` for the rest | verified |
+| [Grok Build](docs/harnesses/grok.md) | `reach grok` | `$SHELL`, plus an agent profile that removes the file tools | verified (1.0.5) |
 
 Those fall into three groups, plus one exception, and the group decides how much
 of the agent survives the trip.
@@ -291,7 +292,7 @@ Four things look like they should work. Each breaks somewhere specific.
 Three layers, and only the top one knows which agent you're running.
 
 ```
-harness  (claude · codex · kimi · opencode · goose · crush · gemini)
+harness  (claude · codex · kimi · opencode · goose · crush · gemini · grok)
     │     native tool calls, no new tools in the model's view
 adapter   one per harness, config or plugin, never a fork
     │

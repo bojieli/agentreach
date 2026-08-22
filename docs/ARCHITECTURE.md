@@ -37,7 +37,7 @@ than on a filesystem mount.
 
 ```
 ┌─ your machine ─────────────────────────────────────────────┐
-│  harness (claude / codex / kimi / opencode)                │
+│  harness (claude / codex / kimi / grok / opencode)         │
 │      │ native tool calls — the model sees no new tools     │
 │  ┌───▼─────────────────────────────────────┐               │
 │  │ adapter (per harness, thin, no fork)    │               │
@@ -350,6 +350,7 @@ be Claude Code *and* it must be native file tools.
 | Goose (Block) | `GOOSE_SHELL` env var | ✓ remote | denied via `available_tools: [shell]` | yes — see [harnesses/goose.md](harnesses/goose.md) |
 | Crush (Charm) | server mode (`crush server --host`) | ✓ remote | ✓ remote | yes — see [harnesses/crush.md](harnesses/crush.md) |
 | Gemini CLI | PATH shim (bare `bash` name) | ✓ remote | denied via `excludeTools` | yes — see [harnesses/gemini.md](harnesses/gemini.md) |
+| Grok Build | `$SHELL` → shim | ✓ remote (envelope unwrapped) | removed via agent-profile `disallowedTools` | yes, 1.0.5 — see [harnesses/grok.md](harnesses/grok.md) |
 
 For harnesses where the seam could regress across versions (Codex, Kimi,
 Goose, Gemini), `reach harness verify` drives the harness against an embedded
