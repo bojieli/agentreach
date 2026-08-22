@@ -35,30 +35,35 @@ until the morning it doesn't.
 ## What reach actually does
 
 The agent stays where it is. What moves is the work it hands off. An agent only
-touches a machine two ways: it shells out to run a command, and it reads or
-writes files. reach gets in the middle of both, on your side, before either one
+touches a machine two ways — it runs shell commands, and it reads or writes
+files — and reach gets in the middle of both, on your side, before either one
 reaches your disk.
 
-The shell is the easy half. Most harnesses ship a supported way to replace
-whatever they spawn as a shell, so reach uses it. Claude Code has
-`CLAUDE_CODE_SHELL_PREFIX`. Goose has `GOOSE_SHELL`. Codex speaks a
-remote-environment protocol. opencode lets a custom tool shadow a built-in one.
-Where nothing like that exists, reach puts its own `bash` earlier on `PATH` and
-wins the lookup. Whichever door it comes in through, the command gets unwrapped,
-sent over ssh and run on the target. As far as the model can tell, it called
-`Bash` and got back stdout and an exit code.
+**Commands.** reach takes over whatever the harness spawns as a shell, unwraps
+the command, runs it over ssh on the target, and hands back stdout and an exit
+code. As far as the model can tell, it called `Bash`. Every harness offers some
+door in:
 
-Files depend on the mode. In exec mode the agent's own `Read`, `Write` and `Edit`
-are switched off, because they call the local filesystem directly and there's no
-seam to redirect them through. The agent falls back to its shell, which is
-already remote. In mirror mode reach answers those calls itself, pulling the file
-over the same ssh connection when a tool opens it and pushing it back when it
-changes. That path is wired up for Claude Code today.
+- Claude Code — `CLAUDE_CODE_SHELL_PREFIX`
+- Goose — `GOOSE_SHELL`
+- Codex — its remote-environment protocol
+- opencode — a custom tool shadowing the built-in one
+- anything else — reach's own `bash`, earlier on `PATH`, winning the lookup
 
-Worth being precise about what this isn't. reach doesn't trace syscalls, and
-there's no filesystem in any of it: no SSHFS, no FUSE, no mount, and no file
-synchronisation between the two machines. It sits at the seam where the agent
-hands work to the operating system, one request and one response at a time.
+**Files.** Depends on the mode:
+
+- **exec mode** — the agent's own `Read`, `Write` and `Edit` are switched off.
+  They call the local filesystem directly and there is no seam to redirect them
+  through, so the agent falls back to its shell, which is already remote.
+- **mirror mode** — reach answers those calls itself, pulling the file over the
+  same ssh connection when a tool opens it and pushing it back when it changes.
+  Wired up for Claude Code today.
+
+**What this isn't.** No syscall tracing. No filesystem in any of it: no SSHFS,
+no FUSE, no mount, no file synchronisation between the two machines. reach sits
+at the seam where the agent hands work to the operating system, one request and
+one response at a time.
+
 [HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md) walks a single tool call through the
 whole path, in figures.
 
