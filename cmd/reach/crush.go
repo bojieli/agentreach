@@ -73,7 +73,7 @@ func cmdCrush(ctx context.Context, args []string) int {
 				"reach: WARNING: --force bypasses server mode. crush will run entirely\n"+
 					"reach: on the LOCAL machine; its tools act on the operator's filesystem,\n"+
 					"reach: not on the target.")
-			env := append(os.Environ(), "REACH_SESSION="+sessName)
+			env := replaceEnv(os.Environ(), "REACH_SESSION", sessName)
 			argv := append([]string{binPath}, pos...)
 			return replaceProcess(ctx, binPath, argv, env)
 		}
@@ -131,7 +131,7 @@ func cmdCrush(ctx context.Context, args []string) int {
 		"reach: Crush -> %s (server mode; every tool acts on the target)\n",
 		s.Target.Describe())
 
-	env := append(os.Environ(), "REACH_SESSION="+sessName)
+	env := replaceEnv(os.Environ(), "REACH_SESSION", sessName)
 	argv := append([]string{binPath, "--host", hostURL}, pos...)
 	return replaceProcess(ctx, binPath, argv, env)
 }

@@ -27,6 +27,20 @@ project makes without a version attached.
   check each claim — `mount` on both machines, `ps`, `reach doctor`,
   `reach log` — rather than asking to be believed.
 
+### Fixed
+
+- **A second `REACH_SESSION` in a harness's environment could point the agent at
+  the wrong machine.** The launchers appended `REACH_SESSION` to a copy of the
+  current environment, so an inherited one — exported in the operator's shell,
+  or set by a wrapper — arrived as a duplicate key, and which of the two a child
+  reads is not defined. The shim would then resolve a different session than the
+  launch had named, and run the agent's commands on that target while reporting
+  this one. Every launcher now replaces the variable, as the codex and gemini
+  paths already did for their own, and the harness seam probes strip an
+  inherited value before setting the one they are measuring — a probe that
+  routed its canary through the operator's real session would report on a seam
+  it never used.
+
 ## [0.1.1] - 2026-08-22
 
 **Anyone on 0.1.0 should upgrade.** Every entry here is reach disarming its own
