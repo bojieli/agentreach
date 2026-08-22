@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 784" width="960" height="784" role="img" aria-label="One Bash tool call, end to end. The model calls Bash; Claude Code wraps the command and hands it to reach through CLAUDE_CODE_SHELL_PREFIX; reach reads the session file, strips the two local-only segments of the envelope, and sends the command over the ssh connection the session already holds; the target runs it in a shell and nothing is installed there; the output, the exit status and the new working directory come back, and reach records the directory locally so cd keeps working.">
+<!-- Generated figure. toolcall-light.svg and toolcall-dark.svg are
+     twins: edit one, mirror the change in the other. Colours are the only
+     difference between them. -->
+<title>One Bash tool call, end to end</title>
+<text x="24" y="42" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#9198a1" text-anchor="start" letter-spacing="1.5">YOUR MACHINE</text>
+<rect x="24" y="56" width="912" height="290" rx="14" fill="#12181f" stroke="#30363d" stroke-width="1"/>
+<rect x="48" y="76" width="864" height="56" rx="10" fill="#1c2128" stroke="#3d444d" stroke-width="1"/>
+<circle cx="72" cy="102" r="11" fill="#0f2440" stroke="#1f6feb" stroke-width="1"/>
+<text x="72" y="106" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#79c0ff" text-anchor="middle">1</text>
+<text x="94" y="106" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#e6edf3" text-anchor="start">The model calls Bash — an ordinary tool call, no new tool names</text>
+<text x="94" y="128" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#9198a1" text-anchor="start">grep -rn TODO src/</text>
+<rect x="48" y="146" width="864" height="76" rx="10" fill="#1c2128" stroke="#3d444d" stroke-width="1"/>
+<circle cx="72" cy="172" r="11" fill="#0f2440" stroke="#1f6feb" stroke-width="1"/>
+<text x="72" y="176" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#79c0ff" text-anchor="middle">2</text>
+<text x="94" y="176" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#e6edf3" text-anchor="start">Claude Code wraps it and runs the program named by CLAUDE_CODE_SHELL_PREFIX</text>
+<text x="94" y="198" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#9198a1" text-anchor="start">~/.reach/bin/reach-shell-prefix -c &quot;source &lt;snapshot&gt;.sh &amp;&amp; … &amp;&amp; eval &#x27;grep -rn TODO src/&#x27; &amp;&amp; pwd -P &gt;| /tmp/claude-…-cwd&quot;</text>
+<text x="94" y="216" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#7d8590" text-anchor="start">that path is a symlink to reach itself, which dispatches on argv[0] — no wrapper script, no extra process</text>
+<rect x="48" y="236" width="864" height="96" rx="10" fill="#1c2128" stroke="#3d444d" stroke-width="1"/>
+<circle cx="72" cy="262" r="11" fill="#0f2440" stroke="#1f6feb" stroke-width="1"/>
+<text x="72" y="266" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#79c0ff" text-anchor="middle">3</text>
+<text x="94" y="266" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#e6edf3" text-anchor="start">reach starts — one short-lived process, no daemon — and reads the session file</text>
+<text x="94" y="288" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#9198a1" text-anchor="start">~/.reach/sessions/build-box-app.json  →  target, working directory, negotiated file-op tier</text>
+<text x="94" y="306" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#9198a1" text-anchor="start">strips  source &lt;snapshot&gt;.sh  (local paths, and it would leak your username to the target)</text>
+<text x="94" y="324" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#9198a1" text-anchor="start">strips  pwd -P &gt;| /tmp/claude-…-cwd  (that file is how cd persists, and it has to stay local)</text>
+<path d="M 140 354 L 140 394" stroke="#4493f8" stroke-width="1.8" fill="none"/>
+<polygon points="135,394 145,394 140,402" fill="#4493f8"/>
+<rect x="116.0" y="367.0" width="48" height="22" rx="11.0" fill="#1c2128" stroke="#4493f8" stroke-width="1"/>
+<text x="140" y="382" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="700" fill="#4493f8" text-anchor="middle">ssh</text>
+<text x="176" y="372" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#9198a1" text-anchor="start">cd /srv/app &amp;&amp; grep -rn TODO src/</text>
+<text x="176" y="392" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#7d8590" text-anchor="start">on the connection this session opened — authenticated once, multiplexed, reused by every later call</text>
+<text x="24" y="424" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#9198a1" text-anchor="start" letter-spacing="1.5">TARGET</text>
+<rect x="24" y="438" width="912" height="116" rx="14" fill="#12181f" stroke="#30363d" stroke-width="1"/>
+<rect x="48" y="458" width="864" height="76" rx="10" fill="#1c2128" stroke="#3d444d" stroke-width="1"/>
+<circle cx="72" cy="484" r="11" fill="#0f2440" stroke="#1f6feb" stroke-width="1"/>
+<text x="72" y="488" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#79c0ff" text-anchor="middle">4</text>
+<text x="94" y="488" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#e6edf3" text-anchor="start">sshd opens one channel on that connection and runs the command in a shell</text>
+<text x="94" y="510" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#9198a1" text-anchor="start">sh -c &#x27;cd /srv/app &amp;&amp; grep -rn TODO src/&#x27;</text>
+<text x="94" y="528" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#7d8590" text-anchor="start">nothing is installed here and nothing is left behind; the shell exits when the command does</text>
+<path d="M 140 622 L 140 578" stroke="#4493f8" stroke-width="1.8" fill="none"/>
+<polygon points="135,578 145,578 140,570" fill="#4493f8"/>
+<text x="176" y="588" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#9198a1" text-anchor="start">stdout · stderr · exit status · the resulting directory</text>
+<text x="176" y="608" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#7d8590" text-anchor="start">a timeout or a dropped link arrives here as a value, never as a call that stops answering</text>
+<text x="24" y="656" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#9198a1" text-anchor="start" letter-spacing="1.5">YOUR MACHINE</text>
+<rect x="24" y="670" width="912" height="90" rx="14" fill="#12181f" stroke="#30363d" stroke-width="1"/>
+<rect x="48" y="688" width="864" height="56" rx="10" fill="#1c2128" stroke="#3d444d" stroke-width="1"/>
+<circle cx="72" cy="714" r="11" fill="#0f2440" stroke="#1f6feb" stroke-width="1"/>
+<text x="72" y="718" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#79c0ff" text-anchor="middle">5</text>
+<text x="94" y="718" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#e6edf3" text-anchor="start">reach streams the output back, records the new directory, appends an audit line, exits with the command&#x27;s status</text>
+<text x="94" y="740" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#9198a1" text-anchor="start">The model sees an ordinary Bash result. Nothing was mounted, nothing was synchronised, and no file on your disk changed.</text>
+</svg>

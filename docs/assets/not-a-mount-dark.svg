@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 452" width="960" height="452" role="img" aria-label="A mount versus a request. An SSHFS or FUSE mount turns every tool call into a stream of syscalls through the kernel&#x27;s VFS and a FUSE daemon, so a stalled link parks the agent in uninterruptible sleep with no error it can see. reach answers each tool call with one request and one response over an ssh connection, so a timeout comes back as a tool error the model can read, retry or route around.">
+<!-- Generated figure. not-a-mount-light.svg and not-a-mount-dark.svg are
+     twins: edit one, mirror the change in the other. Colours are the only
+     difference between them. -->
+<title>A mount versus a request</title>
+<text x="24" y="42" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#ff7b72" text-anchor="start" letter-spacing="1.5">WHAT PEOPLE ASSUME: A MOUNT</text>
+<rect x="24" y="56" width="444" height="372" rx="14" fill="#12181f" stroke="#30363d" stroke-width="1"/>
+<rect x="48" y="84" width="396" height="44" rx="10" fill="#1c2128" stroke="#3d444d" stroke-width="1"/>
+<text x="66" y="111" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="400" fill="#e6edf3" text-anchor="start">agent calls Read(&quot;/srv/app/main.go&quot;)</text>
+<path d="M 100 128 L 100 146" stroke="#da3633" stroke-width="1.8" fill="none"/>
+<polygon points="95,146 105,146 100,154" fill="#da3633"/>
+<text x="122" y="148" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#9198a1" text-anchor="start">open() · read() · stat() · close()</text>
+<rect x="48" y="154" width="396" height="44" rx="10" fill="#1c2128" stroke="#3d444d" stroke-width="1"/>
+<text x="66" y="181" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="400" fill="#e6edf3" text-anchor="start">kernel VFS  →  FUSE</text>
+<path d="M 100 198 L 100 216" stroke="#da3633" stroke-width="1.8" fill="none"/>
+<polygon points="95,216 105,216 100,224" fill="#da3633"/>
+<text x="122" y="218" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#7d8590" text-anchor="start">one syscall at a time, in the kernel</text>
+<rect x="48" y="224" width="396" height="44" rx="10" fill="#1c2128" stroke="#3d444d" stroke-width="1"/>
+<text x="66" y="251" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="400" fill="#e6edf3" text-anchor="start">sshfs daemon  →  sshd</text>
+<rect x="48" y="288" width="396" height="116" rx="10" fill="#2b1214" stroke="#da3633" stroke-width="1"/>
+<text x="64" y="314" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#ff7b72" text-anchor="start">A stall parks the call in uninterruptible</text>
+<text x="64" y="331" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#ff7b72" text-anchor="start">sleep. The agent freezes mid-tool-call with</text>
+<text x="64" y="348" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#ff7b72" text-anchor="start">no error it can reason about — and macOS</text>
+<text x="64" y="365" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#ff7b72" text-anchor="start">wants a kernel extension and a reboot first.</text>
+<text x="492" y="42" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#56d364" text-anchor="start" letter-spacing="1.5">WHAT REACH DOES: A REQUEST</text>
+<rect x="492" y="56" width="444" height="372" rx="14" fill="#12181f" stroke="#30363d" stroke-width="1"/>
+<rect x="516" y="84" width="396" height="44" rx="10" fill="#1c2128" stroke="#3d444d" stroke-width="1"/>
+<text x="534" y="111" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="400" fill="#e6edf3" text-anchor="start">agent calls Read(&quot;/srv/app/main.go&quot;)</text>
+<path d="M 560 136 L 560 196" stroke="#4493f8" stroke-width="1.8" fill="none"/>
+<polygon points="555,136 565,136 560,128" fill="#4493f8"/>
+<polygon points="555,196 565,196 560,204" fill="#4493f8"/>
+<text x="584" y="156" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#9198a1" text-anchor="start">one request</text>
+<text x="584" y="176" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#7d8590" text-anchor="start">one response: the bytes, or an error value</text>
+<rect x="516" y="204" width="396" height="64" rx="10" fill="#0f2440" stroke="#1f6feb" stroke-width="1"/>
+<text x="534" y="230" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="400" fill="#79c0ff" text-anchor="start">reach  →  ssh  →  the target reads it</text>
+<text x="534" y="252" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#79c0ff" text-anchor="start">one round trip on the connection reach already has</text>
+<rect x="516" y="288" width="396" height="116" rx="10" fill="#0f2417" stroke="#2ea043" stroke-width="1"/>
+<text x="532" y="314" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#56d364" text-anchor="start">A timeout comes back as a tool error the</text>
+<text x="532" y="331" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#56d364" text-anchor="start">model can read, retry or route around.</text>
+<text x="532" y="348" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#56d364" text-anchor="start">Nothing is mounted, no kernel is involved,</text>
+<text x="532" y="365" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#56d364" text-anchor="start">and `mount` lists nothing new on either side.</text>
+</svg>

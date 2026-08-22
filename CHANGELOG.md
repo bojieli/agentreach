@@ -11,6 +11,22 @@ project makes without a version attached.
 
 ## [Unreleased]
 
+### Added
+
+- **[docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md), the implementation in
+  figures.** Three new twinned light/dark figures — a Bash tool call followed
+  from the model's call to the target's shell and back, a mount set beside a
+  request, and what each mode does with the file tools — and prose for the
+  reader who wants the mechanism without the design history in
+  `ARCHITECTURE.md`.
+
+  It exists because the most common guess about the implementation is a
+  filesystem: SSHFS, a FUSE mount, a sync engine. None of those are in reach,
+  and a README that never says so leaves the guess standing. The document names
+  what reach is not, says why in each case, and closes with the commands that
+  check each claim — `mount` on both machines, `ps`, `reach doctor`,
+  `reach log` — rather than asking to be believed.
+
 ## [0.1.1] - 2026-08-22
 
 **Anyone on 0.1.0 should upgrade.** Every entry here is reach disarming its own
