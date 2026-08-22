@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/bojieli/agentreach/internal/harnessprobe"
@@ -63,7 +62,7 @@ func cmdGrok(ctx context.Context, args []string) int {
 		return 1
 	}
 
-	binPath, err := exec.LookPath("grok")
+	binPath, err := lookHarnessPath("grok")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "reach: grok is not installed or not in PATH")
 		return 1
