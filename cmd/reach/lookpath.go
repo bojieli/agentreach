@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os/exec"
 	"path/filepath"
 )
@@ -40,9 +41,9 @@ func lookHarnessPath(name string) (string, error) {
 	}
 	abs, absErr := filepath.Abs(p)
 	if absErr != nil {
-		// Only reachable if the working directory cannot be determined, in
-		// which case the relative path is the better of two bad answers.
-		return p, nil
+		// Only reachable when the working directory cannot be determined,
+		// which a relative entry cannot be resolved against anyway.
+		return "", fmt.Errorf("resolve %s: %w", p, absErr)
 	}
 	return abs, nil
 }

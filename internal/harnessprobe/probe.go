@@ -760,7 +760,7 @@ func lookHarnessPath(name string) (string, error) {
 	}
 	abs, absErr := filepath.Abs(p)
 	if absErr != nil {
-		return p, nil
+		return "", fmt.Errorf("resolve %s: %w", p, absErr)
 	}
 	return abs, nil
 }
