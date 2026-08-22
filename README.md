@@ -221,23 +221,21 @@ podman://container/path
 local:///path                  (this machine, mostly for testing)
 ```
 
-## Things that look like they should work
+## Why not SSHFS, an MCP server, or just SSH?
 
-| | what actually happens |
-|---|---|
-| **Install the agent on the server** | 300 MB of Node, and your API key is now on a machine you don't administer |
-| **SSHFS or a FUSE mount** | macOS wants a kernel extension and a reboot. Worse, on a flaky link the mount hangs in uninterruptible sleep and the agent freezes mid-call with no error it can see |
-| **An MCP file server** | The model now sees `mcp__remote__read_file` where it expected `Read`. You didn't relocate the agent, you retrained it |
-| **Just SSH inside the agent's terminal** | `cd` stops persisting between calls, relative paths drift, and the agent's file tools are still happily editing your laptop |
+Four things look like they should work. Each breaks somewhere specific.
 
-There's one rule underneath all of this:
-
-> Every failure has to arrive as a value the agent can reason about, never as a
-> process that stops answering.
-
-A timeout should show up as a tool error the model can retry or route around.
-That's the reason reach is request/response over SSH instead of a filesystem
-mount, and it's the thing most of the design falls out of.
+- **Install the agent on the server.** 300 MB of Node on a machine that isn't
+  yours, and your API key with it, on a box where other people have root.
+- **Run an MCP file server on the target.** The model sees
+  `mcp__remote__read_file` where it expected `Read`. You haven't moved the
+  agent, you've retrained it.
+- **Let the agent ssh in from its own shell.** Every command is a separate
+  login, so `cd` stops persisting and relative paths drift — and the agent's own
+  `Read` and `Write` still edit your laptop.
+- **Mount the target with SSHFS or FUSE.** macOS wants a kernel extension and a
+  reboot. Worse, when the link stalls the read is stuck inside the kernel: the
+  tool call never returns, and the model gets no error it could retry.
 
 <p align="center">
   <picture>
