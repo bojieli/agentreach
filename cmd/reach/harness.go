@@ -89,7 +89,7 @@ func cmdCodex(ctx context.Context, args []string) int {
 	}
 
 	env := replaceEnv(os.Environ(), "CODEX_HOME", codexHome)
-	env = append(env, "REACH_SESSION="+sessName)
+	env = replaceEnv(env, "REACH_SESSION", sessName)
 
 	fmt.Fprintf(os.Stderr, "reach: Codex -> %s (exec-server; every tool acts on the target)\n", s.Target.Describe())
 
@@ -213,8 +213,7 @@ func cmdGoose(ctx context.Context, args []string) int {
 		return rc
 	}
 
-	env := os.Environ()
-	env = append(env, "REACH_SESSION="+sessName)
+	env := replaceEnv(os.Environ(), "REACH_SESSION", sessName)
 	env = append(env, "GOOSE_PATH_ROOT="+gooseHome)
 	env = append(env, "GOOSE_SHELL="+filepath.Join(shimDir, bashShimName))
 	env = prependPath(env, shimDir)
@@ -283,7 +282,7 @@ func cmdGemini(ctx context.Context, args []string) int {
 	}
 
 	env := replaceEnv(os.Environ(), "HOME", geminiHome)
-	env = append(env, "REACH_SESSION="+sessName)
+	env = replaceEnv(env, "REACH_SESSION", sessName)
 	env = prependPath(env, shimDir)
 
 	fmt.Fprintf(os.Stderr,
@@ -386,8 +385,7 @@ func cmdKimi(ctx context.Context, args []string) int {
 		return rc
 	}
 
-	env := os.Environ()
-	env = append(env, "REACH_SESSION="+sessName)
+	env := replaceEnv(os.Environ(), "REACH_SESSION", sessName)
 	env = append(env, "KIMI_CODE_HOME="+kimiHome)
 	env = append(env, "KIMI_SHELL_PATH="+filepath.Join(shimDir, bashShimName))
 	env = append(env, "REACH_EXEC_WORKSPACE="+cwd)
