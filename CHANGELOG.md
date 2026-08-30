@@ -9,6 +9,47 @@ details in closed harness binaries. Entries therefore name the harness versions
 a change was verified against: "works with Claude Code" is not a claim this
 project makes without a version attached.
 
+## [0.5.0] - 2026-08-30
+
+**A flag reach does not define now belongs to the harness.**
+`reach build-box claude --dangerously-skip-permissions` works, and so does
+every other flag the agent you are launching understands. The `--` separator
+that used to be mandatory in front of them is now needed only for the one
+name reach also defines.
+
+A minor rather than a patch: it is new behaviour at the command line, and a
+command that used to be an error now launches an agent. Nothing that worked
+before means anything different — reach still consumes the same flags it
+always defined, and `--` still hands everything after it to the harness.
+
+Nothing at a harness seam changed. This release is above the adapter layer:
+what reaches the harness's argv changed, not how reach gets inside it.
+
+### Changed
+
+- **A flag reach does not define is now handed to the harness instead of
+  rejected.** `reach build-box claude --dangerously-skip-permissions` works;
+  so does `reach build-box codex --model gpt-5-codex`. Before this, every
+  harness flag needed a `--` separator in front of it, and forgetting the
+  separator failed with the flag package's "flag provided but not defined:
+  -dangerously-skip-permissions" printed over reach's own usage block — which
+  reads as reach rejecting a Claude Code flag rather than declining to forward
+  one. The README documented `reach build-box --mode mirror --fresh claude
+  --resume` as though it already worked; now it does.
+
+  reach keeps the handful of names it defines for each launcher (`--session`,
+  and per harness `--force`, `--allow-local-file-tools`,
+  `--danger-full-access`), plus `-h` and `--help` so that `reach claude --help`
+  still describes the launcher rather than starting the agent. `--` remains the
+  escape hatch for the collision that creates: `reach claude -- --session x`
+  gives `--session` to Claude Code. Order is preserved exactly as typed, so a
+  forwarded flag and its value stay together.
+
+  Applies to all seven launchers — claude, codex, kimi, goose, gemini, crush,
+  grok. `reach up`, `reach exec`, `reach fs` and the rest still reject an
+  unknown flag: there is no other program to hand it to, and a silently
+  swallowed `--nmae` is the failure `parseFlags` exists to prevent.
+
 ## [0.4.0] - 2026-08-23
 
 **Binding a session to a target is about five times faster, and no longer

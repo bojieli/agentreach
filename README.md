@@ -289,6 +289,19 @@ command onwards belongs to the command:
 reach build-box --mode mirror --fresh claude --resume
 ```
 
+A flag reach does not define is the harness's, and reach hands it over
+untouched — no `--` needed:
+
+```console
+reach build-box claude --dangerously-skip-permissions
+reach build-box codex --model gpt-5-codex
+```
+
+`--` is still there for the one case that needs it: a flag whose name reach
+also defines. `reach claude --session build` picks reach's session, and
+`reach claude -- --session build` gives the flag to Claude Code instead.
+`reach claude --help` lists which names are reach's for that harness.
+
 ## Why not SSHFS, an MCP server, or just SSH?
 
 Four things look like they should work. Each breaks somewhere specific.

@@ -30,13 +30,13 @@ func loadSessionQuiet() (*session.Session, error) {
 // real CODEX_HOME is only ever read (auth and config are copied across), never
 // written.
 func cmdCodex(ctx context.Context, args []string) int {
-	fs := newFlagSet("codex")
+	fs := newHarnessFlagSet("codex")
 	name := fs.String("session", "", "session name (default $REACH_SESSION)")
 	fullAccess := fs.Bool("danger-full-access", false,
 		"disable Codex's local sandbox entirely instead of only allowing network")
 	force := fs.Bool("force", false,
 		"launch without verifying the shell seam (the agent's commands may run LOCALLY)")
-	pos, err := parseFlags(fs, args)
+	harnessArgs, err := parseHarnessFlags(fs, args)
 	if err != nil {
 		return 2
 	}
@@ -92,7 +92,7 @@ func cmdCodex(ctx context.Context, args []string) int {
 
 	fmt.Fprintf(os.Stderr, "reach: Codex -> %s (exec-server; every tool acts on the target)\n", s.Target.Describe())
 
-	argv := append([]string{binPath}, append(sandbox, pos...)...)
+	argv := append([]string{binPath}, append(sandbox, harnessArgs...)...)
 	return replaceProcess(ctx, binPath, argv, env)
 }
 
@@ -168,11 +168,11 @@ func managedCodexHome(sessName string) (string, error) {
 // files through shell commands (cat, cp, patch, etc.) instead, which run on
 // the target.
 func cmdGoose(ctx context.Context, args []string) int {
-	fs := newFlagSet("goose")
+	fs := newHarnessFlagSet("goose")
 	name := fs.String("session", "", "session name (default $REACH_SESSION)")
 	force := fs.Bool("force", false,
 		"launch without verifying the shell seam (the agent's commands may run LOCALLY)")
-	pos, err := parseFlags(fs, args)
+	harnessArgs, err := parseHarnessFlags(fs, args)
 	if err != nil {
 		return 2
 	}
@@ -221,7 +221,7 @@ func cmdGoose(ctx context.Context, args []string) int {
 		"reach: Goose -> %s (shell via GOOSE_SHELL; file tools denied)\n",
 		s.Target.Describe())
 
-	argv := append([]string{binPath}, pos...)
+	argv := append([]string{binPath}, harnessArgs...)
 	return replaceProcess(ctx, binPath, argv, env)
 }
 
@@ -236,11 +236,11 @@ func cmdGoose(ctx context.Context, args []string) int {
 // run_shell_command in the model's view. Shell commands route through the PATH
 // shim and execute on the session target.
 func cmdGemini(ctx context.Context, args []string) int {
-	fs := newFlagSet("gemini")
+	fs := newHarnessFlagSet("gemini")
 	name := fs.String("session", "", "session name (default $REACH_SESSION)")
 	force := fs.Bool("force", false,
 		"launch without verifying the shell seam (the agent's commands may run LOCALLY)")
-	pos, err := parseFlags(fs, args)
+	harnessArgs, err := parseHarnessFlags(fs, args)
 	if err != nil {
 		return 2
 	}
@@ -288,7 +288,7 @@ func cmdGemini(ctx context.Context, args []string) int {
 		"reach: Gemini CLI -> %s (shell via PATH shim; file tools excluded)\n",
 		s.Target.Describe())
 
-	argv := append([]string{binPath}, pos...)
+	argv := append([]string{binPath}, harnessArgs...)
 	return replaceProcess(ctx, binPath, argv, env)
 }
 
@@ -330,11 +330,11 @@ func replaceEnv(env []string, key, value string) []string {
 // rewrite the cd prefix to the session's target workspace, so the working
 // directory resolves correctly on both sides.
 func cmdKimi(ctx context.Context, args []string) int {
-	fs := newFlagSet("kimi")
+	fs := newHarnessFlagSet("kimi")
 	name := fs.String("session", "", "session name (default $REACH_SESSION)")
 	force := fs.Bool("force", false,
 		"launch without verifying the shell seam (the agent's commands may run LOCALLY)")
-	pos, err := parseFlags(fs, args)
+	harnessArgs, err := parseHarnessFlags(fs, args)
 	if err != nil {
 		return 2
 	}
@@ -394,6 +394,6 @@ func cmdKimi(ctx context.Context, args []string) int {
 		"reach: Kimi Code -> %s (shell shim via KIMI_SHELL_PATH; file tools denied)\n",
 		s.Target.Describe())
 
-	argv := append([]string{binPath}, pos...)
+	argv := append([]string{binPath}, harnessArgs...)
 	return replaceProcess(ctx, binPath, argv, env)
 }
