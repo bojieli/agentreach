@@ -9,7 +9,21 @@ details in closed harness binaries. Entries therefore name the harness versions
 a change was verified against: "works with Claude Code" is not a claim this
 project makes without a version attached.
 
-## [Unreleased]
+## [0.5.0] - 2026-08-30
+
+**A flag reach does not define now belongs to the harness.**
+`reach build-box claude --dangerously-skip-permissions` works, and so does
+every other flag the agent you are launching understands. The `--` separator
+that used to be mandatory in front of them is now needed only for the one
+name reach also defines.
+
+A minor rather than a patch: it is new behaviour at the command line, and a
+command that used to be an error now launches an agent. Nothing that worked
+before means anything different — reach still consumes the same flags it
+always defined, and `--` still hands everything after it to the harness.
+
+Nothing at a harness seam changed. This release is above the adapter layer:
+what reaches the harness's argv changed, not how reach gets inside it.
 
 ### Changed
 
