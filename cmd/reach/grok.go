@@ -45,11 +45,11 @@ Paths are the target's own absolute paths. Do not translate them.`
 // shell access reach exists to provide. Subagents are disabled because a
 // child would inherit the default toolset.
 func cmdGrok(ctx context.Context, args []string) int {
-	fs := newFlagSet("grok")
+	fs := newHarnessFlagSet("grok")
 	name := fs.String("session", "", "session name (default $REACH_SESSION)")
 	force := fs.Bool("force", false,
 		"launch without verifying the shell seam (the agent's commands may run LOCALLY)")
-	pos, err := parseFlags(fs, args)
+	harnessArgs, err := parseHarnessFlags(fs, args)
 	if err != nil {
 		return 2
 	}
@@ -109,7 +109,7 @@ func cmdGrok(ctx context.Context, args []string) int {
 		"--sandbox", "off",
 		"--rules", grokExecGuidance,
 	}
-	argv = append(argv, pos...)
+	argv = append(argv, harnessArgs...)
 
 	fmt.Fprintf(os.Stderr,
 		"reach: Grok Build -> %s (shell via $SHELL; local file tools removed)\n",

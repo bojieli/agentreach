@@ -31,11 +31,11 @@ import (
 // server — which is the session target. Nothing touches the local filesystem.
 // The PATH shim is not involved; server mode is end-to-end.
 func cmdCrush(ctx context.Context, args []string) int {
-	fs := newFlagSet("crush")
+	fs := newHarnessFlagSet("crush")
 	name := fs.String("session", "", "session name (default $REACH_SESSION)")
 	force := fs.Bool("force", false,
 		"launch crush locally without a server on the target (tools will act on the LOCAL machine)")
-	pos, err := parseFlags(fs, args)
+	harnessArgs, err := parseHarnessFlags(fs, args)
 	if err != nil {
 		return 2
 	}
@@ -73,7 +73,7 @@ func cmdCrush(ctx context.Context, args []string) int {
 					"reach: on the LOCAL machine; its tools act on the operator's filesystem,\n"+
 					"reach: not on the target.")
 			env := replaceEnv(os.Environ(), "REACH_SESSION", sessName)
-			argv := append([]string{binPath}, pos...)
+			argv := append([]string{binPath}, harnessArgs...)
 			return replaceProcess(ctx, binPath, argv, env)
 		}
 		fmt.Fprintln(os.Stderr, "reach: crush server mode requires an SSH session (ssh://).")
@@ -131,7 +131,7 @@ func cmdCrush(ctx context.Context, args []string) int {
 		s.Target.Describe())
 
 	env := replaceEnv(os.Environ(), "REACH_SESSION", sessName)
-	argv := append([]string{binPath, "--host", hostURL}, pos...)
+	argv := append([]string{binPath, "--host", hostURL}, harnessArgs...)
 	return replaceProcess(ctx, binPath, argv, env)
 }
 

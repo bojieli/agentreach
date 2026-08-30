@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -40,11 +39,11 @@ Use shell commands for all file access; they run on the target:
 Paths are the target's own absolute paths. Do not translate them.`
 
 func cmdClaude(ctx context.Context, args []string) int {
-	fs := flag.NewFlagSet("claude", flag.ContinueOnError)
+	fs := newHarnessFlagSet("claude")
 	name := fs.String("session", "", "session name (default $REACH_SESSION)")
 	allowFileTools := fs.Bool("allow-local-file-tools", false,
 		"do not deny Claude Code's native file tools (unsafe: they act on the LOCAL filesystem)")
-	pos, perr := parseFlags(fs, args)
+	harnessArgs, perr := parseHarnessFlags(fs, args)
 	if perr != nil {
 		return 2
 	}
@@ -97,7 +96,7 @@ func cmdClaude(ctx context.Context, args []string) int {
 		}
 		argv = append(argv, "--settings", settings, "--append-system-prompt", execModeGuidance)
 	}
-	argv = append(argv, pos...)
+	argv = append(argv, harnessArgs...)
 
 	fmt.Fprintf(os.Stderr, "reach: Claude Code -> %s (bash runs on the target)\n", s.Target.Describe())
 

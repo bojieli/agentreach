@@ -45,6 +45,10 @@ HARNESSES
   env               print the environment a harness needs
   harness verify claude|codex|kimi|goose|gemini|grok   probe whether this harness's shell routes through reach
 
+  A flag reach does not define is the harness's and is passed straight through,
+  so 'reach build-box claude --dangerously-skip-permissions' reaches Claude
+  Code. Put '--' first for a flag reach does define: reach claude -- --session x
+
 TARGETS
   build-box                        an ssh_config alias; work where a login lands
   [user@]host:path                 a remote host over SSH, scp's spelling
@@ -66,6 +70,7 @@ EXAMPLES
   reach build-box:src/app claude                ... in ~/src/app there
   reach build-box:/srv/app claude               ... or in a directory from the root
   reach ssh://build-box:2222//srv/app codex     the URI spelling, when a port is needed
+  reach build-box claude --dangerously-skip-permissions   ... and the flag is Claude Code's
   reach build-box exec -- go test ./...
   reach status                                  every session, and where each points
 
