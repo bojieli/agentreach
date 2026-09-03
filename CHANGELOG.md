@@ -9,6 +9,78 @@ details in closed harness binaries. Entries therefore name the harness versions
 a change was verified against: "works with Claude Code" is not a claim this
 project makes without a version attached.
 
+## [0.6.0] - 2026-09-04
+
+**Exec mode stopped arguing with Claude Code about paths on the target.**
+Verified against Claude Code 2.1.259.
+
+Claude Code resolves the paths in a Bash command against the machine it is
+running on before the command runs, and refuses what falls outside the
+session's local working directories. Under reach the command runs on the
+target, so every path worth naming in an exec-mode session was being judged
+against a filesystem it would never touch. `cat -- /srv/app/main.go` came back
+as "For security, Claude Code may only concatenate files from the allowed
+working directories for this session"; `cat > /srv/app/x` came back as
+"Output redirection was blocked", with no prompt attached, so the operator
+could not approve a write even when it was the whole point of the session.
+A command starting `cd /srv/app && ...` asked for confirmation every time,
+because a working directory this machine does not have cannot be resolved.
+
+reach now wires its hook into Claude Code's PreToolUse event for Bash and
+answers with the thing Claude Code has no way to know: the command is not going
+to run here.
+
+### Fixed
+
+- **A shell command that names a path on the target is no longer refused for
+  naming it.** Exec mode's settings file wires `reach hook` into `PreToolUse`
+  for Bash. The hook allows commands that only read — `cat`, `head`,
+  `sed -n 'A,Bp'`, `rg`, `grep`, `ls`, `find` without `-exec` or `-delete`, and
+  pipelines of those — because the only thing wrong with them was the machine
+  the path was checked against.
+
+  What it will vouch for is deliberately narrow, and `cmd/reach/bashpolicy.go`
+  is where the line is drawn: membership means "this reads and cannot write",
+  not "this is harmless". A redirect, a substitution, an expansion, an
+  assignment prefix, `sed -i`, `find -exec`, `tail -f`, an unbalanced quote —
+  each of them returns "reach cannot read this command with certainty", and the
+  cost of being wrong that way is one permission prompt.
+
+- **A write to the target is now a question instead of a wall.** A command that
+  names a path the local check would refuse gets `ask` rather than `allow`, so
+  it reaches the operator as an approvable prompt carrying the target's name.
+  Before this there was no prompt to approve: the refusal was final, and the
+  agent's own guidance (`cat > FILE <<'EOF'`) could not be followed.
+
+### Changed
+
+- **The exec-mode system prompt tells the agent not to `cd`.** Claude Code
+  treats a compound command whose working directory it cannot resolve as
+  needing approval no matter what a hook returns, so `cd DIR && rg PATTERN .`
+  still costs a confirmation while `rg PATTERN DIR` does not. This is the one
+  shape the hook cannot fix, and the guidance now says so.
+
+### Unchanged, deliberately
+
+- **The deny list.** Read, Edit, Write, NotebookEdit, Glob and Grep are still
+  denied outright in exec mode, in subagents as well as the main session. The
+  hook loosens nothing about the file tools; it only stops a local path check
+  from refusing commands that were never going to run locally.
+
+- **Who decides everything else.** A command reach has no argument about —
+  `make build`, `go test`, `git push` — gets no decision from the hook at all,
+  so the operator's own permission rules keep deciding it. An `ask` would have
+  overridden an allowance they configured, and reach spends one only where the
+  alternative is a refusal they cannot answer.
+
+- **Whose deny wins.** An operator's own `deny` rule still outranks anything
+  the hook says, and the hook never denies: on a target the operator connected
+  reach to on purpose, that decision is theirs.
+
+- **Mirror mode.** Its Bash commands hit the same local check, and its settings
+  file is not wired for Bash. The hook's reasoning would hold there; wiring it
+  is a separate change.
+
 ## [0.5.0] - 2026-08-30
 
 **A flag reach does not define now belongs to the harness.**

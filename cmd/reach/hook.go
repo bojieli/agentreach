@@ -78,7 +78,18 @@ func hookDecide(ctx context.Context, raw []byte) hookReply {
 	}
 
 	s, err := session.Load(sessionNameFromEnv(""))
-	if err != nil || s.Mode != session.ModeMirror {
+	if err != nil {
+		return hookReply{} // not our business
+	}
+
+	// Bash runs on the target in every mode, so what reach knows about it does
+	// not depend on which mode the session is in. Only exec mode wires this
+	// event to the hook today; the reasoning would hold if mirror mode did too.
+	if ev.ToolName == "Bash" && ev.HookEventName == "PreToolUse" {
+		return hookBash(ev, s)
+	}
+
+	if s.Mode != session.ModeMirror {
 		return hookReply{} // not our business
 	}
 
@@ -135,6 +146,49 @@ func hookRoute(ev hookEvent, s *session.Session) (reply hookReply, input map[str
 		return hookReply{}, nil, false
 	}
 	return hookReply{}, input, true
+}
+
+// hookBash decides a Bash tool call the harness is about to check against the
+// wrong filesystem.
+//
+// The harness resolves the paths in a command against this machine and refuses
+// what falls outside the session's local working directories. Under reach the
+// command runs on the target, where those paths are the right ones, so the
+// refusal is about a machine the command will never touch. See bashpolicy.go
+// for what reach is willing to conclude from that.
+//
+// It returns three things and never a fourth: allow for a command that only
+// reads, ask for one the local check would refuse outright, and no decision at
+// all for everything else. Nothing here denies. A deny would be reach
+// overruling the operator on a target they connected reach to on purpose, and
+// their own deny rules already outrank anything this hook says.
+func hookBash(ev hookEvent, s *session.Session) hookReply {
+	var input struct {
+		Command string `json:"command"`
+	}
+	if err := json.Unmarshal(ev.ToolInput, &input); err != nil || input.Command == "" {
+		return hookReply{}
+	}
+
+	if readOnlyBashCommand(input.Command) {
+		return allow(ev, fmt.Sprintf(
+			"reach: this command runs on %s, not on this machine, and it only reads. "+
+				"The local working-directory check does not apply to it.",
+			s.Target.Describe()))
+	}
+
+	// An ask overrides an allow rule the operator configured, so it is spent
+	// only where the alternative is a refusal they cannot answer: a command
+	// naming a path this machine would reject, which on the target is ordinary.
+	if p, ok := bashPathRefusedLocally(input.Command, ev.Cwd); ok {
+		return ask(ev, fmt.Sprintf(
+			"reach: this command runs on %s, not on this machine. %s is a path on the "+
+				"target, so the local check that would otherwise refuse this outright "+
+				"does not apply. Approve it if it should run there.",
+			s.Target.Describe(), p))
+	}
+
+	return hookReply{}
 }
 
 // hookMirror makes the decisions that need the target: fetch before a tool
@@ -254,10 +308,22 @@ func underWorkspace(target, workspace string) bool {
 	return strings.HasPrefix(p, base)
 }
 
+func allow(ev hookEvent, reason string) hookReply {
+	return decision(ev, "allow", reason)
+}
+
+func ask(ev hookEvent, reason string) hookReply {
+	return decision(ev, "ask", reason)
+}
+
 func deny(ev hookEvent, reason string) hookReply {
+	return decision(ev, "deny", reason)
+}
+
+func decision(ev hookEvent, verdict, reason string) hookReply {
 	return hookReply{HookSpecificOutput: &hookSpecific{
 		HookEventName:            ev.HookEventName,
-		PermissionDecision:       "deny",
+		PermissionDecision:       verdict,
 		PermissionDecisionReason: reason,
 	}}
 }
