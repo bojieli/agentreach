@@ -36,7 +36,13 @@ Use shell commands for all file access; they run on the target:
   write     cat > FILE <<'EOF' ... EOF
   edit      apply a patch, or use sed -i / python3 for in-place edits
 
-Paths are the target's own absolute paths. Do not translate them.`
+Paths are the target's own absolute paths. Do not translate them.
+
+Give those paths to the command directly rather than changing into them first.
+A command that begins by cd-ing into a directory this machine does not have
+cannot be checked before it runs, so it costs a confirmation every time:
+  rg PATTERN DIR        runs
+  cd DIR && rg PATTERN .    asks`
 
 func cmdClaude(ctx context.Context, args []string) int {
 	fs := newHarnessFlagSet("claude")
@@ -120,6 +126,33 @@ does exist. Search with the shell instead, which runs on the target:
 If a write is refused because the file changed on the target, re-read it and
 redo the change; do not retry blindly.`
 
+// claudeHook and claudeMatcher are the shape of one entry in Claude Code's
+// settings "hooks" block.
+type claudeHook struct {
+	Type    string `json:"type"`
+	Command string `json:"command"`
+}
+
+type claudeMatcher struct {
+	Matcher string       `json:"matcher"`
+	Hooks   []claudeHook `json:"hooks"`
+}
+
+// claudeHookCommand is the command line a settings file uses to call reach
+// back. reach names its own binary rather than trusting PATH: the hook has to
+// reach the same build that launched the session.
+func claudeHookCommand() (string, error) {
+	self, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	return self + " hook", nil
+}
+
+func claudeHookOn(matcher, hookCmd string) claudeMatcher {
+	return claudeMatcher{Matcher: matcher, Hooks: []claudeHook{{Type: "command", Command: hookCmd}}}
+}
+
 // writeMirrorSettings emits a settings file wiring reach's hook into the file
 // tools, and returns its path.
 func writeMirrorSettings(sessName string) (string, error) {
@@ -127,29 +160,18 @@ func writeMirrorSettings(sessName string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	self, err := os.Executable()
+	hookCmd, err := claudeHookCommand()
 	if err != nil {
 		return "", err
 	}
-	hookCmd := self + " hook"
-	type hookSpec struct {
-		Type    string `json:"type"`
-		Command string `json:"command"`
-	}
-	type matcherSpec struct {
-		Matcher string     `json:"matcher"`
-		Hooks   []hookSpec `json:"hooks"`
-	}
 	doc := map[string]any{
 		"hooks": map[string]any{
-			"PreToolUse": []matcherSpec{{
-				Matcher: "Read|Write|Edit|NotebookEdit|Grep|Glob",
-				Hooks:   []hookSpec{{Type: "command", Command: hookCmd}},
-			}},
-			"PostToolUse": []matcherSpec{{
-				Matcher: "Write|Edit|NotebookEdit",
-				Hooks:   []hookSpec{{Type: "command", Command: hookCmd}},
-			}},
+			"PreToolUse": []claudeMatcher{
+				claudeHookOn("Read|Write|Edit|NotebookEdit|Grep|Glob", hookCmd),
+			},
+			"PostToolUse": []claudeMatcher{
+				claudeHookOn("Write|Edit|NotebookEdit", hookCmd),
+			},
 		},
 	}
 	data, err := json.MarshalIndent(doc, "", "  ")
@@ -231,10 +253,24 @@ func writeDenySettings(sessName string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	hookCmd, err := claudeHookCommand()
+	if err != nil {
+		return "", err
+	}
 	type perms struct {
 		Deny []string `json:"deny"`
 	}
-	doc := map[string]any{"permissions": perms{Deny: deniedFileTools}}
+	doc := map[string]any{
+		"permissions": perms{Deny: deniedFileTools},
+		// The deny list is what makes exec mode safe; the hook is what makes it
+		// usable. Claude Code checks the paths in a Bash command against this
+		// machine, and every path worth naming in this session is on the target,
+		// so without the hook a correct command is refused for being correct.
+		// See hookBash.
+		"hooks": map[string]any{
+			"PreToolUse": []claudeMatcher{claudeHookOn("Bash", hookCmd)},
+		},
+	}
 	data, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return "", err

@@ -54,6 +54,42 @@ NotebookEdit) by injecting a `--settings` file. These tools have no seam: they
 act on the local filesystem, not the target. All file access must go through the
 Bash tool, which runs on the target.
 
+The same settings file wires reach's hook into `PreToolUse` for Bash, because
+denying the file tools is not enough on its own. Before running a command,
+Claude Code resolves the paths inside it against the *local* filesystem and the
+session's local working directories, and refuses what falls outside them —
+
+```
+cat in '/srv/app/main.go' was blocked. For security, Claude Code may only
+concatenate files from the allowed working directories for this session
+```
+
+— which is every path worth naming in an exec-mode session. A write is refused
+the same way (`Output redirection to '/srv/app/x' was blocked`) with no prompt
+attached, so the operator cannot approve it even when it is exactly what they
+asked for.
+
+The hook answers with what Claude Code cannot know: the command is not going to
+run on this machine at all. It returns
+
+- **allow** for a command that only reads — `cat`, `sed -n 'A,Bp'`, `rg`, `ls`,
+  `find` without `-exec` or `-delete`, and pipelines of those. The list is in
+  `cmd/reach/bashpolicy.go`, and membership means "reads and cannot write",
+  not "is harmless": every name in it is a confirmation the operator no longer
+  gets.
+- **ask** for a command that names a path the local check would refuse — the
+  refusal becomes a question instead of a wall.
+- **nothing at all** for everything else, so the operator's own permission
+  rules go on deciding `make build` or `go test` exactly as they did before.
+
+It never denies, and an operator's own `deny` rule still outranks it.
+
+One shape is beyond the hook's reach: `cd /srv/app && grep -rn x app/utils.py`
+is still asked about every time, because Claude Code treats a compound command
+whose working directory it cannot resolve as needing approval regardless of
+what a hook says. The exec-mode system prompt therefore tells the agent to pass
+the target's absolute paths to a command rather than changing into them first.
+
 ### Mirror mode
 
 When the session was created with `reach session new --mirror`, reach wires its
@@ -88,6 +124,7 @@ at startup and re-probes automatically when the version changes.
 |-----------------------|----------|----------------------------------|
 | Shell (Bash tool)     | ✓        | CLAUDE_CODE_SHELL_PREFIX hook    |
 | Read (exec mode)      | ✓        | tool denied via settings file    |
+| Bash paths (exec)     | ✓        | PreToolUse hook decides per command |
 | Write (exec mode)     | ✓        | tool denied via settings file    |
 | Read (mirror mode)    | ✓        | PreToolUse hook fetches from target |
 | Write (mirror mode)   | ✓        | PostToolUse hook writes to target |
