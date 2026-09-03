@@ -9,7 +9,7 @@ details in closed harness binaries. Entries therefore name the harness versions
 a change was verified against: "works with Claude Code" is not a claim this
 project makes without a version attached.
 
-## [Unreleased]
+## [0.6.0] - 2026-09-04
 
 **Exec mode stopped arguing with Claude Code about paths on the target.**
 Verified against Claude Code 2.1.259.
