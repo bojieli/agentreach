@@ -740,7 +740,7 @@ func claudeCodeEnv(sessName, shellPrefixPath, home, baseURL string) []string {
 	var env []string
 	for _, kv := range os.Environ() {
 		key, _, _ := strings.Cut(kv, "=")
-		if key == "HOME" || key == reachSessionKey ||
+		if key == reachSessionKey ||
 			strings.HasPrefix(key, "ANTHROPIC_") ||
 			strings.HasPrefix(key, "CLAUDE_") {
 			continue
@@ -748,7 +748,18 @@ func claudeCodeEnv(sessName, shellPrefixPath, home, baseURL string) []string {
 		env = append(env, kv)
 	}
 	return append(env,
-		"HOME="+home,
+		// HOME is deliberately inherited rather than redirected: the shell
+		// shim's ssh needs ~/.ssh/config to resolve an ssh_config alias like
+		// `nscc`, and on Windows it needs USERPROFILE for the same. Redirecting
+		// either breaks alias targets with "Could not resolve hostname".
+		//
+		// Claude's own config is isolated instead with CLAUDE_CONFIG_DIR,
+		// which is honoured on every platform and overrides the
+		// HOME/USERPROFILE/.claude resolution. Without it a probe on Windows
+		// read the operator's real settings — a live ANTHROPIC_BASE_URL there
+		// sent the "offline" probe to a real provider, which timed out and was
+		// never cached, charging every launch a full probe timeout.
+		"CLAUDE_CONFIG_DIR="+filepath.Join(home, ".claude"),
 		"ANTHROPIC_API_KEY=dummy",
 		"ANTHROPIC_BASE_URL="+baseURL,
 		"CLAUDE_CODE_SHELL_PREFIX="+shellPrefixPath,

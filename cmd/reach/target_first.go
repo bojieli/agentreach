@@ -60,7 +60,12 @@ func runTargetFirst(ctx context.Context, args []string) int {
 	for _, r := range rest {
 		trimmed := strings.TrimSpace(r)
 		fields := strings.Fields(trimmed)
-		if len(fields) > 1 && (knownCommands[fields[0]] || len(expandedRest) > 0) {
+		// Only a quoted string that *starts with* a reach command is expanded:
+		// `reach box "claude --resume"`. Expanding every later multi-word
+		// argument as well would tear apart the harness's own quoted
+		// arguments — `reach box claude -p "fix the bug"` became
+		// `-p fix the bug`, and the model saw only the first word.
+		if len(fields) > 1 && knownCommands[fields[0]] {
 			expandedRest = append(expandedRest, fields...)
 		} else {
 			expandedRest = append(expandedRest, r)
