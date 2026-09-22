@@ -27,9 +27,18 @@ type Parsed struct {
 	// StrippedSnapshot is true when a local shell-snapshot source was removed.
 	StrippedSnapshot bool
 
-	// Recognised is false when the envelope did not match any known shape. The
-	// caller should then forward Command unchanged: an unrecognised wrapper is
-	// a reason to be conservative, not a reason to guess.
+	// Recognised reports that the raw string carried at least one marker of a
+	// harness envelope, and therefore that it is a tool call rather than some
+	// other thing the harness asked a shell to run.
+	//
+	// It began as a note about how much of the wrapper was understood. It is
+	// now load-bearing: Claude Code routes its *hook* commands through
+	// CLAUDE_CODE_SHELL_PREFIX too, and a hook arrives bare. Recognised is how
+	// the caller tells the agent's command from the harness's own, so the set
+	// of markers below is deliberately generous — every fragment the envelope
+	// has ever been observed to carry counts, not only the two that are
+	// stripped. A tool call that went unrecognised would be run on the
+	// operator's machine while the agent believed it ran on the target.
 	Recognised bool
 }
 
@@ -40,6 +49,16 @@ var (
 
 	// Matches a trailing: && pwd -P >| <path>   (also >, and optional spaces)
 	cwdRE = regexp.MustCompile(`\s*&&\s*pwd\s+-P\s*>\|?\s*(\S+)\s*$`)
+
+	// Matches the portable prelude Claude Code puts between the snapshot and
+	// the command. These fragments are not stripped — they are ordinary shell
+	// and they change how the command parses, so the target needs them — but
+	// matching them makes an envelope recognisable when the snapshot source or
+	// the cwd redirect is absent. Both of those are conditional: the snapshot
+	// is skipped when the harness has not written one, and the redirect when
+	// it is not tracking the directory for this call. The prelude has been
+	// present in every capture.
+	preludeRE = regexp.MustCompile(`shopt -u extglob|setopt NO_EXTENDED_GLOB|\\builtin unalias --`)
 )
 
 // ParseClaudeCode decomposes a Claude Code shell envelope.
@@ -77,6 +96,10 @@ func ParseClaudeCode(raw string) Parsed {
 	if m := cwdRE.FindStringSubmatch(p.Command); m != nil {
 		p.CwdFile = m[1]
 		p.Command = strings.TrimSpace(p.Command[:len(p.Command)-len(m[0])])
+		p.Recognised = true
+	}
+
+	if preludeRE.MatchString(raw) {
 		p.Recognised = true
 	}
 

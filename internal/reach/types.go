@@ -12,7 +12,7 @@ import (
 // Version is the reach release. It is part of the remote helper cache path, so
 // bumping it forces a fresh helper install rather than silent reuse of a stale
 // binary.
-const Version = "0.6.0"
+const Version = "0.7.0"
 
 // ExecRequest is a command to run on a target.
 type ExecRequest struct {
