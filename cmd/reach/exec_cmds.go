@@ -37,12 +37,20 @@ func cmdExec(ctx context.Context, args []string) int {
 	return runOnTarget(ctx, sessionNameFromEnv(*name), cmdline, "")
 }
 
+// claudeProjectDirEnv is set by Claude Code in the environment of a hook
+// command and not in the environment of a Bash tool call. It is documented as
+// the absolute path to the project root, "available to hook commands", and
+// that asymmetry is the second of the two signals isLocalCallback wants.
+const claudeProjectDirEnv = "CLAUDE_PROJECT_DIR"
+
 // runShellPrefix is the CLAUDE_CODE_SHELL_PREFIX entrypoint.
 //
 // Claude Code invokes the prefix program with the entire command envelope as a
 // single argument. reach takes that envelope apart, forwards only the portable
 // part, and reproduces locally the bookkeeping the harness expects to find on
 // the local filesystem.
+//
+// Not everything arriving here is the agent's, though: see isLocalCallback.
 func runShellPrefix(args []string) int {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "reach shell-prefix: expected a command argument")
@@ -53,7 +61,42 @@ func runShellPrefix(args []string) int {
 	raw := strings.Join(args, " ")
 
 	p := envelope.ParseClaudeCode(raw)
+	if isLocalCallback(p) {
+		// Run it the way Claude Code would have run it with no prefix in the
+		// way: through a local shell, inheriting this process's stdin, stdout
+		// and exit status, because the hook protocol is carried on all three —
+		// JSON in, a decision out, a status that says whether there was one.
+		return execRealShell([]string{"-c", raw})
+	}
 	return runOnTarget(context.Background(), sessionNameFromEnv(""), p.Command, p.CwdFile)
+}
+
+// isLocalCallback reports that this invocation is Claude Code running one of
+// its own local commands — a hook — rather than a Bash tool call belonging to
+// the agent.
+//
+// Claude Code routes hook commands through CLAUDE_CODE_SHELL_PREFIX as well as
+// tool calls (observed on 2.1.278). Forwarded to the target they fail there,
+// and the failure is not the cosmetic one it looks like:
+//
+//   - reach's own PreToolUse hook stops answering, so exec mode goes back to
+//     refusing correct commands for naming paths this machine does not have —
+//     the thing the hook exists to prevent.
+//   - an operator's hooks stop running at all, on either machine.
+//   - the hook's stdin payload — tool input, transcript path, working
+//     directory — travels to the target, which on someone else's server is a
+//     disclosure reach would be causing.
+//
+// Two signals, and both must agree, because the two ways of being wrong are
+// nothing like each other. Calling a hook remote is what reach does today: it
+// is broken, but it is broken where the operator can see it. Calling an
+// agent's command local would run it on the operator's own machine while the
+// agent believed it ran on the target, which is the failure reach exists to
+// prevent. So the test is narrow on purpose and anything it is unsure of goes
+// to the target: a bare command *and* the environment Claude Code gives only
+// to hooks.
+func isLocalCallback(p envelope.Parsed) bool {
+	return !p.Recognised && os.Getenv(claudeProjectDirEnv) != ""
 }
 
 // recordExec appends one executed command to the session's audit log.

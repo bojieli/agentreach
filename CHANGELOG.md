@@ -9,6 +9,60 @@ details in closed harness binaries. Entries therefore name the harness versions
 a change was verified against: "works with Claude Code" is not a claim this
 project makes without a version attached.
 
+## [Unreleased]
+
+**Claude Code hooks stopped being sent to the target.** Verified against
+Claude Code 2.1.278.
+
+`CLAUDE_CODE_SHELL_PREFIX` turned out to intercept more than Bash tool calls:
+Claude Code runs its **hook commands** through the prefix too. reach forwarded
+those to the session target, where a command naming a path on the operator's
+machine cannot exist, so every tool call printed
+
+```
+PreToolUse:Bash hook error
+Failed with non-blocking status code: bash: line 1: /Users/you/.local/bin/reach: No such file or directory
+```
+
+The noise was the smallest part of it. The hook that failed first is reach's
+own — the one 0.6.0 added so that a command naming a path on the target is not
+refused for naming it — so exec mode had quietly lost the fix that made it
+usable, and was back to "For security, Claude Code may only concatenate files
+from the allowed working directories". An operator's hooks did not run on
+either machine, and the hook's stdin payload, which carries the tool input and
+the path to the local transcript, travelled to the target with the command.
+
+### Fixed
+
+- **A hook command now runs on the machine it names.** `runShellPrefix` tells
+  a hook from a tool call before deciding where to run it, and hands a hook to
+  a local shell with its stdin, stdout and exit status intact — a hook's status
+  is its answer, and 125 from a failed transport is not one Claude Code should
+  ever have been given.
+
+  Two signals have to agree: the command carries none of the envelope Claude
+  Code wraps a tool call in, *and* `CLAUDE_PROJECT_DIR` is set, which Claude
+  Code does for hooks and not for tool calls. The two ways of being wrong here
+  are not comparable — a hook sent to the target fails where the operator can
+  see it, while an agent's command run locally executes on the operator's own
+  machine while being reported as remote — so anything ambiguous still goes to
+  the target.
+
+- **An envelope missing its optional parts is still recognised as a tool
+  call.** `envelope.Recognised` used to depend on the snapshot `source` or the
+  trailing `pwd -P` redirect, both of which Claude Code omits in some calls. It
+  now also matches the portable prelude (`shopt -u extglob`,
+  `setopt NO_EXTENDED_GLOB`, `\builtin unalias --`), which has been present in
+  every capture. Widening this matters in one direction only: an unrecognised
+  tool call is now a command that would run locally.
+
+### Changed
+
+- `docs/harnesses/claude.md` no longer documents the prefix invocation as
+  `<prefix> -c "<envelope>"`. Claude Code 2.1.278 passes the envelope as a
+  single argument with no `-c`; reach joins argv rather than looking for the
+  flag, so both shapes work.
+
 ## [0.6.0] - 2026-09-04
 
 **Exec mode stopped arguing with Claude Code about paths on the target.**

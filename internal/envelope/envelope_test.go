@@ -100,3 +100,45 @@ func contains(hay, needle string) bool {
 		return false
 	})()
 }
+
+// A Claude Code hook command arrives at the shell prefix bare, with none of
+// the envelope around it, and the caller runs an unrecognised string on the
+// local machine. So the inverse has to hold too: a tool call must stay
+// recognised when the parts that are conditional are missing. The snapshot
+// source is absent whenever the harness has not written one, and without this
+// the prelude alone was not enough to claim the string.
+func TestPreludeAloneMarksAToolCall(t *testing.T) {
+	raw := `{ shopt -u extglob || setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL; } >/dev/null 2>&1 || true && eval 'make build' < /dev/null`
+	p := ParseClaudeCode(raw)
+	if !p.Recognised {
+		t.Fatalf("an envelope with no snapshot and no cwd redirect went unrecognised, "+
+			"so the agent's command would run on the operator's machine: %q", raw)
+	}
+	if p.Command != raw {
+		t.Errorf("command altered: %q", p.Command)
+	}
+}
+
+// The unalias fragment is the other half of the prelude, and it is what
+// survives when the shell is bash rather than zsh.
+func TestUnaliasFragmentMarksAToolCall(t *testing.T) {
+	raw := `{ \builtin unalias -- 'unsetenv'; } >/dev/null 2>&1 || true && eval 'ls' < /dev/null`
+	if !ParseClaudeCode(raw).Recognised {
+		t.Errorf("envelope with only the unalias fragment went unrecognised: %q", raw)
+	}
+}
+
+// What a hook looks like. Nothing in it may be mistaken for an envelope, or
+// reach would keep sending the operator's hooks to the target.
+func TestHookCommandsAreNotEnvelopes(t *testing.T) {
+	for _, raw := range []string{
+		"/Users/someone/.local/bin/reach hook",
+		"/Users/someone/.config/iterm2/cc-status",
+		`jq -r '.tool_input.command' | tee -a /tmp/audit`,
+		"npx prettier --write .",
+	} {
+		if ParseClaudeCode(raw).Recognised {
+			t.Errorf("hook command taken for a tool-call envelope: %q", raw)
+		}
+	}
+}
