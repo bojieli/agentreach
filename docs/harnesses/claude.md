@@ -184,10 +184,9 @@ the local machine.
 
 **"bash: line 1: /Users/…: No such file or directory" on every tool call** —
 a hook command is being forwarded to the target instead of run locally, which
-reach older than the fix in the current CHANGELOG entry does. Upgrade reach; on
-an older build the only workaround is to remove the hook from `settings.json`
-for the duration of the session, which also gives up reach's own `PreToolUse`
-path decisions.
+every reach before 0.7.0 does. Upgrade; on an older build the only workaround is
+to remove the hook from `settings.json` for the duration of the session, which
+also gives up reach's own `PreToolUse` path decisions.
 
 **"Cannot determine the Claude Code version"** — `claude` is not in PATH or
 does not respond to `claude --version`. Install Claude Code or confirm it is in
