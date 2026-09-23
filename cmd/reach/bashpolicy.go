@@ -26,12 +26,10 @@ import (
 // what the rest of the command reads, so it asks, every time.
 //
 // reach knows the thing that would settle all three: the command is not going
-// to run here at all. This file decides how far that knowledge goes. It
-// vouches for commands whose only problem is the remote path — the ones that
-// read files and change nothing — and it recognises, without vouching for
-// them, the commands that would be refused outright, so the operator gets a
-// question instead of a wall. Everything else keeps whatever policy the
-// operator configured: reach's argument covers only the mistake it can prove.
+// to run here at all, so hookBash allows it. This file matters only in plan
+// mode, where the operator has asked for nothing to change: there reach still
+// vouches for commands that read files and change nothing, and leaves the rest
+// to Claude Code.
 
 // readOnlyShellCommands are the commands reach will vouch for.
 //
@@ -54,19 +52,6 @@ var readOnlyShellCommands = map[string]bool{
 	// Comparing and fingerprinting them.
 	"diff": true, "cmp": true, "md5sum": true, "sha1sum": true,
 	"sha256sum": true, "shasum": true, "cksum": true,
-}
-
-// fileMutatingCommands are commands reach recognises as touching files without
-// vouching for them.
-//
-// They are here only so that a write to the target becomes a question the
-// operator can answer rather than a refusal they cannot. Nothing in this map
-// is ever allowed by reach.
-var fileMutatingCommands = map[string]bool{
-	"tee": true, "cp": true, "mv": true, "rm": true, "mkdir": true,
-	"rmdir": true, "touch": true, "ln": true, "chmod": true, "chown": true,
-	"truncate": true, "install": true, "patch": true, "dd": true,
-	"tar": true, "unzip": true, "gzip": true, "gunzip": true,
 }
 
 // findActions run or delete instead of describing, which is the whole of the
@@ -145,11 +130,13 @@ func readOnlySegment(words []string) bool {
 	return true
 }
 
-// readOnlySed accepts the range-printing form and nothing else.
+// readOnlySed accepts the range-printing form and a single substitution, and
+// nothing else.
 //
-// sed writes files two ways: -i, and a `w` command inside the script. Only a
-// script reach can read in full rules the second one out, so anything cleverer
-// than a line range becomes a question rather than a guess.
+// sed writes files two ways: -i, and a `w` command inside the script (GNU sed
+// also runs commands, with `e`). Only a script reach can read in full rules
+// those out, so anything cleverer than a line range or one s/// becomes a
+// question rather than a guess.
 func readOnlySed(args []string) bool {
 	quiet, script := false, ""
 	for _, a := range args {
@@ -167,8 +154,45 @@ func readOnlySed(args []string) bool {
 			script = a
 		}
 	}
-	return quiet && sedPrintScript.MatchString(script)
+	if quiet && sedPrintScript.MatchString(script) {
+		return true
+	}
+	return sedSubstitution(script)
 }
+
+// sedSubstitution reports whether a script is exactly one s command whose
+// flags only change what it prints: s/re/repl/ with g, p, i, I, m, M or a
+// count. The w and e flags, and anything after the flags, are refused.
+//
+// The delimiter is whatever follows the s, and a backslash escapes it. A
+// script that uses the delimiter somewhere this scan does not expect ends
+// early and fails the flag check, which is the safe way to misread it.
+func sedSubstitution(script string) bool {
+	if len(script) < 4 || script[0] != 's' {
+		return false
+	}
+	delim := script[1]
+	if delim == '\\' || delim == '\n' || delim == ' ' {
+		return false
+	}
+	i, parts := 2, 0
+	for ; i < len(script) && parts < 2; i++ {
+		switch script[i] {
+		case '\\':
+			i++
+		case '\n':
+			return false
+		case delim:
+			parts++
+		}
+	}
+	if parts < 2 {
+		return false
+	}
+	return sedSubstitutionFlags.MatchString(script[i:])
+}
+
+var sedSubstitutionFlags = regexp.MustCompile(`^[gpiImM0-9]*$`)
 
 func hasAnyFlag(args []string, flags ...string) bool {
 	for _, a := range args {
@@ -184,9 +208,12 @@ func hasAnyFlag(args []string, flags ...string) bool {
 // splitShellSegments splits a command into the simple commands a pipeline is
 // made of, and reports whether the split can be trusted.
 //
-// Only the operators that chain commands survive: |, ||, &&. A redirect, a
-// background &, a subshell, a substitution or a newline all return false —
-// each of them either writes a file or runs something the words do not name.
+// Only the operators that chain commands survive: |, ||, &&, ;. A redirect
+// goes through only when it discards output or joins two streams — >/dev/null,
+// 2>/dev/null, &>/dev/null, 2>&1 — none of which can write a file. Any other
+// redirect, a background &, a subshell, a substitution or a newline returns
+// false: each of them either writes a file or runs something the words do not
+// name.
 func splitShellSegments(cmd string) ([]string, bool) {
 	var segments []string
 	var cur strings.Builder
@@ -213,6 +240,16 @@ func splitShellSegments(cmd string) ([]string, bool) {
 			segments = append(segments, cur.String())
 			cur.Reset()
 		case '&':
+			// &>/dev/null discards both streams.
+			if i+1 < len(cmd) && cmd[i+1] == '>' {
+				n, ok := discardRedirect(cmd[i+2:])
+				if !ok {
+					return nil, false
+				}
+				i += 1 + n
+				cur.WriteByte(' ')
+				continue
+			}
 			// && chains; a lone & backgrounds the command, which leaves it
 			// running after the decision that approved it.
 			if i+1 >= len(cmd) || cmd[i+1] != '&' {
@@ -221,13 +258,66 @@ func splitShellSegments(cmd string) ([]string, bool) {
 			i++
 			segments = append(segments, cur.String())
 			cur.Reset()
-		case ';', '\n', '<', '>', '(', ')', '{', '}', '`':
+		case ';':
+			segments = append(segments, cur.String())
+			cur.Reset()
+		case '>':
+			n, ok := discardRedirect(cmd[i+1:])
+			if !ok {
+				return nil, false
+			}
+			// The fd number in 2>/dev/null belongs to the operator, not to the
+			// command's arguments — but only when it stands alone: in
+			// file2>/dev/null the shell reads file2 as a word.
+			prev := cur.String()
+			fd := strings.TrimRight(prev, "0123456789")
+			if fd != prev && (fd == "" || strings.HasSuffix(fd, " ") || strings.HasSuffix(fd, "\t")) {
+				cur.Reset()
+				cur.WriteString(fd)
+			}
+			i += n
+			cur.WriteByte(' ')
+		case '\n', '<', '(', ')', '{', '}', '`':
 			return nil, false
 		default:
 			cur.WriteByte(c)
 		}
 	}
 	return append(segments, cur.String()), true
+}
+
+// discardRedirect reads what follows a > and reports how many bytes of it
+// belong to a redirect that cannot write a file: an optional second > for
+// append, then /dev/null or &N. Anything else — a real file, >&- , a target
+// hidden in an expansion — is refused.
+func discardRedirect(rest string) (int, bool) {
+	n := 0
+	if strings.HasPrefix(rest, ">") {
+		n++
+	}
+	for n < len(rest) && (rest[n] == ' ' || rest[n] == '\t') {
+		n++
+	}
+	switch {
+	case strings.HasPrefix(rest[n:], "/dev/null"):
+		n += len("/dev/null")
+	case strings.HasPrefix(rest[n:], "&"):
+		n++
+		start := n
+		for n < len(rest) && rest[n] >= '0' && rest[n] <= '9' {
+			n++
+		}
+		if n == start {
+			return 0, false
+		}
+	default:
+		return 0, false
+	}
+	// The target must end at a word boundary: /dev/nullx is a file.
+	if n < len(rest) && !strings.ContainsRune(" \t|&;", rune(rest[n])) {
+		return 0, false
+	}
+	return n, true
 }
 
 // shellWords splits one segment into words the way a POSIX shell would, and
@@ -300,72 +390,4 @@ func closingQuote(s string, open int) int {
 		}
 	}
 	return -1
-}
-
-// bashPathRefusedLocally returns the first absolute path in a command that the
-// harness's local check would refuse, and whether that check applies at all.
-//
-// It exists to tell two failures apart. `make -C /srv/app` does not read or
-// write a file as far as that check is concerned, so reach leaves it alone and
-// the operator's own permission rules go on deciding it — silently forcing a
-// prompt there would take away an allowance they configured. `cat > /srv/app/x`
-// does: locally it is refused outright, with no prompt to approve, so reach
-// turns the refusal into a question.
-//
-// The scan is loose where readOnlyBashCommand is strict, and deliberately so.
-// Everything it decides costs at most one permission prompt: a false positive
-// is a question the operator can answer, and a false negative is only the
-// refusal they already get today.
-func bashPathRefusedLocally(cmd, cwd string) (string, bool) {
-	// Without the harness's working directory there is nothing to compare
-	// against, and a guess here would invent prompts.
-	if cwd == "" || !touchesFiles(cmd) {
-		return "", false
-	}
-	for _, w := range looseWords(cmd) {
-		if !strings.HasPrefix(w, "/") || strings.Contains(w, "://") {
-			continue
-		}
-		// underWorkspace is a containment test on POSIX paths; the "workspace"
-		// it is given here is the harness's own working directory.
-		if underWorkspace(w, cwd) {
-			continue
-		}
-		return w, true
-	}
-	return "", false
-}
-
-// touchesFiles reports whether a command names a file operation the local
-// check would evaluate: a redirect, or a command reach recognises as reading
-// or writing files.
-func touchesFiles(cmd string) bool {
-	if strings.ContainsAny(cmd, "<>") {
-		return true
-	}
-	for _, segment := range strings.FieldsFunc(cmd, func(r rune) bool {
-		return r == '|' || r == '&' || r == ';' || r == '\n'
-	}) {
-		fields := strings.Fields(segment)
-		if len(fields) == 0 {
-			continue
-		}
-		name := path.Base(strings.Trim(fields[0], `"'`))
-		if readOnlyShellCommands[name] || fileMutatingCommands[name] {
-			return true
-		}
-	}
-	return false
-}
-
-// looseWords pulls the path-shaped words out of a command without pretending
-// to parse it. Quotes, operators and --flag=value are all just separators.
-func looseWords(cmd string) []string {
-	return strings.FieldsFunc(cmd, func(r rune) bool {
-		switch r {
-		case ' ', '\t', '\n', '\r', '|', '&', ';', '(', ')', '<', '>', '"', '\'', '=':
-			return true
-		}
-		return false
-	})
 }

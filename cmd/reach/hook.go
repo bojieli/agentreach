@@ -21,6 +21,9 @@ type hookEvent struct {
 	ToolName      string          `json:"tool_name"`
 	ToolInput     json.RawMessage `json:"tool_input"`
 	Cwd           string          `json:"cwd"`
+	// PermissionMode is Claude Code's current mode: default, acceptEdits,
+	// plan, bypassPermissions, and so on.
+	PermissionMode string `json:"permission_mode"`
 }
 
 // hookReply is the JSON a hook writes on stdout.
@@ -154,14 +157,18 @@ func hookRoute(ev hookEvent, s *session.Session) (reply hookReply, input map[str
 // The harness resolves the paths in a command against this machine and refuses
 // what falls outside the session's local working directories. Under reach the
 // command runs on the target, where those paths are the right ones, so the
-// refusal is about a machine the command will never touch. See bashpolicy.go
-// for what reach is willing to conclude from that.
+// refusal is about a machine the command will never touch — and it is a
+// refusal, with no prompt the operator could answer.
 //
-// It returns three things and never a fourth: allow for a command that only
-// reads, ask for one the local check would refuse outright, and no decision at
-// all for everything else. Nothing here denies. A deny would be reach
-// overruling the operator on a target they connected reach to on purpose, and
-// their own deny rules already outrank anything this hook says.
+// reach has no opinion of its own about what may run on the target: the
+// operator connected it there on purpose, and whether to be asked is theirs to
+// set in Claude Code. So reach allows, and says why. It never asks and never
+// denies; the operator's deny rules still outrank the allow.
+//
+// Plan mode is the exception. There the operator has told Claude Code not to
+// change anything yet, and an allow would carry a write straight past that. A
+// command that only reads is still allowed — the local path check is as wrong
+// in plan mode as anywhere — and everything else is left to Claude Code.
 func hookBash(ev hookEvent, s *session.Session) hookReply {
 	var input struct {
 		Command string `json:"command"`
@@ -170,25 +177,13 @@ func hookBash(ev hookEvent, s *session.Session) hookReply {
 		return hookReply{}
 	}
 
-	if readOnlyBashCommand(input.Command) {
-		return allow(ev, fmt.Sprintf(
-			"reach: this command runs on %s, not on this machine, and it only reads. "+
-				"The local working-directory check does not apply to it.",
-			s.Target.Describe()))
+	if ev.PermissionMode == "plan" && !readOnlyBashCommand(input.Command) {
+		return hookReply{}
 	}
-
-	// An ask overrides an allow rule the operator configured, so it is spent
-	// only where the alternative is a refusal they cannot answer: a command
-	// naming a path this machine would reject, which on the target is ordinary.
-	if p, ok := bashPathRefusedLocally(input.Command, ev.Cwd); ok {
-		return ask(ev, fmt.Sprintf(
-			"reach: this command runs on %s, not on this machine. %s is a path on the "+
-				"target, so the local check that would otherwise refuse this outright "+
-				"does not apply. Approve it if it should run there.",
-			s.Target.Describe(), p))
-	}
-
-	return hookReply{}
+	return allow(ev, fmt.Sprintf(
+		"reach: this command runs on %s, not on this machine, so the local "+
+			"working-directory check does not apply to it.",
+		s.Target.Describe()))
 }
 
 // hookMirror makes the decisions that need the target: fetch before a tool
