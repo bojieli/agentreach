@@ -30,6 +30,20 @@ func TestReadOnlyBashCommandVouchesForReads(t *testing.T) {
 		// anyway — a compound command it cannot resolve is its own rule — but
 		// that is not a reason for reach to call it a write.
 		"cd /srv/app && ls -la",
+		// A semicolon is sequencing, no different from && for what runs.
+		"ls /srv/app; ls ~/work",
+		// Discarding or joining streams writes nothing.
+		"ls /srv/app 2>/dev/null",
+		"grep -rn x /srv/app/config* 2>/dev/null | head",
+		"ls /srv/app >/dev/null 2>&1",
+		"ls /srv/app &>/dev/null",
+		"ls /srv/app 2> /dev/null",
+		// One substitution prints; it cannot write.
+		"sed 's/a/b/' /srv/app/x",
+		"sed -E 's|:[^:@]*@|:***@|g' /srv/app/x",
+		`sed 's/a\/b/c/2' /srv/app/x`,
+		// The command an agent actually sent, verbatim.
+		`ls /srv/ustc-course; ls ~/work; grep -rn "SQLALCHEMY_DATABASE_URI\|mysql\|postgres" /srv/ustc-course/config* 2>/dev/null | sed 's/:[^:@]*@/:***@/' | head; grep -n "class User\b\|class User(" -A40 /srv/ustc-course/app/models/user.py 2>/dev/null | grep -n "Column" | head -30`,
 	} {
 		if !readOnlyBashCommand(cmd) {
 			t.Errorf("readOnlyBashCommand(%q) = false; this only reads and the operator will be asked about it", cmd)
@@ -49,7 +63,16 @@ func TestReadOnlyBashCommandRefusesEverythingElse(t *testing.T) {
 		{"cat /srv/app/x | tee /srv/app/y", "the last stage of the pipeline writes"},
 		{"sed -i 's/a/b/' /srv/app/x", "sed -i edits in place"},
 		{"sed -n 's/a/b/w out' /srv/app/x", "a sed script can write without -i"},
-		{"sed 's/a/b/' /srv/app/x", "without -n reach cannot read the script's intent"},
+		{"sed 's/a/b/e' /srv/app/x", "the e flag runs the pattern space as a command"},
+		{"sed 's/a/b/;w out' /srv/app/x", "a second command can write"},
+		{"sed 's/a/b/\nw out' /srv/app/x", "a second line can write"},
+		{"sed y/ab/cd/ /srv/app/x", "reach reads s and line ranges, nothing else"},
+		{"ls /srv/app 2>/tmp/err", "a stderr redirect to a file writes"},
+		{"ls /srv/app >/dev/nullx", "that is a file, not /dev/null"},
+		{"ls /srv/app >&-", "closing a stream is not a redirect reach reads"},
+		{"ls /srv/app >| /tmp/x", "a clobbering redirect writes"},
+		{"ls /srv/app &> /tmp/x", "&> writes both streams to a file"},
+		{"ls /srv/app 2>&1 > /tmp/x", "one harmless redirect does not vouch for the next"},
 		{"tail -f /var/log/app.log", "-f never returns"},
 		{"find /srv/app -name '*.go' -delete", "find deletes"},
 		{"find /srv/app -exec rm {} +", "find runs a command of its own"},
@@ -73,51 +96,6 @@ func TestReadOnlyBashCommandRefusesEverythingElse(t *testing.T) {
 	} {
 		if readOnlyBashCommand(tc.cmd) {
 			t.Errorf("readOnlyBashCommand(%q) = true, but %s", tc.cmd, tc.why)
-		}
-	}
-}
-
-// The second decision: which commands the local check would refuse outright,
-// and therefore which ones are worth spending an "ask" on. Getting this wrong
-// in the generous direction takes away a permission the operator granted.
-func TestBashPathRefusedLocally(t *testing.T) {
-	const cwd = "/home/me/proj"
-	for _, tc := range []struct {
-		cmd, cwd string
-		wantPath string
-		want     bool
-	}{
-		{"cat > /srv/app/x", cwd, "/srv/app/x", true},
-		{"rm -rf /srv/app/build", cwd, "/srv/app/build", true},
-		{"tee /srv/app/x", cwd, "/srv/app/x", true},
-		{"cp /srv/app/a /srv/app/b", cwd, "/srv/app/a", true},
-		{"grep --file=/srv/app/pat /srv/app/x", cwd, "/srv/app/pat", true},
-		// A read names a foreign path too. The allow branch reaches it first;
-		// this function only reports what the local check would refuse.
-		{"cat /srv/app/main.go", cwd, "/srv/app/main.go", true},
-		// The trap underWorkspace exists for: a prefix is not a component.
-		{"cat /home/me/project-notes/x", cwd, "/home/me/project-notes/x", true},
-
-		// Everything below must be left to the operator's own rules. Forcing a
-		// prompt here would override an allowance they configured.
-		{"make -C /srv/app", cwd, "", false},
-		{"go test ./...", cwd, "", false},
-		{"npm install", cwd, "", false},
-		{"curl https://example.invalid/x", cwd, "", false},
-		{"cat /home/me/proj/x", cwd, "", false},
-		{"cat /home/me/proj/deep/nested/x", cwd, "", false},
-		{"cat x", cwd, "", false},
-		// Without the harness's working directory there is nothing to compare
-		// against, and a guess would invent prompts.
-		{"cat /srv/app/x", "", "", false},
-	} {
-		got, ok := bashPathRefusedLocally(tc.cmd, tc.cwd)
-		if ok != tc.want {
-			t.Errorf("bashPathRefusedLocally(%q, %q) = (%q, %v), want ok=%v", tc.cmd, tc.cwd, got, ok, tc.want)
-			continue
-		}
-		if ok && got != tc.wantPath {
-			t.Errorf("bashPathRefusedLocally(%q, %q) named %q, want %q", tc.cmd, tc.cwd, got, tc.wantPath)
 		}
 	}
 }

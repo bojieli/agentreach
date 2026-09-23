@@ -95,19 +95,18 @@ attached, so the operator cannot approve it even when it is exactly what they
 asked for.
 
 The hook answers with what Claude Code cannot know: the command is not going to
-run on this machine at all. It returns
+run on this machine at all. So it returns **allow** for every Bash command.
+reach has no opinion of its own about what may run on the target — the operator
+connected it there on purpose — so it never asks and never denies. An
+operator's own `deny` rule still outranks the allow.
 
-- **allow** for a command that only reads — `cat`, `sed -n 'A,Bp'`, `rg`, `ls`,
-  `find` without `-exec` or `-delete`, and pipelines of those. The list is in
-  `cmd/reach/bashpolicy.go`, and membership means "reads and cannot write",
-  not "is harmless": every name in it is a confirmation the operator no longer
-  gets.
-- **ask** for a command that names a path the local check would refuse — the
-  refusal becomes a question instead of a wall.
-- **nothing at all** for everything else, so the operator's own permission
-  rules go on deciding `make build` or `go test` exactly as they did before.
-
-It never denies, and an operator's own `deny` rule still outranks it.
+Plan mode is the one exception. There the hook allows only a command that reads
+— `cat`, `sed -n 'A,Bp'`, a single `sed 's/…/…/'`, `rg`, `ls`, `find` without
+`-exec` or `-delete`, and pipelines or `;`-sequences of those, with output
+discarded to `/dev/null` or joined with `2>&1` if need be (the list is in
+`cmd/reach/bashpolicy.go`) — and leaves everything else to Claude Code, whose
+plan mode refuses it. An allow there would carry a write straight past the
+operator's "change nothing yet".
 
 One shape is beyond the hook's reach: `cd /srv/app && grep -rn x app/utils.py`
 is still asked about every time, because Claude Code treats a compound command

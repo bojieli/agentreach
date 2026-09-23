@@ -9,6 +9,24 @@ details in closed harness binaries. Entries therefore name the harness versions
 a change was verified against: "works with Claude Code" is not a claim this
 project makes without a version attached.
 
+## [Unreleased]
+
+### Changed
+
+- **reach no longer prompts for Bash commands.** In exec mode the Bash hook now
+  returns `allow` for every command, because each one runs on the target, where
+  Claude Code's local working-directory check does not apply. Whether to be
+  asked is the operator's setting in Claude Code, not reach's. Until now reach
+  answered `ask` for any command naming a target path that it could not prove
+  read-only, which prompted even for reads it could not parse, such as
+  `ls DIR; grep -rn X DIR 2>/dev/null | sed 's/a/b/'`. reach still never
+  denies, and the operator's own `deny` rules still outrank the allow.
+- **Plan mode is respected.** In Claude Code's plan mode, the hook allows only
+  commands it can prove read-only and leaves the rest to Claude Code, so a
+  write cannot get past "change nothing yet". The read-only check now also
+  accepts `;` sequences, output discarded to `/dev/null` or joined with `2>&1`,
+  and a single `sed 's/…/…/'` without the `w` or `e` flag.
+
 ## [0.7.0] - 2026-09-22
 
 **Claude Code hooks stopped being sent to the target.** Verified against

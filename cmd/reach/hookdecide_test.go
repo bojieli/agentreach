@@ -493,35 +493,45 @@ func TestHookBashAllowsAReadOnlyCommand(t *testing.T) {
 	}
 }
 
-// A write to the target is refused locally with no prompt attached, so the
-// operator cannot approve it even when it is exactly what they want. Turning
-// that into a question is the whole point of the ask.
-func TestHookBashAsksForAWriteToTheTarget(t *testing.T) {
+// A write to the target is refused locally with no prompt attached, and
+// reach does not put a prompt of its own in the way: whether to be asked is
+// the operator's setting in Claude Code, not reach's.
+func TestHookBashAllowsWritesAndEverythingElse(t *testing.T) {
 	s := execSession()
-	out := hookBash(bashEvent("cat > /srv/app/main.go <<'EOF'\nhi\nEOF", "/home/me/proj"), s).HookSpecificOutput
-	if out == nil || out.PermissionDecision != "ask" {
-		t.Fatalf("got %+v, want an ask", out)
-	}
-	if !strings.Contains(out.PermissionDecisionReason, "/srv/app/main.go") ||
-		!strings.Contains(out.PermissionDecisionReason, s.Target.Describe()) {
-		t.Errorf("ask says neither which path nor which target: %s", out.PermissionDecisionReason)
+	for _, cmd := range []string{
+		"cat > /srv/app/main.go <<'EOF'\nhi\nEOF",
+		"rm -rf /srv/app/build",
+		"make build",
+		"go test ./...",
+		"git push origin main",
+	} {
+		out := hookBash(bashEvent(cmd, "/home/me/proj"), s).HookSpecificOutput
+		if out == nil || out.PermissionDecision != "allow" {
+			t.Errorf("%q got %+v, want an allow", cmd, out)
+			continue
+		}
+		if !strings.Contains(out.PermissionDecisionReason, s.Target.Describe()) {
+			t.Errorf("allow does not name the target: %s", out.PermissionDecisionReason)
+		}
 	}
 }
 
-// An ask overrides an allow rule the operator configured. Commands the local
-// check would not have refused must therefore keep reaching their own rules,
-// or reach starts prompting for things they deliberately allowed.
-func TestHookBashLeavesUnrelatedCommandsToTheOperatorsRules(t *testing.T) {
+// Plan mode means nothing changes yet. A read is still allowed past the wrong
+// local check; anything else goes back to Claude Code, whose plan mode refuses
+// it — an allow from reach would carry it past.
+func TestHookBashRespectsPlanMode(t *testing.T) {
 	s := execSession()
-	for _, cmd := range []string{
-		"make build",
-		"go test ./...",
-		"npm install",
-		"git push origin main",
-		"curl https://example.invalid/health",
-	} {
-		if out := hookBash(bashEvent(cmd, "/home/me/proj"), s).HookSpecificOutput; out != nil {
-			t.Errorf("%q got a decision (%+v); reach has no argument about this command", cmd, out)
+	plan := func(cmd string) hookEvent {
+		ev := bashEvent(cmd, "/home/me/proj")
+		ev.PermissionMode = "plan"
+		return ev
+	}
+	if out := hookBash(plan("rg pattern /srv/app"), s).HookSpecificOutput; out == nil || out.PermissionDecision != "allow" {
+		t.Errorf("a read in plan mode got %+v, want an allow", out)
+	}
+	for _, cmd := range []string{"rm -rf /srv/app/build", "cat > /srv/app/x", "make build"} {
+		if out := hookBash(plan(cmd), s).HookSpecificOutput; out != nil {
+			t.Errorf("%q in plan mode got %+v, want no decision", cmd, out)
 		}
 	}
 }
