@@ -20,7 +20,7 @@ if ! setup_target; then echo "could not start test target" >&2; exit 1; fi
 trap teardown_target EXIT
 
 LOCAL_HOST="$(hostname)"
-"$REACH_BIN" up ssh://reach-e2e/srv/app --name e2e >/dev/null 2>&1 || { echo "reach up failed" >&2; exit 1; }
+"$REACH_BIN" up reach-e2e:/srv/app --name e2e >/dev/null 2>&1 || { echo "reach up failed" >&2; exit 1; }
 REMOTE_HOST="$("$REACH_BIN" exec --session e2e -- hostname)"
 export REACH_SESSION=e2e
 
@@ -107,7 +107,7 @@ if command -v claude >/dev/null 2>&1; then
   # ---- mirror mode: the agent's NATIVE file tools must act on the target ----
   info "Claude Code — mirror mode (native Read/Edit on remote files)"
   "$REACH_BIN" down e2e >/dev/null 2>&1
-  "$REACH_BIN" up ssh://reach-e2e/srv/app --name e2e --mode mirror >/dev/null 2>&1
+  "$REACH_BIN" up reach-e2e:/srv/app --name e2e --mode mirror >/dev/null 2>&1
 
   "$REACH_BIN" exec --session e2e -- \
     'printf "line one\nTARGET_VALUE = 41\nline three\n" > /srv/app/config.py' >/dev/null

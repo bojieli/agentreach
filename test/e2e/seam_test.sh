@@ -51,8 +51,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-"$REACH_BIN" up ssh://reach-e2e/srv/app --name "$SESSION" >/dev/null 2>&1 \
-  || { echo "reach up failed" >&2; exit 1; }
+up_out="$("$REACH_BIN" up reach-e2e:/srv/app --name "$SESSION" 2>&1)" \
+  || { echo "reach up failed:" >&2; printf '%s\n' "$up_out" >&2; exit 1; }
 REMOTE_HOST="$("$REACH_BIN" exec --session "$SESSION" -- hostname)"
 LOCAL_HOST="$(hostname)"
 info "Target is up (local=$LOCAL_HOST remote=$REMOTE_HOST)"
