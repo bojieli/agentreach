@@ -307,10 +307,6 @@ func allow(ev hookEvent, reason string) hookReply {
 	return decision(ev, "allow", reason)
 }
 
-func ask(ev hookEvent, reason string) hookReply {
-	return decision(ev, "ask", reason)
-}
-
 func deny(ev hookEvent, reason string) hookReply {
 	return decision(ev, "deny", reason)
 }
