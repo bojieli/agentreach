@@ -698,6 +698,13 @@ func claudeCodeEnv(sessName, shellPrefixPath, home, baseURL string) []string {
 		}
 		env = append(env, kv)
 	}
+	// HOME is replaced below, so the store is pinned for the same reason
+	// baseProbeEnv pins it.
+	if os.Getenv("REACH_HOME") == "" {
+		if hd, err := os.UserHomeDir(); err == nil {
+			env = append(env, "REACH_HOME="+filepath.Join(hd, ".reach"))
+		}
+	}
 	return append(env,
 		"HOME="+home,
 		"ANTHROPIC_API_KEY=dummy",
