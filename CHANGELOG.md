@@ -9,6 +9,18 @@ details in closed harness binaries. Entries therefore name the harness versions
 a change was verified against: "works with Claude Code" is not a claim this
 project makes without a version attached.
 
+## [Unreleased]
+
+### Fixed
+
+- **`reach harness verify claude` no longer reports a working seam as
+  inconclusive.** The Claude Code probe replaces HOME with a throwaway
+  directory but, unlike the other probes, did not pin REACH_HOME, so the shell
+  prefix looked for the session store under the throwaway home and failed with
+  `no reach session named ...`. The launch guard then re-ran the probe, up to
+  two minutes, on every `reach claude` until the next Claude Code release.
+  Verified against Claude Code 2.1.296.
+
 ## [0.8.0] - 2026-09-23
 
 **reach stopped prompting for Bash commands on the target.** Verified against
