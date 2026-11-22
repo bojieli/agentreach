@@ -26,6 +26,8 @@ func envValues(env []string, key string) []string {
 func TestClaudeCodeEnvPinsReachHome(t *testing.T) {
 	realHome := t.TempDir()
 	t.Setenv("HOME", realHome)
+	// os.UserHomeDir reads USERPROFILE on Windows.
+	t.Setenv("USERPROFILE", realHome)
 	t.Setenv("REACH_HOME", "")
 	os.Unsetenv("REACH_HOME")
 
