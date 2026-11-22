@@ -698,8 +698,9 @@ func claudeCodeEnv(sessName, shellPrefixPath, home, baseURL string) []string {
 		}
 		env = append(env, kv)
 	}
-	// HOME is replaced below, so the store is pinned for the same reason
-	// baseProbeEnv pins it.
+	// HOME is replaced below, so the shell prefix would look for the session
+	// store under the throwaway home and report the session missing. Pin
+	// REACH_HOME as baseProbeEnv does.
 	if os.Getenv("REACH_HOME") == "" {
 		if hd, err := os.UserHomeDir(); err == nil {
 			env = append(env, "REACH_HOME="+filepath.Join(hd, ".reach"))
