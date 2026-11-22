@@ -76,7 +76,8 @@ func TestRememberedWritesAreBounded(t *testing.T) {
 	p := env.srv.processes["cat"]
 	env.srv.mu.Unlock()
 	if p == nil {
-		t.Fatal("the process disappeared while it was still running")
+		t.Error("the process disappeared while it was still running")
+		return
 	}
 
 	p.mu.Lock()
